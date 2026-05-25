@@ -21,7 +21,7 @@ RUN npm run build
 FROM nginx:stable-alpine
 
 # gettext provides envsubst for $PORT substitution at startup
-RUN apk add --no-cache gettext
+RUN apk add --no-cache gettext ca-certificates
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/nginx.conf.template
