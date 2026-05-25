@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.gitignore
+
+# Dev-only files
+screenshots/
+screenshot-tour.js
+
+# Editor / OS
+.DS_Store
+*.local
