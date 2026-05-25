@@ -6,6 +6,8 @@ dist
 # Dev-only files
 screenshots/
 screenshot-tour.js
+handoff.md
+README.md
 
 # Editor / OS
 .DS_Store

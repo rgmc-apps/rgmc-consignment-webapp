@@ -25,10 +25,10 @@ RUN apk add --no-cache gettext
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/nginx.conf.template
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
 # Cloud Run injects $PORT; default to 8080 if running locally
 ENV PORT=8080
 
-# Substitute $PORT in the nginx template, then start nginx
-CMD envsubst '$PORT' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf \
-    && nginx -g 'daemon off;'
+ENTRYPOINT ["/docker-entrypoint.sh"]
