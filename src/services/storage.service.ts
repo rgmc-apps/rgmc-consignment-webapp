@@ -14,7 +14,6 @@ const KEYS = {
   CACHE_BRANDS: 'rgmc_cache_brands',
   CACHE_CONTACTS: 'rgmc_cache_contacts',
   CACHE_CUSTOMERS: 'rgmc_cache_customers',
-  CACHE_ITEMS: 'rgmc_cache_items',
   CACHE_ITEM_CATEGORIES: 'rgmc_cache_item_categories',
   SYNC_TIMESTAMPS: 'rgmc_sync_timestamps',
   SESSIONS: 'rgmc_sessions',
@@ -41,6 +40,11 @@ function set<T>(key: string, value: T): void {
 function remove(key: string): void {
   localStorage.removeItem(key);
 }
+
+/* Items are too large for localStorage's 5MB per-origin cap.
+   Store in a module-level variable so they survive navigation within
+   the same tab but don't cause quota errors. Users sync once per session. */
+let _itemsMemory: Item[] = [];
 
 export const StorageService = {
   /* ─── Auth ─── */
@@ -82,19 +86,19 @@ export const StorageService = {
     set(KEYS.CACHE_CUSTOMERS, slim);
   },
 
+  /* Items: in-memory only — no localStorage writes */
   getCachedItems(): Item[] {
-    return get<Item[]>(KEYS.CACHE_ITEMS) ?? [];
+    return _itemsMemory;
   },
   setCachedItems(items: Item[]): void {
-    const slim = items.map((i) => ({
+    _itemsMemory = items.map((i) => ({
       id: i.id,
       number: i.number,
       displayName: i.displayName,
       description: i.description ? i.description.slice(0, 120) : '',
       itemCategoryCode: i.itemCategoryCode,
       unitPrice: i.unitPrice,
-    }));
-    set(KEYS.CACHE_ITEMS, slim);
+    })) as Item[];
   },
 
   getCachedItemCategories(): ItemCategory[] {
@@ -167,6 +171,10 @@ export const StorageService = {
 
   /* ─── Utility ─── */
   clearAll(): void {
+    _itemsMemory = [];
     Object.values(KEYS).forEach(remove);
+    /* Also evict any stale rgmc_cache_items key from localStorage
+       left over from before this in-memory migration */
+    localStorage.removeItem('rgmc_cache_items');
   },
 };
