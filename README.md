@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="public/static/cons-logo.png" alt="RGMC Consignment" width="90" />
+  <img src="static/cons-logo.png" alt="RGMC Consignment" width="90" />
   <h1><span style="color:#a07320">RGMC Consignment Web App</span></h1>
   <p style="color:#666">Mobile-first scanning app for field sales reps to log consignment sales and returns against a live Business Central API.</p>
 
