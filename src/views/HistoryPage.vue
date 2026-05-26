@@ -62,8 +62,8 @@
         <p>No {{ activeFilter }} sessions.</p>
       </div>
 
-      <!-- Session list -->
-      <ion-list v-else lines="full">
+      <!-- Session list — :key forces remount on filter change to replay stagger -->
+      <ion-list v-else lines="full" :key="activeFilter">
         <ion-item
           v-for="session in filteredSessions"
           :key="session.id"
@@ -480,6 +480,9 @@ function buildSessionLines(s: ScanSession): string[] {
 }
 .filter-chip ion-icon { font-size: 14px; margin-right: 4px; }
 
+/* ── Filter chip active transition ── */
+.filter-chip { transition: color 0.18s ease, background 0.18s ease, opacity 0.18s ease; }
+
 /* ── Empty states ── */
 .empty-history {
   display: flex;
@@ -487,6 +490,7 @@ function buildSessionLines(s: ScanSession): string[] {
   align-items: center;
   padding: 60px 24px;
   gap: 12px;
+  animation: fade-in 0.3s ease both;
 }
 .empty-history ion-icon { font-size: 56px; }
 .empty-history p {
@@ -535,6 +539,16 @@ function buildSessionLines(s: ScanSession): string[] {
   font-weight: 700;
   color: var(--app-dark);
 }
+
+/* ── Session list stagger ── */
+ion-list ion-item:nth-child(1) { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.02s both; }
+ion-list ion-item:nth-child(2) { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.05s both; }
+ion-list ion-item:nth-child(3) { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.08s both; }
+ion-list ion-item:nth-child(4) { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.11s both; }
+ion-list ion-item:nth-child(5) { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.14s both; }
+ion-list ion-item:nth-child(6) { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.17s both; }
+ion-list ion-item:nth-child(7) { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.20s both; }
+ion-list ion-item:nth-child(8) { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.23s both; }
 
 /* ══════════ DETAIL MODAL ══════════ */
 .detail-content {

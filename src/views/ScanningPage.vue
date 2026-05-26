@@ -105,7 +105,8 @@
             </ion-item>
 
             <!-- Fields below only visible once item is selected -->
-            <template v-if="form.itemId">
+            <Transition name="form-fields">
+            <div v-if="form.itemId" class="form-fields-group">
               <!-- Description -->
               <ion-item lines="inset" class="form-row form-row--readonly">
                 <ion-label>Description</ion-label>
@@ -180,7 +181,8 @@
                 <ion-icon :icon="alertCircleOutline" color="warning" />
                 <p>Select a customer above to add items.</p>
               </div>
-            </template>
+            </div>
+            </Transition>
           </ion-card-content>
         </ion-card>
 
@@ -263,6 +265,7 @@
     </ion-content>
 
     <!-- ── Sticky submit bar ── -->
+    <Transition name="submit-bar">
     <div v-if="sessionStore.hasLines" class="submit-bar">
       <div class="submit-bar__left">
         <span class="submit-bar__count">
@@ -275,6 +278,7 @@
         <ion-icon :icon="arrowForwardOutline" slot="end" />
       </ion-button>
     </div>
+    </Transition>
 
     <!-- ══════════ Customer Modal ══════════ -->
     <ion-modal :is-open="showCustomerModal" @did-dismiss="showCustomerModal = false">
@@ -335,6 +339,93 @@
       @select="onItemSelected"
       @close="showItemModal = false"
     />
+
+    <!-- ══════════ Confirm Add Sheet ══════════ -->
+    <ion-modal
+      :is-open="showConfirmModal"
+      @did-dismiss="cancelConfirm"
+      :breakpoints="[0, 0.6]"
+      :initial-breakpoint="0.6"
+      :handle="true"
+    >
+      <ion-content class="ion-padding conf-content">
+        <template v-if="confirmItem">
+          <!-- Item info -->
+          <div class="conf-item-info">
+            <p class="conf-item-name">{{ confirmItem.displayName }}</p>
+            <div class="conf-item-meta">
+              <span class="conf-item-num">{{ confirmItem.number }}</span>
+              <span v-if="confirmItem.itemCategoryCode" class="conf-item-cat">
+                · {{ confirmItem.itemCategoryCode }}
+              </span>
+            </div>
+            <p class="conf-item-srp">{{ formatCurrency(confirmItem.unitPrice) }} <span class="conf-srp-label">SRP</span></p>
+          </div>
+
+          <!-- No customer warning -->
+          <div v-if="!selectedCustomer" class="conf-warn">
+            <ion-icon :icon="alertCircleOutline" color="warning" />
+            <span>Select a customer first before adding items.</span>
+          </div>
+
+          <!-- Quantity stepper -->
+          <div class="conf-qty-wrap">
+            <p class="conf-qty-label">Quantity</p>
+            <div class="conf-qty-row">
+              <ion-button
+                fill="outline"
+                color="medium"
+                class="conf-qty-btn"
+                @click="confirmQty = Math.max(1, (confirmQty || 1) - 1)"
+              >
+                <ion-icon :icon="removeOutline" slot="icon-only" />
+              </ion-button>
+              <ion-input
+                v-model.number="confirmQty"
+                type="number"
+                inputmode="numeric"
+                min="1"
+                class="conf-qty-input"
+              />
+              <ion-button
+                fill="outline"
+                color="medium"
+                class="conf-qty-btn"
+                @click="confirmQty = (confirmQty || 1) + 1"
+              >
+                <ion-icon :icon="addOutline" slot="icon-only" />
+              </ion-button>
+            </div>
+          </div>
+
+          <!-- Action buttons -->
+          <ion-button
+            expand="block"
+            color="primary"
+            :disabled="!selectedCustomer"
+            class="conf-btn"
+            @click="doConfirm('sales')"
+          >
+            <ion-icon :icon="addCircleOutline" slot="start" />
+            Add to Sales Order
+          </ion-button>
+          <ion-button
+            expand="block"
+            fill="outline"
+            color="danger"
+            :disabled="!selectedCustomer"
+            class="conf-btn"
+            @click="doConfirm('returns')"
+          >
+            <ion-icon :icon="returnDownBackOutline" slot="start" />
+            Add to Return Order
+          </ion-button>
+          <ion-button expand="block" fill="clear" color="medium" @click="cancelConfirm">
+            Cancel
+          </ion-button>
+        </template>
+      </ion-content>
+    </ion-modal>
   </ion-page>
 </template>
 
@@ -378,6 +469,8 @@ import {
   chevronDownOutline,
   barcodeOutline,
   addCircleOutline,
+  addOutline,
+  removeOutline,
   returnDownBackOutline,
   trashOutline,
   cartOutline,
@@ -486,7 +579,11 @@ const todayLabel = computed(() =>
   }),
 );
 
-/* ─── Item selected from modal ─── */
+/* ─── Confirm sheet ─── */
+const showConfirmModal = ref(false);
+const confirmItem = ref<Item | null>(null);
+const confirmQty = ref(1);
+
 function onItemSelected(item: Item) {
   form.itemId = item.id;
   form.itemNumber = item.number;
@@ -498,6 +595,40 @@ function onItemSelected(item: Item) {
   form.discountType = 'percent';
   form.discountValue = 0;
   showItemModal.value = false;
+  confirmItem.value = item;
+  confirmQty.value = 1;
+  showConfirmModal.value = true;
+}
+
+function cancelConfirm() {
+  showConfirmModal.value = false;
+}
+
+async function doConfirm(orderType: 'sales' | 'returns') {
+  if (!confirmItem.value || !selectedCustomer.value) return;
+  const item = confirmItem.value;
+  const qty = Math.max(1, confirmQty.value || 1);
+  const line = {
+    itemId: item.id,
+    itemNumber: item.number,
+    itemName: item.displayName,
+    description: item.description || item.displayName,
+    srp: item.unitPrice,
+    quantity: qty,
+    discountType: 'percent' as DiscountType,
+    discountValue: 0,
+  };
+  if (orderType === 'sales') {
+    sessionStore.addSalesOrder(line);
+    activeTab.value = 'sales';
+    await toast(`${item.displayName} added to Sales`, 'success');
+  } else {
+    sessionStore.addReturnOrder(line);
+    activeTab.value = 'returns';
+    await toast(`${item.displayName} added to Returns`, 'success');
+  }
+  showConfirmModal.value = false;
+  resetItemForm();
 }
 
 /* ─── Add lines ─── */
@@ -792,11 +923,133 @@ async function toast(message: string, color: string) {
   font-weight: 700;
 }
 
+/* ── Form fields reveal ── */
+.form-fields-enter-active {
+  transition: opacity 0.22s var(--ease-out-quart), transform 0.22s var(--ease-out-quart);
+}
+.form-fields-leave-active { transition: opacity 0.15s ease; }
+.form-fields-enter-from   { opacity: 0; transform: translateY(-6px); }
+.form-fields-leave-to     { opacity: 0; }
+
+/* ── Submit bar slide-from-bottom ── */
+.submit-bar-enter-active { transition: opacity 0.22s ease, transform 0.26s var(--ease-out-expo); }
+.submit-bar-leave-active { transition: opacity 0.15s ease, transform 0.18s ease-in; }
+.submit-bar-enter-from   { opacity: 0; transform: translateY(100%); }
+.submit-bar-leave-to     { opacity: 0; transform: translateY(100%); }
+
+/* ── Customer tap press feedback ── */
+.customer-tap {
+  transition: background 0.14s ease, border-radius 0.14s ease;
+}
+.customer-tap:active { background: var(--app-gold-pale); border-radius: 6px; }
+
+/* ── Action button press ── */
+.action-btns ion-button {
+  transition: transform 0.12s var(--ease-out-expo);
+}
+.action-btns ion-button:active { transform: scale(0.97); }
+
+/* ── State card fade ── */
+.state-card { animation: fade-in 0.3s ease both; }
+
 /* ── Customer modal internals ── */
 .modal-empty {
   padding: 40px 24px;
   text-align: center;
   color: var(--app-text-muted);
   font-size: 14px;
+}
+
+/* ── Confirm add sheet ── */
+.conf-content {
+  --background: var(--app-surface);
+}
+
+.conf-item-info {
+  padding: 4px 0 20px;
+  border-bottom: 1px solid var(--app-border);
+  margin-bottom: 20px;
+}
+
+.conf-item-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--app-dark);
+  margin: 0 0 6px;
+  line-height: 1.3;
+}
+
+.conf-item-meta {
+  font-size: 13px;
+  color: var(--app-text-muted);
+  margin-bottom: 8px;
+}
+
+.conf-item-num { font-weight: 600; }
+.conf-item-cat { margin-left: 2px; }
+
+.conf-item-srp {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--app-gold);
+  margin: 0;
+}
+.conf-srp-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--app-text-muted);
+  margin-left: 4px;
+}
+
+.conf-warn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #fff8e1;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #7a6000;
+  margin-bottom: 20px;
+}
+
+.conf-qty-wrap {
+  margin-bottom: 24px;
+}
+
+.conf-qty-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--app-gold);
+  margin: 0 0 10px;
+  text-transform: uppercase;
+}
+
+.conf-qty-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.conf-qty-btn {
+  --border-radius: 8px;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+
+.conf-qty-input {
+  flex: 1;
+  text-align: center;
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--app-dark);
+  --padding-start: 0;
+  --padding-end: 0;
+}
+
+.conf-btn {
+  margin-bottom: 10px;
 }
 </style>

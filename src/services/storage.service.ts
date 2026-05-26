@@ -73,25 +73,26 @@ export const StorageService = {
     return get<Customer[]>(KEYS.CACHE_CUSTOMERS) ?? [];
   },
   setCachedCustomers(customers: Customer[]): void {
-    set(KEYS.CACHE_CUSTOMERS, customers);
+    const slim = customers.map((c) => ({
+      id: c.id,
+      number: c.number,
+      displayName: c.displayName,
+      city: c.city,
+    }));
+    set(KEYS.CACHE_CUSTOMERS, slim);
   },
 
   getCachedItems(): Item[] {
     return get<Item[]>(KEYS.CACHE_ITEMS) ?? [];
   },
   setCachedItems(items: Item[]): void {
-    /* Store only the fields needed to reduce storage footprint */
     const slim = items.map((i) => ({
       id: i.id,
       number: i.number,
       displayName: i.displayName,
-      description: i.description,
-      type: i.type,
-      itemCategoryId: i.itemCategoryId,
+      description: i.description ? i.description.slice(0, 120) : '',
       itemCategoryCode: i.itemCategoryCode,
-      baseUnitOfMeasure: i.baseUnitOfMeasure,
       unitPrice: i.unitPrice,
-      lastModifiedDateTime: i.lastModifiedDateTime,
     }));
     set(KEYS.CACHE_ITEMS, slim);
   },

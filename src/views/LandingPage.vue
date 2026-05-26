@@ -226,6 +226,7 @@ async function handleLogout() {
   padding: 16px;
   background: var(--app-surface);
   border-bottom: 1px solid var(--app-border);
+  animation: fade-in 0.28s ease both;
 }
 
 .welcome-greeting {
@@ -253,6 +254,12 @@ async function handleLogout() {
   font-size: 17px;
   font-weight: 700;
   border-radius: 12px;
+  animation: fade-slide-up 0.4s var(--ease-out-quart) 0.07s both;
+  transition: transform 0.12s var(--ease-out-expo);
+}
+
+.start-btn:active {
+  transform: scale(0.98);
 }
 
 .drafts-list,
@@ -281,7 +288,24 @@ async function handleLogout() {
   align-items: center;
   padding: 40px 16px;
   gap: 12px;
+  animation: fade-in 0.3s ease both;
 }
+
+/* Draft list — stagger entrance */
+.drafts-list ion-item:nth-child(1) { animation: fade-slide-up 0.30s var(--ease-out-quart) 0.04s both; }
+.drafts-list ion-item:nth-child(2) { animation: fade-slide-up 0.30s var(--ease-out-quart) 0.07s both; }
+.drafts-list ion-item:nth-child(3) { animation: fade-slide-up 0.30s var(--ease-out-quart) 0.10s both; }
+.drafts-list ion-item:nth-child(4) { animation: fade-slide-up 0.30s var(--ease-out-quart) 0.13s both; }
+
+/* Customer list — stagger entrance */
+.customers-list ion-item:nth-child(1) { animation: fade-slide-up 0.30s var(--ease-out-quart) 0.05s both; }
+.customers-list ion-item:nth-child(2) { animation: fade-slide-up 0.30s var(--ease-out-quart) 0.08s both; }
+.customers-list ion-item:nth-child(3) { animation: fade-slide-up 0.30s var(--ease-out-quart) 0.11s both; }
+.customers-list ion-item:nth-child(4) { animation: fade-slide-up 0.30s var(--ease-out-quart) 0.14s both; }
+.customers-list ion-item:nth-child(5) { animation: fade-slide-up 0.30s var(--ease-out-quart) 0.17s both; }
+.customers-list ion-item:nth-child(6) { animation: fade-slide-up 0.30s var(--ease-out-quart) 0.20s both; }
+.customers-list ion-item:nth-child(7) { animation: fade-slide-up 0.30s var(--ease-out-quart) 0.23s both; }
+.customers-list ion-item:nth-child(8) { animation: fade-slide-up 0.30s var(--ease-out-quart) 0.26s both; }
 
 .empty-customers ion-icon {
   font-size: 48px;

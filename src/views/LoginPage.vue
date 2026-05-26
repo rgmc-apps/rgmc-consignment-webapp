@@ -69,10 +69,12 @@
             </ion-item>
 
             <!-- Error message -->
+            <Transition name="err-fade">
             <div v-if="authStore.error" class="login-error">
               <ion-icon :icon="alertCircleOutline" />
               <span>{{ authStore.error }}</span>
             </div>
+            </Transition>
 
             <!-- Submit -->
             <ion-button
@@ -190,6 +192,7 @@ async function handleLogin() {
   flex-direction: column;
   align-items: center;
   gap: 8px;
+  animation: fade-slide-up 0.55s var(--ease-out-expo) both;
 }
 
 .login-logo {
@@ -221,6 +224,7 @@ async function handleLogin() {
   border-radius: 16px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   border: none;
+  animation: fade-slide-up 0.55s var(--ease-out-expo) 0.1s both;
 }
 
 .login-form-heading {
@@ -257,7 +261,18 @@ async function handleLogin() {
   height: 48px;
   font-size: 16px;
   font-weight: 700;
+  transition: transform 0.12s var(--ease-out-expo);
 }
+
+.login-btn:active {
+  transform: scale(0.97);
+}
+
+/* Error message Transition */
+.err-fade-enter-active { transition: opacity 0.22s ease, transform 0.22s var(--ease-out-quart); }
+.err-fade-leave-active { transition: opacity 0.15s ease; }
+.err-fade-enter-from   { opacity: 0; transform: translateY(-6px); }
+.err-fade-leave-to     { opacity: 0; }
 
 .login-footer {
   font-size: 12px;

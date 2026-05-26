@@ -70,11 +70,14 @@
           </ion-button>
         </div>
 
+        <Transition name="status-in">
         <div v-if="salesStatus === 'done'" class="status-badge status-badge--done">
           <ion-icon :icon="checkmarkCircleOutline" />
           <span>Sales submitted{{ salesSeriesNo ? ` — Series: ${salesSeriesNo}` : '' }}</span>
         </div>
+        </Transition>
 
+        <Transition name="status-in">
         <div v-if="salesStatus === 'failed'" class="status-badge status-badge--failed">
           <ion-icon :icon="alertCircleOutline" />
           <div>
@@ -85,6 +88,7 @@
             </ion-button>
           </div>
         </div>
+        </Transition>
       </div>
 
       <!-- ── Return Orders Section ── -->
@@ -129,11 +133,14 @@
           </ion-button>
         </div>
 
+        <Transition name="status-in">
         <div v-if="returnsStatus === 'done'" class="status-badge status-badge--done">
           <ion-icon :icon="checkmarkCircleOutline" />
           <span>Returns submitted{{ returnsSeriesNo ? ` — Series: ${returnsSeriesNo}` : '' }}</span>
         </div>
+        </Transition>
 
+        <Transition name="status-in">
         <div v-if="returnsStatus === 'failed'" class="status-badge status-badge--failed">
           <ion-icon :icon="alertCircleOutline" />
           <div>
@@ -144,6 +151,7 @@
             </ion-button>
           </div>
         </div>
+        </Transition>
       </div>
 
       <!-- No customer warning -->
@@ -478,6 +486,24 @@ async function showToast(message: string, color: string) {
   color: var(--app-text-muted);
   margin: 8px 0 0;
 }
+
+/* ── Entrance stagger ── */
+.info-card { animation: fade-slide-up 0.35s var(--ease-out-quart) both; }
+.section:nth-of-type(1) { animation: fade-slide-up 0.35s var(--ease-out-quart) 0.06s both; }
+.section:nth-of-type(2) { animation: fade-slide-up 0.35s var(--ease-out-quart) 0.11s both; }
+.finalize-wrap { animation: fade-slide-up 0.35s var(--ease-out-quart) 0.16s both; }
+
+/* ── Status badge Transition ── */
+.status-in-enter-active {
+  transition: opacity 0.26s ease, transform 0.26s var(--ease-out-quart);
+}
+.status-in-leave-active { transition: opacity 0.16s ease; }
+.status-in-enter-from   { opacity: 0; transform: scale(0.92) translateY(-4px); }
+.status-in-leave-to     { opacity: 0; }
+
+/* ── Finalize button press ── */
+.finalize-btn { transition: transform 0.12s var(--ease-out-expo); }
+.finalize-btn:active { transform: scale(0.98); }
 
 /* ── Empty session ── */
 .empty-session {

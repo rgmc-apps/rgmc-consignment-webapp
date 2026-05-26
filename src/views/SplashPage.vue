@@ -49,6 +49,7 @@
         </div>
 
         <!-- Error block -->
+        <Transition name="err-fade">
         <div v-if="hasError" class="error-block">
           <ion-icon :icon="wifiOutline" class="error-block__icon" />
           <p class="error-block__msg">{{ errorText }}</p>
@@ -57,6 +58,7 @@
             Retry
           </ion-button>
         </div>
+        </Transition>
 
         <!-- Version tag -->
         <p class="splash-version">RGMC Group &copy; {{ year }}</p>
@@ -185,7 +187,8 @@ onMounted(() => {
   justify-content: center;
   background: #242424;
   box-shadow: 0 0 0 0 rgba(160, 115, 32, 0);
-  animation: ring-pulse 2.4s ease-in-out infinite;
+  animation: logo-enter 0.65s var(--ease-out-expo) both,
+             ring-pulse 2.4s ease-in-out 0.65s infinite;
   transition: border-color 0.4s, box-shadow 0.4s;
   margin-bottom: 24px;
 }
@@ -213,10 +216,26 @@ onMounted(() => {
   100% { border-color: #333; box-shadow: 0 0 0 0 rgba(160, 115, 32, 0); }
 }
 
+@keyframes logo-enter {
+  from { opacity: 0; transform: scale(0.78); }
+  to   { opacity: 1; transform: scale(1);    }
+}
+
+.step--done .step__icon ion-icon {
+  animation: icon-pop 0.22s var(--ease-out-quart) both;
+}
+
+/* Error block Transition */
+.err-fade-enter-active { transition: opacity 0.24s ease, transform 0.24s var(--ease-out-quart); }
+.err-fade-leave-active { transition: opacity 0.16s ease; }
+.err-fade-enter-from   { opacity: 0; transform: translateY(10px); }
+.err-fade-leave-to     { opacity: 0; }
+
 /* ── App name ── */
 .app-name {
   text-align: center;
   margin-bottom: 40px;
+  animation: fade-slide-up 0.45s var(--ease-out-quart) 0.16s both;
 }
 
 .app-name__title {
@@ -242,6 +261,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  animation: fade-slide-up 0.45s var(--ease-out-quart) 0.28s both;
 }
 
 .step {
