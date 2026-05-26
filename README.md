@@ -1,379 +1,386 @@
 <div align="center">
+  <img src="public/static/cons-logo.png" alt="RGMC Consignment" width="90" />
+  <h1><span style="color:#a07320">RGMC Consignment Web App</span></h1>
+  <p style="color:#666">Mobile-first scanning app for field sales reps to log consignment sales and returns against a live Business Central API.</p>
 
-<img src="public/static/cons-logo.png" alt="RGMC Consignment Logo" width="100" />
-
-# <span style="color:#A07320">RGMC Consignment</span>
-
-### <span style="color:#666">A mobile-first Progressive Web App for managing consignment sales & return orders</span>
-
-[![Vue 3](https://img.shields.io/badge/Vue-3.4-42b883?style=flat-square&logo=vue.js)](https://vuejs.org/)
-[![Ionic 8](https://img.shields.io/badge/Ionic-8.3-3880ff?style=flat-square&logo=ionic)](https://ionicframework.com/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.4-3178c6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
-[![Capacitor 6](https://img.shields.io/badge/Capacitor-6.1-119eff?style=flat-square&logo=capacitor)](https://capacitorjs.com/)
-
+  [![Vue](https://img.shields.io/badge/Vue-3.4-42b883?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
+  [![Ionic](https://img.shields.io/badge/Ionic-8.3-3880ff?logo=ionic&logoColor=white)](https://ionicframework.com/)
+  [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+  [![Vite](https://img.shields.io/badge/Vite-5.2-646cff?logo=vite&logoColor=white)](https://vitejs.dev/)
+  [![Pinia](https://img.shields.io/badge/Pinia-2.1-f7d336?logo=pinia&logoColor=black)](https://pinia.vuejs.org/)
+  [![Cloud Run](https://img.shields.io/badge/Cloud_Run-asia--southeast1-4285f4?logo=googlecloud&logoColor=white)](https://cloud.google.com/run)
 </div>
 
 ---
 
-## <span style="color:#A07320">📋 Table of Contents</span>
+## 📋 Table of Contents
 
-1. [Overview](#-overview)
-2. [Tech Stack](#-tech-stack)
-3. [Features](#-features)
-4. [Screens](#-screens)
-5. [Screenshots](#-screenshots)
-6. [Project Structure](#-project-structure)
-7. [Setup & Installation](#-setup--installation)
-8. [Environment Variables](#-environment-variables)
-9. [Running the App](#-running-the-app)
-10. [Building for Production](#-building-for-production)
-11. [Mobile Deployment (Capacitor)](#-mobile-deployment-capacitor)
-12. [API Endpoints](#-api-endpoints)
-13. [Data & Caching Strategy](#-data--caching-strategy)
-14. [Authentication Flow](#-authentication-flow)
-15. [Session Lifecycle](#-session-lifecycle)
-16. [Barcode Scanner](#-barcode-scanner)
-
----
-
-## <span style="color:#A07320">🧭 Overview</span>
-
-**RGMC Consignment** is a mobile-first PWA designed for RGMC field sales agents. It lets agents scan or manually select items, attach them to a customer account, and consolidate them into **Sales Orders** or **Return Orders** — all submitted directly to the GCP backend API.
-
-The app is fully **offline-capable** for data entry: all master data (customers, items, categories) is cached in `localStorage` after the first sync. Agents can build entire sessions without an internet connection and submit when connectivity is restored.
-
-> 💡 Designed for use on Android mobile devices held by sales agents during store visits, but also works on any modern desktop or tablet browser.
+- [Overview](#-overview)
+- [Screenshots](#-screenshots)
+- [Tech Stack](#-tech-stack)
+- [Features](#-features)
+- [Screens & Routes](#-screens--routes)
+- [Project Structure](#-project-structure)
+- [Setup & Installation](#-setup--installation)
+- [Environment Variables](#-environment-variables)
+- [Running the App](#-running-the-app)
+- [Building for Production](#-building-for-production)
+- [Deploying to Cloud Run](#-deploying-to-cloud-run)
+- [Mobile Deployment](#-mobile-deployment)
+- [API Endpoints](#-api-endpoints)
+- [Data & Caching Strategy](#-data--caching-strategy)
+- [Authentication Flow](#-authentication-flow)
+- [Session Lifecycle](#-session-lifecycle)
+- [Offline Mode](#-offline-mode)
+- [Brand & Design Tokens](#-brand--design-tokens)
+- [License](#-license)
 
 ---
 
-## <span style="color:#A07320">🛠️ Tech Stack</span>
+## 🗺 Overview
+
+RGMC Consignment is a **mobile-first progressive web app** used by RGMC field sales representatives to record consignment transactions on-site at customer locations.
+
+Sales reps select a customer, scan or search items from the product catalog, set quantities and discounts, then submit structured **Sales Orders** and **Sales Return Orders** directly to the Microsoft Business Central (BC) backend.
+
+**Key design decisions:**
+
+- **Offline-first scanning** — Items and customers are cached in memory / localStorage so the scan flow works without an active internet connection. Submission requires connectivity; orders wait in local draft state until the rep is back online.
+- **No localStorage for items** — The full BC items catalog exceeds the browser's 5 MB per-origin cap. Items are stored in a module-level JS variable (`_itemsMemory`) so they persist across tab navigation but never cause `QuotaExceededError`.
+- **nginx proxy eliminates CORS** — In production the container's nginx proxies all `/bc/*` requests to the GCP API server-side, so the browser never makes cross-origin requests.
+- **Single-container deploy** — Vite builds a static bundle; nginx serves it and reverse-proxies API calls in the same container deployed to Cloud Run.
+
+---
+
+## 📸 Screenshots
+
+### <span style="color:#2a9d8f">📱 Mobile</span>
+
+<table>
+  <tr>
+    <td align="center"><img src="screenshots/04-scanning.png" width="200"/><br/><sub>Splash — loading brands &amp; contacts</sub></td>
+    <td align="center"><img src="screenshots/01-splash.png" width="200"/><br/><sub>Login — brand select + credentials</sub></td>
+    <td align="center"><img src="screenshots/03-landing.png" width="200"/><br/><sub>Home — pending drafts + start session</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="screenshots/04-scanning-form.png" width="200"/><br/><sub>Scan — customer + item picker (empty)</sub></td>
+    <td align="center"><img src="screenshots/07-history-detail.png" width="200"/><br/><sub>Scan — items added, sales &amp; returns tabs</sub></td>
+    <td align="center"><img src="screenshots/06-history.png" width="200"/><br/><sub>History — submitted + failed sessions</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="screenshots/08-submit.png" width="200"/><br/><sub>Submit — review &amp; submit orders</sub></td>
+    <td></td>
+    <td></td>
+  </tr>
+</table>
+
+### <span style="color:#2a9d8f">🖥️ Desktop / Tablet</span>
+
+<table>
+  <tr>
+    <td align="center"><img src="screenshots/09-landing-desktop.png" width="380"/><br/><sub>Home — desktop layout</sub></td>
+    <td align="center"><img src="screenshots/10-scanning-desktop.png" width="380"/><br/><sub>Scan — desktop layout</sub></td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2"><img src="screenshots/11-history-desktop.png" width="380"/><br/><sub>History — desktop layout</sub></td>
+  </tr>
+</table>
+
+---
+
+## 🛠 Tech Stack
 
 | Layer | Technology | Version |
 |---|---|---|
-| 🖼️ UI Framework | [Ionic Vue](https://ionicframework.com/docs/vue/overview) | 8.3 |
-| ⚙️ Frontend Framework | [Vue 3](https://vuejs.org/) (Composition API) | 3.4 |
-| 🔷 Language | TypeScript | 5.4 |
-| 🗃️ State Management | [Pinia](https://pinia.vuejs.org/) | 2.1 |
-| 🌐 HTTP Client | [Axios](https://axios-http.com/) | 1.7 |
-| 🔀 Router | Vue Router + `@ionic/vue-router` | 4.3 |
-| 📦 Build Tool | [Vite](https://vitejs.dev/) | 5.2 |
-| 📱 Native Wrapper | [Capacitor](https://capacitorjs.com/) | 6.1 |
-| 💾 Persistence | Browser `localStorage` | — |
-| 🔍 Barcode Detection | [BarcodeDetector API](https://developer.mozilla.org/en-US/docs/Web/API/BarcodeDetector) | Native |
+| UI Framework | Ionic Vue | 8.3.0 |
+| JS Framework | Vue 3 (Composition API) | 3.4.21 |
+| Language | TypeScript | 5.4.5 |
+| State Management | Pinia | 2.1.7 |
+| Routing | Ionic Vue Router / Vue Router | 8.3.0 / 4.3.3 |
+| HTTP Client | Axios | 1.7.2 |
+| Icons | Ionicons | 7.4.0 |
+| Build Tool | Vite | 5.2.8 |
+| Type Checker | vue-tsc | 2.0.11 |
+| Mobile Runtime | Capacitor (CLI + Core) | 6.1.0 |
+| Web Server (prod) | nginx stable-alpine | — |
+| Container Runtime | Google Cloud Run | asia-southeast1 |
+| Node (build stage) | Node.js Alpine | 20 |
 
 ---
 
-## <span style="color:#A07320">✨ Features</span>
+## ✨ Features
 
 ### <span style="color:#2a9d8f">🔐 Authentication</span>
-- Brand-scoped login — agent selects their assigned brand from a dropdown, then authenticates using their **Display Name** and **Phone Number** (matched against the Contacts API)
-- Session is persisted to `localStorage` — agents stay logged in across page refreshes
-- Full logout with confirmation alert that clears session and redirects to splash
 
-### <span style="color:#2a9d8f">🌀 Splash Screen & Pre-loading</span>
-- Sequential pre-load of **Brands** then **Contacts** with animated step indicators
-- Gold progress bar and animated ring pulse during loading
-- Retry button if any endpoint fails
-- After successful load, auto-redirects to Home (if authenticated) or Login
+- Brand selection from a dropdown populated at splash time
+- Credential matching against Business Central contacts (display name + phone number as password)
+- Auth session persisted in `localStorage` and rehydrated on page reload
+- Post-login pre-sync: customers, items, and item categories are fetched immediately after auth so ScanningPage is ready with zero manual interaction
+- **Cycling button labels** during sync (5-second rotation): "Loading data…" → "Fetching items…" → "Loading customers…" → "Preparing app…" → "Almost ready…"
+- Auth guard in `main.ts` — unauthenticated deep links redirect to `/splash`
 
-### <span style="color:#2a9d8f">🏠 Landing / Home</span>
-- Lists all pending **draft sessions** with resume and delete actions
-- Shows a brand-filtered customer preview (first 8 customers for the logged-in brand)
-- "Start New Session" button creates a fresh draft tied to the current brand and user
-- Logout button with confirmation
+### <span style="color:#2a9d8f">📷 Scanning & Item Entry</span>
 
-### <span style="color:#2a9d8f">📸 Scanning / Order Entry</span>
-- **Customer selection modal** — searchable, filtered to the agent's brand using keyword mapping
-- **Item category selector** — dropdown to narrow item scope
-- **Item selector modal** — searchable list with category chips, shows item code, name, description, and unit price; limited to 100 results at a time
-- **Barcode scanner** — uses the native `BarcodeDetector` API (Chrome/Android); animated scan frame overlay with sweeping scan line; resolves scanned code to item by exact/partial number match
-- **Manual barcode input** — fallback text field inside the scanner view
-- **Auto-fill** — selecting an item fills in Description and SRP automatically
-- **Discount input** — supports both `%` (percentage off) and `₱` (fixed amount off), with live computed total
-- **Dual order lists** — tabbed Sales / Returns lists with per-line swipe-to-delete (Ionic sliding items)
-- **Running subtotals** — live totals update as lines are added or removed
-- **Sticky submit bar** — always-visible "Review & Submit" button with the current line count badge
+- Manual item search by name or number with category filter
+- Barcode scanner integration (via browser camera / Capacitor)
+- Quantity stepper (tap +/−)
+- Discount picker: toggle between **% Percent** and **₱ Fixed Amount** with live grand total
+- Confirm sheet (bottom sheet at 92% height) with all fields visible before committing
+- Items added to **Sales Order** or **Return Order** independently within the same session
+- Swipe-to-delete on individual order lines
+- Customer selector modal with live search across all cached customers
 
-### <span style="color:#2a9d8f">📤 Submit Screen</span>
-- Full session summary: customer card, separate Sales and Returns order line tables
-- **Independent submission** — Sales and Returns are submitted as separate POST requests; each shows its own status (Pending → Submitting → Done / Failed)
-- **Series number display** — on success, the SO# or SRO# returned by the API is shown prominently
-- **Retry on failure** — individual retry buttons per order type if a submission fails
-- **Finalize Session** — saves the session to history (with submitted series numbers or error message) and navigates to History
+### <span style="color:#2a9d8f">🔄 Sync & Caching</span>
 
-### <span style="color:#2a9d8f">📜 History Screen</span>
-- **Filter chips** — filter sessions by All / Submitted / Failed, each showing a live count
-- **Rich session rows** — shows customer name, brand, date, line counts, subtotals, series numbers, and a truncated error preview for failed sessions
-- **Detail modal** — tap any session row to open a full-screen detail view showing:
-  - Session metadata (customer, brand, user, date, submitted time)
-  - Series numbers (SO# / SRO#)
-  - Error message for failed sessions
-  - Full line-item tables for Sales and Returns
-  - Subtotals and a grand total bar
-- **Retry failed sessions** — "Retry Submission" button in the detail modal restores the session as a draft and navigates to the Submit screen
-- **Export .txt** — download button exports the current filtered sessions (or a single session) as a formatted plain-text file with all line items, subtotals, and grand totals
+- One-tap sync fetches customers, items, and item categories in parallel
+- **Cycling sync messages** on the loading card (5-second rotation): "Syncing data…" → "Fetching items catalog…" → "Loading product data…" → "Preparing inventory…" → "Almost there…"
+- Pull-to-refresh gesture on ScanningPage (triggers full sync), Home (reloads customers + sessions), and History (reloads session store)
+- Last-sync timestamp shown in the header sub-bar
+- Auto-sync on mount if items are missing from memory (handles tab reload without re-login)
 
-### <span style="color:#2a9d8f">📴 Offline Support</span>
-- All master data (customers, items, item categories) cached after first sync
-- Stale-check: cache is considered fresh for **1 hour**; manual sync available anytime via the Scanning page sync bar
-- Sessions and drafts persist entirely in `localStorage` — no network needed for order entry
-- Only the final POST (submit) requires internet
+### <span style="color:#2a9d8f">📶 Network Awareness</span>
+
+- **`useNetworkStatus` composable** — tracks `isOnline` (`window online`/`offline` events) and `isSlowConnection` (Network Information API `effectiveType`)
+- Amber notice banner on ScanningPage and LoginPage for offline / slow connection
+- Slow-sync warning triggered after 10 seconds of active syncing
+- **OFFLINE MODE** — amber pill badge replaces the today label in the scan header sync-bar; all scan / item / customer / session operations continue normally with cached data
+- SubmitPage blocks order submission when offline; amber "Offline Mode" notice shown; buttons re-enable automatically on reconnect
+
+### <span style="color:#2a9d8f">📤 Submission</span>
+
+- Sales and return orders submitted independently
+- Confirmation alert before each submission
+- Series numbers from BC displayed in done badges after successful submit
+- Failed submissions saved locally for retry; shown in History with error detail
+- Session finalised → moved from drafts to History
+
+### <span style="color:#2a9d8f">📜 History & Drafts</span>
+
+- All completed sessions (submitted + failed) listed with filter chips: All / Submitted / Failed
+- Tap a session to see full order line detail in a modal
+- Failed sessions have a Retry button that restores them as a new draft
+- Pending drafts shown on the Home screen with resume / delete actions
+- Pull-to-refresh reloads sessions from localStorage
+- CSV export of history via the download button
 
 ---
 
-## <span style="color:#A07320">🖥️ Screens</span>
+## 🖥 Screens & Routes
 
 ```
-/splash         →  Pre-load splash (brands + contacts)
-/login          →  Brand selection + credential login
-/app/home       →  Landing: drafts, customer preview, new session
-/app/scan       →  Order entry: customer, items, barcode, line lists
-/app/history    →  Session history: filter, detail, retry, export
-/app/submit     →  Review & submit sales/return orders
+/                  → redirect to /splash
+/splash            → SplashPage   — pre-loads brands + contacts; redirects to /login or /app/home
+/login             → LoginPage    — brand select, credentials, post-login data sync
+/app               → TabsPage     — bottom tab shell (Home / Scan / History)
+  /app/home        → LandingPage  — welcome, pending drafts, customer quick-list, pull-to-refresh
+  /app/scan        → ScanningPage — customer picker, item search/scan, order line builder, PTR
+  /app/history     → HistoryPage  — completed sessions with filter + detail modal, pull-to-refresh
+/app/submit        → SubmitPage   — review + submit sales/return orders, finalize session
 ```
 
-> 🔒 All `/app/*` routes are protected by an auth guard. Unauthenticated users are redirected to `/splash` so master data is always pre-loaded before login.
+> 💡 `/app/submit` sits **outside** the TabsPage shell intentionally — it has a back button only, no tab bar, to keep the submission flow focused.
 
 ---
 
-## <span style="color:#A07320">📸 Screenshots</span>
-
-### <span style="color:#2a9d8f">📱 Mobile (390 × 844)</span>
-
-<table>
-  <tr>
-    <td align="center"><b>Splash</b></td>
-    <td align="center"><b>Login</b></td>
-    <td align="center"><b>Home / Landing</b></td>
-  </tr>
-  <tr>
-    <td><img src="screenshots/01-splash.png" width="220" alt="Splash screen" /></td>
-    <td><img src="screenshots/02-login.png" width="220" alt="Login screen" /></td>
-    <td><img src="screenshots/03-landing.png" width="220" alt="Landing screen" /></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Sequential data loading — brands then contacts, animated gold progress bar</sub></td>
-    <td align="center"><sub>Brand dropdown + display name + phone number auth</sub></td>
-    <td align="center"><sub>Welcome strip, pending drafts, Start New Session CTA, tab bar</sub></td>
-  </tr>
-</table>
-
-<table>
-  <tr>
-    <td align="center"><b>Scanning — Order Form</b></td>
-    <td align="center"><b>Scanning — Order Lines</b></td>
-    <td align="center"><b>Submit / Review</b></td>
-  </tr>
-  <tr>
-    <td><img src="screenshots/04-scanning-form.png" width="220" alt="Scanning form" /></td>
-    <td><img src="screenshots/05-scanning-lists.png" width="220" alt="Scanning order lists" /></td>
-    <td><img src="screenshots/08-submit.png" width="220" alt="Submit screen" /></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Customer picker, category selector, item + barcode trigger, discount fields</sub></td>
-    <td align="center"><sub>Tabbed Sales / Returns lists with swipe-to-delete, running subtotals</sub></td>
-    <td align="center"><sub>Session summary, independent Sales + Returns submit buttons</sub></td>
-  </tr>
-</table>
-
-<table>
-  <tr>
-    <td align="center"><b>History — Session List</b></td>
-    <td align="center"><b>History — Detail Modal</b></td>
-  </tr>
-  <tr>
-    <td><img src="screenshots/06-history.png" width="220" alt="History screen" /></td>
-    <td><img src="screenshots/07-history-detail.png" width="220" alt="History detail modal" /></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Filter chips (All · Submitted · Failed), series numbers in gold, error preview in red</sub></td>
-    <td align="center"><sub>Full-screen detail: line items, series number, grand total, Retry button</sub></td>
-  </tr>
-</table>
-
----
-
-### <span style="color:#2a9d8f">🖥️ Desktop (1280 × 800)</span>
-
-**Landing**
-
-![Landing desktop](screenshots/09-landing-desktop.png)
-
-**Scanning**
-
-![Scanning desktop](screenshots/10-scanning-desktop.png)
-
-**History**
-
-![History desktop](screenshots/11-history-desktop.png)
-
----
-
-## <span style="color:#A07320">📁 Project Structure</span>
+## 📁 Project Structure
 
 ```
 rgmc-consignment-webapp/
 ├── public/
 │   └── static/
-│       └── cons-logo.png          # App logo (used in headers & splash)
+│       └── cons-logo.png              # App logo (header + splash)
 ├── src/
-│   ├── components/
-│   │   ├── AppLogo.vue            # Reusable logo component
-│   │   └── ItemSelectorModal.vue  # Item search + barcode scanner modal
-│   ├── composables/
-│   │   ├── useSync.ts             # Master data sync logic (customers, items, categories)
-│   │   └── useCustomerFilter.ts   # Brand-to-keyword customer filtering
+│   ├── main.ts                        # Bootstrap: Pinia, router, auth guard, store rehydration
+│   ├── App.vue                        # Root component
+│   ├── env.d.ts                       # Vite env type declarations
+│   │
 │   ├── router/
-│   │   └── index.ts               # Routes + structure
-│   ├── services/
-│   │   ├── api.service.ts         # Axios HTTP client + all 7 API endpoints
-│   │   └── storage.service.ts     # localStorage wrapper (read/write/remove per key)
-│   ├── stores/
-│   │   ├── auth.store.ts          # Pinia: login, logout, session persistence
-│   │   └── session.store.ts       # Pinia: order lines, drafts, submit lifecycle
-│   ├── theme/
-│   │   └── variables.css          # RGMC brand theme (gold #A07320, dark header)
+│   │   └── index.ts                   # All routes (lazy-loaded), createWebHistory
+│   │
 │   ├── types/
-│   │   └── index.ts               # All shared TypeScript interfaces
+│   │   └── index.ts                   # Brand, Contact, Customer, Item, ItemCategory,
+│   │                                  # OrderLine, ScanSession, payload types
+│   │
+│   ├── stores/
+│   │   ├── auth.store.ts              # brand, user, login(), logout(), loadFromStorage()
+│   │   └── session.store.ts           # currentSession, drafts, completedSessions,
+│   │                                  # addSalesOrder/Return(), markSubmitted(), etc.
+│   │
+│   ├── services/
+│   │   ├── api.service.ts             # Axios client — all /bc/* calls, 60s timeout
+│   │   └── storage.service.ts         # localStorage wrappers + _itemsMemory (in-memory items)
+│   │
+│   ├── composables/
+│   │   ├── useSync.ts                 # isSyncing, sync(), lastSyncLabel, hasCache
+│   │   ├── useNetworkStatus.ts        # isOnline, isSlowConnection
+│   │   └── useCustomerFilter.ts       # Reactive customer filter by brand + search
+│   │
 │   ├── utils/
-│   │   └── format.ts              # formatCurrency, formatDate, formatDiscount
-│   └── views/
-│       ├── SplashPage.vue         # Pre-load screen
-│       ├── LoginPage.vue          # Brand + credential login
-│       ├── TabsPage.vue           # Tab bar shell (Home / Scan / History)
-│       ├── LandingPage.vue        # Home tab
-│       ├── ScanningPage.vue       # Scan tab (order entry)
-│       ├── SubmitPage.vue         # Submit screen
-│       └── HistoryPage.vue        # History tab
-├── .env                           # Dev: empty VITE_API_BASE_URL (uses Vite proxy)
-├── .env.production                # Prod: full GCP API base URL
-├── capacitor.config.ts            # Capacitor app config
-├── vite.config.ts                 # Vite config + CORS proxy
-├── tsconfig.json
-└── package.json
+│   │   └── format.ts                  # formatCurrency (₱), formatDate, formatDiscount
+│   │
+│   ├── views/
+│   │   ├── SplashPage.vue             # Animated loader; pre-fetches brands + contacts
+│   │   ├── LoginPage.vue              # Auth form; cycling sync labels; post-login sync
+│   │   ├── TabsPage.vue               # Ion-tabs shell with bottom tab bar
+│   │   ├── LandingPage.vue            # Home: drafts, customer preview, pull-to-refresh
+│   │   ├── ScanningPage.vue           # Core scan screen; offline badge; cycling messages; PTR
+│   │   ├── HistoryPage.vue            # Session history; filters; detail modal; pull-to-refresh
+│   │   └── SubmitPage.vue             # Order review; offline guard on submit buttons
+│   │
+│   └── theme/
+│       └── variables.css              # Ionic CSS variable overrides; RGMC gold brand tokens
+│
+├── Dockerfile                         # Multi-stage: Node 20 build → nginx:stable-alpine serve
+├── nginx.conf                         # Template: ${PORT}, /bc/* proxy_pass, SPA fallback
+├── docker-entrypoint.sh               # envsubst '$PORT' → real nginx.conf, exec nginx
+├── vite.config.ts                     # @/ alias; dev proxy /bc/* → GCP API on port 8100
+├── .env                               # VITE_API_BASE_URL= (dev, empty = Vite proxy)
+├── .env.production                    # VITE_API_BASE_URL= (prod, empty = nginx proxy)
+└── package.json                       # Scripts: dev, build, preview
 ```
 
 ---
 
-## <span style="color:#A07320">⚙️ Setup & Installation</span>
+## ⚙️ Setup & Installation
 
-### Prerequisites
+**Prerequisites**
 
-- **Node.js** ≥ 18
-- **npm** ≥ 9
-
-### Clone & Install
+- Node.js 20+
+- npm 10+
+- Docker Desktop (for production image builds)
+- Google Cloud CLI `gcloud` (for Cloud Run deploys)
 
 ```bash
-git clone <your-repo-url>
+# Clone the repository
+git clone <repo-url>
 cd rgmc-consignment-webapp
+
+# Install dependencies
 npm install
 ```
 
-> ⚠️ No additional global tools required. Vite, TypeScript, and vue-tsc are all installed as local dev dependencies.
+---
+
+## 🔑 Environment Variables
+
+| Variable | File | Value | Purpose |
+|---|---|---|---|
+| `VITE_API_BASE_URL` | `.env` | *(empty)* | Dev: empty = Vite proxy rewrites `/bc/*` to GCP API |
+| `VITE_API_BASE_URL` | `.env.production` | *(empty)* | Prod: empty = nginx `proxy_pass` handles `/bc/*` |
+| `PORT` | Cloud Run runtime | `8080` (default) | nginx listen port, injected by Cloud Run at startup |
+
+> ⚠️ **`VITE_API_BASE_URL` is baked into the JS bundle at build time.** Setting it as a Cloud Run runtime env var has no effect. Override at image build time with `--build-arg VITE_API_BASE_URL=<url>`.
+
+> 📌 `PORT` is substituted by `docker-entrypoint.sh` via `envsubst '$PORT'` (single-quoted to leave nginx's own variables untouched).
 
 ---
 
-## <span style="color:#A07320">🔧 Environment Variables</span>
-
-The app uses two env files:
-
-| File | Used When | `VITE_API_BASE_URL` value |
-|---|---|---|
-| `.env` | Local development (`npm run dev`) | *(empty string)* — routes through Vite proxy |
-| `.env.production` | Production build (`npm run build`) | `https://rgmc-gcp-api-935246372408.asia-southeast1.run.app` |
-
-### `.env`
-```env
-VITE_API_BASE_URL=
-```
-
-### `.env.production`
-```env
-VITE_API_BASE_URL=https://rgmc-gcp-api-935246372408.asia-southeast1.run.app
-```
-
-> 💡 The Vite proxy in `vite.config.ts` forwards all `/bc/*` requests to the GCP API during development, bypassing CORS. In production, requests go directly to the full URL.
-
----
-
-## <span style="color:#A07320">🚀 Running the App</span>
-
-### Development Server
+## 🚀 Running the App
 
 ```bash
+# Start development server at http://localhost:8100
+# Vite dev proxy: /bc/* → https://rgmc-gcp-api-935246372408.asia-southeast1.run.app
 npm run dev
-```
 
-Opens at **[http://localhost:8100](http://localhost:8100)**
-
-The dev server includes:
-- Hot Module Replacement (HMR)
-- Vite proxy for CORS bypass (all `/bc/*` → GCP API)
-- TypeScript type-checking via vue-tsc
-
-### Type Check Only
-
-```bash
+# Type-check without emitting (must exit 0 before any deploy)
 npx vue-tsc --noEmit
-```
 
----
-
-## <span style="color:#A07320">📦 Building for Production</span>
-
-```bash
-npm run build
-```
-
-This runs `vue-tsc` (type-check) followed by `vite build`. Output goes to `dist/`.
-
-```bash
+# Preview the production build locally
 npm run preview
 ```
 
-Serves the production build locally for testing before deployment.
-
-### Deploy
-
-Upload the contents of `dist/` to any static hosting provider (Firebase Hosting, GCP Cloud Storage + CDN, Netlify, Vercel, etc.).
-
 ---
 
-## <span style="color:#A07320">📱 Mobile Deployment (Capacitor)</span>
-
-The app is configured for [Capacitor](https://capacitorjs.com/) with App ID `com.rgmc.consignment`.
+## 📦 Building for Production
 
 ```bash
-# 1. Build the web assets first
+# Type-check then Vite build → dist/
 npm run build
-
-# 2. Sync to native project
-npx cap sync android
-
-# 3. Open in Android Studio
-npx cap open android
 ```
 
-> 📌 The `BarcodeDetector` API is available natively on Android Chrome and on Chromium-based desktop browsers. On iOS or Firefox, the manual barcode input fallback is used automatically.
+Output lands in `dist/`. The bundle has `VITE_API_BASE_URL` baked as an empty string so axios makes relative `/bc/*` requests that nginx intercepts.
 
 ---
 
-## <span style="color:#A07320">🌐 API Endpoints</span>
+## ☁️ Deploying to Cloud Run
 
-All requests are prefixed with `/bc` (proxied in dev, full URL in production).
+```powershell
+# Build the Docker image (multi-stage: Node 20 build → nginx:stable-alpine)
+docker build -t gcr.io/durable-woods-465907-n1/rgmc-consignment-webapp .
 
-| Method | Endpoint | Description |
+# Push to Google Container Registry
+docker push gcr.io/durable-woods-465907-n1/rgmc-consignment-webapp
+
+# Deploy to Cloud Run
+gcloud run deploy rgmc-consignment-webapp `
+  --image gcr.io/durable-woods-465907-n1/rgmc-consignment-webapp `
+  --region asia-southeast1 `
+  --platform managed `
+  --allow-unauthenticated
+```
+
+**Cloud Run service details**
+
+| Setting | Value |
+|---|---|
+| Project ID | `durable-woods-465907-n1` |
+| Service name | `rgmc-consignment-webapp` |
+| Region | `asia-southeast1` |
+| GCP API upstream | `https://rgmc-gcp-api-935246372408.asia-southeast1.run.app` |
+
+> 💡 Cloud Run injects `$PORT` at container start. `docker-entrypoint.sh` runs `envsubst '$PORT' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf` then `exec nginx -g 'daemon off;'` so nginx is PID 1.
+
+**Post-deploy verification**
+
+1. Open Cloud Run URL → Splash shows brands + contacts with green checkmarks
+2. Log in → button cycles through sync labels → navigates to Home
+3. Tap "Start New Session" → ScanningPage opens with items already loaded
+4. Select/scan an item → Confirm sheet: quantity stepper, discount toggle, gold grand total
+5. Navigate to SubmitPage while offline → Submit buttons disabled, amber notice shown
+6. Submit online → series numbers in done badges; session appears in History
+
+---
+
+## 📱 Mobile Deployment
+
+Capacitor `@capacitor/cli` and `@capacitor/core` v6.1.0 are installed but **native platforms have not been initialised**. No `android/` or `ios/` directories exist yet.
+
+```bash
+# Build the web bundle first
+npm run build
+
+# One-time: initialise Capacitor
+npx cap init "RGMC Consignment" "ph.rgmc.consignment"
+
+# Add a native platform
+npx cap add android
+npx cap add ios
+
+# Sync web assets into the native project
+npx cap sync
+
+# Open in Android Studio / Xcode
+npx cap open android
+npx cap open ios
+```
+
+---
+
+## 🌐 API Endpoints
+
+All requests use the `/bc/` path prefix. Vite proxies them in dev; nginx proxies them in production — the browser never makes a cross-origin request.
+
+| Method | Path | Description |
 |---|---|---|
-| `GET` | `/bc/brands` | List all brands (used on splash + login) |
-| `GET` | `/bc/contacts` | List all contacts (used for authentication) |
-| `GET` | `/bc/customers` | List all customers (cached after first sync) |
-| `GET` | `/bc/items` | List all items (slim fields cached — see below) |
-| `GET` | `/bc/item-categories` | List all item categories |
-| `POST` | `/bc/sales-orders` | Submit a sales order batch |
-| `POST` | `/bc/sales-return-orders` | Submit a sales return order batch |
+| `GET` | `/bc/brands` | List all brand records |
+| `GET` | `/bc/contacts` | List all contacts (used for auth matching) |
+| `GET` | `/bc/customers` | List all customers |
+| `GET` | `/bc/items` | List full product/item catalog |
+| `GET` | `/bc/item-categories` | List item categories |
+| `POST` | `/bc/sales-orders` | Submit a sales order |
+| `POST` | `/bc/sales-return-orders` | Submit a sales return order |
 
-### <span style="color:#555">POST Payload: Sales Order</span>
+**POST `/bc/sales-orders` — request body**
 
 ```json
 {
@@ -381,150 +388,173 @@ All requests are prefixed with `/bc` (proxied in dev, full URL in production).
   "lines": [
     {
       "itemNumber": "ITEM-001",
-      "description": "Item description",
-      "quantity": 3,
-      "unitPrice": 250.00,
-      "discountPercent": 10
+      "description": "Product description",
+      "quantity": 2,
+      "unitPrice": 150.00,
+      "discountPercent": 10,
+      "lineDiscountAmount": 0
     }
   ]
 }
 ```
 
-> Discount is sent as `discountPercent` for percentage discounts, or `lineDiscountAmount` for fixed-amount discounts.
+**POST `/bc/sales-return-orders`** — identical shape to sales orders.
+
+> 📌 Axios timeout is 60 seconds. All 4xx/5xx responses are normalised to `Error` instances via the response interceptor before reaching callers.
 
 ---
 
-## <span style="color:#A07320">💾 Data & Caching Strategy</span>
+## 💾 Data & Caching Strategy
 
-All master data is stored in `localStorage` under namespaced keys:
+### <span style="color:#2a9d8f">localStorage keys</span>
 
-| Key | Contents | Notes |
+| Key | Type | Contents | When refreshed |
+|---|---|---|---|
+| `rgmc_auth` | `AuthSession` | `{ brand, user }` — full Brand + Contact | Login / cleared on logout |
+| `rgmc_cache_brands` | `Brand[]` | All brands | SplashPage load |
+| `rgmc_cache_contacts` | `Contact[]` | All contacts (auth only) | SplashPage load |
+| `rgmc_cache_customers` | Slim `Customer[]` | `{ id, number, displayName, city }` | Sync |
+| `rgmc_cache_item_categories` | `ItemCategory[]` | All item categories | Sync |
+| `rgmc_sync_timestamps` | `SyncTimestamps` | ISO strings per entity | After each sync |
+| `rgmc_sessions` | `ScanSession[]` | Completed sessions (submitted + failed) | On submit / retry |
+| `rgmc_drafts` | `ScanSession[]` | In-progress sessions | Every order-line mutation |
+
+### <span style="color:#2a9d8f">In-memory only (tab lifetime)</span>
+
+| Variable | Contents | Why not localStorage |
 |---|---|---|
-| `rgmc_auth` | Current auth session (brand + user) | Cleared on logout |
-| `rgmc_cache_brands` | Brand list | Pre-loaded on splash |
-| `rgmc_cache_contacts` | Contact list | Pre-loaded on splash |
-| `rgmc_cache_customers` | Customer list | Synced on first scan session |
-| `rgmc_cache_items` | **Slim** item list | Only essential fields stored (see below) |
-| `rgmc_cache_item_categories` | Item category list | Synced with items |
-| `rgmc_sync_timestamps` | Last sync time per entity | Stale threshold: 1 hour |
-| `rgmc_sessions` | Completed session history | Submitted + failed |
-| `rgmc_drafts` | In-progress draft sessions | Auto-saved on every change |
+| `_itemsMemory` in `storage.service.ts` | Slim `Item[]` — `{ id, number, displayName, description≤120chars, itemCategoryCode, unitPrice }` | Full BC items catalog exceeds the 5 MB per-origin localStorage quota |
 
-### <span style="color:#555">🗜️ Slim Item Storage</span>
+> ⚠️ Items survive tab navigation within a single browser session but are **lost on page reload**. The login pre-sync and ScanningPage's `onMounted` auto-sync guard together ensure items are always restored without user action.
 
-The items endpoint returns >10MB of data. To avoid localStorage quota limits, only these fields are persisted per item:
-
-```
-id, number, displayName, description, type,
-itemCategoryId, itemCategoryCode, baseUnitOfMeasure,
-unitPrice, lastModifiedDateTime
-```
-
-### <span style="color:#555">🔄 Sync Logic</span>
-
-- Customers, Items, and Item Categories are fetched **in parallel** via `Promise.all`
-- Cache is considered **stale after 1 hour** — `useSync.syncIfStale()` checks this on Scanning page mount
-- A manual **"Sync Now"** button is always available in the Scanning page header bar
-- The sync bar shows last sync time and a loading spinner during refresh
+> ⚠️ `rgmc_cache_items` is a legacy localStorage key from before the in-memory migration. `StorageService.clearAll()` explicitly removes it to clean up old tabs.
 
 ---
 
-## <span style="color:#A07320">🔐 Authentication Flow</span>
+## 🔐 Authentication Flow
 
 ```
-1. Splash screen pre-loads Brands + Contacts → cached to localStorage
-2. Agent selects Brand from dropdown
-3. Agent enters Display Name (username) and Phone Number (password)
-4. Auth store matches against cached Contacts:
-     displayName.toUpperCase() === username.toUpperCase()
-     contact.phoneNumber === password
-5. On match → AuthSession { brand, user } saved to localStorage
-6. Route guard redirects to /app/home
-7. On any subsequent visit, auth is rehydrated from localStorage automatically
+1. SplashPage mounts
+   → GET /bc/brands   → cached in rgmc_cache_brands
+   → GET /bc/contacts → cached in rgmc_cache_contacts
+   → Both done → green checkmarks → redirect /login
+
+2. User fills: Brand (dropdown) + Display Name + Phone Number
+   → authStore.login(brand, username, password)
+   → Reads cached contacts (no extra network call)
+   → Matches: displayName.toUpperCase() === username.toUpperCase()
+              AND phoneNumber === password
+   → Match → authStore.brand + authStore.user set
+           → AuthSession written to rgmc_auth (localStorage)
+
+3. Post-login pre-sync (LoginPage.handleLogin)
+   → isSyncing = true, button label cycles every 5s
+   → Promise.all([getCustomers(), getItems(), getItemCategories()])
+   → customers → rgmc_cache_customers (localStorage, slim fields)
+   → items     → _itemsMemory (in-memory only)
+   → categories → rgmc_cache_item_categories (localStorage)
+   → isSyncing = false
+   → router.replace('/app/home')
+
+4. On page reload / tab refresh
+   → router.beforeEach: isAuthenticated is false → redirect /splash
+   → SplashPage: detects rgmc_auth in localStorage
+   → router.isReady().then(): authStore.loadFromStorage() rehydrates brand + user
+   → Redirect /app/home; _itemsMemory is empty
+   → ScanningPage onMounted: cachedItems.length === 0 → auto-calls handleSync()
 ```
 
-> 🛡️ There is no token-based auth — the API itself handles server-side authorization. The local auth merely controls app navigation and session scoping.
+> 📌 The auth guard fires before `loadFromStorage()` by design — direct deep-link navigation always bounces through `/splash`, preventing a race condition where the guard runs before auth state is in memory.
 
 ---
 
-## <span style="color:#A07320">📋 Session Lifecycle</span>
+## 🔄 Session Lifecycle
 
 ```
-startNewSession()
-      │
-      ▼
-   [ draft ] ──── auto-saved to localStorage on every change
-      │
-      ├─── resumeDraft()      ← resume from Landing page
-      ├─── deleteDraft()      ← delete from Landing page
-      │
-      ▼
-   Submit Page
-      │
-      ├─── markSubmitted()    → status: 'submitted', removed from drafts, saved to history
-      ├─── markFailed()       → status: 'failed', saved to history (session remains for retry)
-      │
-      └─── retryFailedSession() ← from History detail modal
-                │
-                ▼
-            [ draft ]  ← restored, re-saved as draft, navigate to Submit
-```
+startNewSession(brand, user)
+    │
+    ▼
+ScanningPage
+    ├── selectCustomer()    → sessionStore.setCustomer()  → _saveDraft()
+    ├── addSalesOrder()     → sessionStore.addSalesOrder() → _saveDraft()
+    └── addReturnOrder()    → sessionStore.addReturnOrder() → _saveDraft()
+         │
+         │  (every mutation auto-saves to rgmc_drafts localStorage)
+         ▼
+SubmitPage — review all lines
+    │
+    ├── [ONLINE]  confirmSubmit('sales')
+    │                POST /bc/sales-orders
+    │                markSubmitted(salesSeries)
+    │                → session moved: rgmc_drafts → rgmc_sessions
+    │
+    ├── [ONLINE]  confirmSubmit('returns')
+    │                POST /bc/sales-return-orders
+    │                markSubmitted(returnSeries)
+    │
+    ├── [OFFLINE] Submit buttons DISABLED
+    │             Amber "Offline Mode" notice shown
+    │             Draft persists in rgmc_drafts
+    │
+    └── finalizeSession()
+          submitted → router /app/home, currentSession = null
+          failed    → stays in rgmc_sessions { status: 'failed' }
 
-### <span style="color:#555">Order Line Math</span>
-
-```ts
-// Percentage discount
-total = srp * quantity * (1 - discountValue / 100)
-
-// Fixed amount discount
-total = Math.max(0, srp * quantity - discountValue)
+History — retryFailedSession(session)
+    → remove from rgmc_sessions
+    → restore as draft in rgmc_drafts
+    → resume in ScanningPage
 ```
 
 ---
 
-## <span style="color:#A07320">📷 Barcode Scanner</span>
+## 📶 Offline Mode
 
-The scanner is integrated directly into the **Item Selector Modal** as a toggle view (List ↔ Scanner).
+RGMC Consignment keeps the core scan flow running during connectivity loss.
 
-### How it works
+| Scenario | Behaviour |
+|---|---|
+| **Online** | Normal operation; sync button active |
+| **Offline + items in memory** | Amber **OFFLINE** pill in scan header; scanning, item selection, session building all work normally |
+| **Offline + no items loaded** | State card: "Offline — no data loaded"; sync button hidden |
+| **Slow connection** (2G/slow-2G via Network Info API) | Amber "Connection seems slow" notice banner |
+| **Sync > 10 seconds** | Same amber slow-connection notice via client-side timer |
+| **Offline on SubmitPage** | Amber "Offline Mode" notice card; both Submit buttons disabled; re-enable automatically on reconnect |
 
-1. Agent taps the barcode icon in the Item Selector Modal header
-2. `getUserMedia({ facingMode: 'environment' })` opens the rear camera
-3. `BarcodeDetector` polls the video feed **every 250ms** for supported formats:
-   - `ean_13`, `ean_8`, `code_128`, `code_39`, `upc_a`, `upc_e`, `qr_code`
-4. On detection → `resolveBarcode(code)` is called:
-   - **Exact match**: `item.number === scanned code` → item selected immediately
-   - **Partial match**: `item.number` contains or is contained by the scanned code → selected
-   - **No match**: switches back to list view, pre-fills search query with the scanned code, shows a "not found" banner
-5. Camera is stopped and stream tracks released on modal close or unmount
+**Key files:**
 
-### Fallback
-
-If `BarcodeDetector` is not available (iOS Safari, Firefox), the camera still opens but auto-detection is skipped. The **manual input field** at the bottom of the scanner view is always available as a fallback.
+| File | Role |
+|---|---|
+| `src/composables/useNetworkStatus.ts` | `isOnline` + `isSlowConnection` reactive refs |
+| `src/views/ScanningPage.vue` | Offline badge in sync-bar, state-card offline branch, sync button guard, slow-sync timer |
+| `src/views/SubmitPage.vue` | `!isOnline` guard on submit button `:disabled`, offline notice card |
+| `src/views/LoginPage.vue` | Offline/slow notice above login form |
 
 ---
 
-## <span style="color:#A07320">🎨 Brand Theme</span>
+## 🎨 Brand & Design Tokens
+
+Defined in `src/theme/variables.css` and applied via Ionic CSS custom properties.
 
 | Token | Value | Usage |
 |---|---|---|
-| `--app-gold` | `#A07320` | Primary color, buttons, active states |
-| `--app-gold-pale` | `#F0E6CC` | Subtotal backgrounds, highlights |
-| `--app-header-bg` | `#1A1A1A` | Header and tab bar background |
-| `--app-dark` | `#1A1A1A` | Dark text, grand total bar |
-| `--app-surface` | `#FFFFFF` | Card and list backgrounds |
-| `--app-bg` | `#F4F4F4` | Page background |
-| `--app-border` | `#E0E0E0` | Dividers and card borders |
-| `--app-text-muted` | `#888888` | Secondary labels, hints |
+| `--app-gold` | `#a07320` | Primary accent, field labels, active segment indicator |
+| `--app-gold-light` | `#c4972e` | Header toolbar icons, sync-today label |
+| `--app-gold-dark` | `#7a5418` | Border highlights, hover states |
+| `--app-gold-pale` | `#f0e6cc` | Chip backgrounds |
+| `--app-dark` | `#1a1a1a` | App background, header and tab bar |
+| `--app-surface` | `#ffffff` | Card and list item backgrounds |
+| `--app-surface-alt` | `#f8f6f1` | Page content area background |
+| `--app-border` | `#e8dfc8` | Card and item divider borders |
+| `--app-text-muted` | `#8c8c8c` | Secondary text, subtitles, section labels |
+| `--app-shadow` | `0 2px 12px rgba(160,115,32,0.12)` | Card elevation |
+| `--app-radius` | `12px` | Card corner radius |
+| `--app-radius-sm` | `8px` | Button corner radius |
+| `--ease-out-quart` | `cubic-bezier(0.25, 1, 0.5, 1)` | List item entrance stagger |
+| `--ease-out-expo` | `cubic-bezier(0.16, 1, 0.3, 1)` | Sheet and modal entry |
 
 ---
 
-## <span style="color:#A07320">📄 License</span>
+## 📄 License
 
-Private — internal use by RGMC field sales agents only.
-
----
-
-<div align="center">
-<sub>Built with ❤️ using Ionic + Vue 3 + TypeScript</sub>
-</div>
+Private — © RGMC Group. All rights reserved.

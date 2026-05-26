@@ -50,6 +50,16 @@
 
     <!-- ── Content ── -->
     <ion-content>
+
+      <ion-refresher slot="fixed" @ionRefresh="onPullRefresh($event)">
+        <ion-refresher-content
+          pulling-icon="chevron-down-circle-outline"
+          pulling-text="Pull to refresh"
+          refreshing-spinner="crescent"
+          refreshing-text="Refreshing…"
+        />
+      </ion-refresher>
+
       <!-- Empty state -->
       <div v-if="!sessionStore.completedSessions.length" class="empty-history">
         <ion-icon :icon="timeOutline" color="medium" />
@@ -298,6 +308,8 @@ import {
   IonCard,
   IonCardContent,
   IonModal,
+  IonRefresher,
+  IonRefresherContent,
 } from '@ionic/vue';
 import {
   timeOutline,
@@ -316,6 +328,11 @@ import type { ScanSession } from '@/types';
 
 const router = useRouter();
 const sessionStore = useSessionStore();
+
+function onPullRefresh(ev: CustomEvent) {
+  sessionStore.loadFromStorage();
+  (ev.target as HTMLIonRefresherElement).complete();
+}
 
 /* ─── Filter state ─── */
 type FilterType = 'all' | 'submitted' | 'failed';

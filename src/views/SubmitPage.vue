@@ -10,6 +10,18 @@
     </ion-header>
 
     <ion-content v-if="session">
+
+      <!-- Offline notice -->
+      <Transition name="net-notice-fade">
+        <div v-if="!isOnline" class="offline-notice">
+          <ion-icon :icon="cloudOfflineOutline" />
+          <div>
+            <span class="offline-notice-main">Offline Mode</span>
+            <span class="offline-notice-sub">Reconnect to submit orders. Your session is saved.</span>
+          </div>
+        </div>
+      </Transition>
+
       <!-- Customer info -->
       <ion-card class="info-card">
         <ion-card-content>
@@ -61,7 +73,7 @@
           <ion-button
             expand="block"
             color="primary"
-            :disabled="salesStatus === 'submitting' || !session.customer"
+            :disabled="salesStatus === 'submitting' || !session.customer || !isOnline"
             @click="confirmSubmit('sales')"
           >
             <ion-spinner v-if="salesStatus === 'submitting'" name="crescent" slot="start" />
@@ -124,7 +136,7 @@
           <ion-button
             expand="block"
             color="danger"
-            :disabled="returnsStatus === 'submitting' || !session.customer"
+            :disabled="returnsStatus === 'submitting' || !session.customer || !isOnline"
             @click="confirmSubmit('returns')"
           >
             <ion-spinner v-if="returnsStatus === 'submitting'" name="crescent" slot="start" />
@@ -188,6 +200,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import { useRouter } from 'vue-router';
 import {
   IonPage,
@@ -218,6 +231,7 @@ import {
   checkmarkCircleOutline,
   alertCircleOutline,
   checkmarkDoneOutline,
+  cloudOfflineOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
 import { ApiService } from '@/services/api.service';
@@ -227,6 +241,7 @@ import type { SalesOrderPayload, SalesReturnOrderPayload } from '@/types';
 const router = useRouter();
 const sessionStore = useSessionStore();
 const session = computed(() => sessionStore.currentSession);
+const { isOnline } = useNetworkStatus();
 
 type SubmitStatus = 'pending' | 'submitting' | 'done' | 'failed';
 
@@ -516,4 +531,25 @@ async function showToast(message: string, color: string) {
   color: var(--app-text-muted);
 }
 .empty-session ion-icon { font-size: 48px; }
+
+/* ── Offline notice ── */
+.offline-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  margin: 12px 12px 0;
+  border-radius: 10px;
+  background: rgba(var(--ion-color-warning-rgb), 0.12);
+  border: 1px solid rgba(var(--ion-color-warning-rgb), 0.3);
+  color: var(--ion-color-warning-shade);
+}
+.offline-notice ion-icon { font-size: 1.4rem; flex-shrink: 0; }
+.offline-notice > div { display: flex; flex-direction: column; gap: 2px; }
+.offline-notice-main { font-size: 13px; font-weight: 700; }
+.offline-notice-sub  { font-size: 11px; opacity: 0.85; }
+.net-notice-fade-enter-active,
+.net-notice-fade-leave-active { transition: opacity 0.3s ease, transform 0.3s ease; }
+.net-notice-fade-enter-from,
+.net-notice-fade-leave-to    { opacity: 0; transform: translateY(-6px); }
 </style>

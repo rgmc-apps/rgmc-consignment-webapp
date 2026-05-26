@@ -17,6 +17,16 @@
     </ion-header>
 
     <ion-content>
+
+      <ion-refresher slot="fixed" @ionRefresh="onPullRefresh($event)">
+        <ion-refresher-content
+          pulling-icon="chevron-down-circle-outline"
+          pulling-text="Pull to refresh"
+          refreshing-spinner="crescent"
+          refreshing-text="Refreshing…"
+        />
+      </ion-refresher>
+
       <!-- Welcome strip -->
       <div class="welcome-strip">
         <div>
@@ -117,6 +127,8 @@ import {
   IonList,
   IonItem,
   alertController,
+  IonRefresher,
+  IonRefresherContent,
 } from '@ionic/vue';
 import {
   logOutOutline,
@@ -156,6 +168,12 @@ const todayLabel = computed(() =>
 onMounted(() => {
   allCustomers.value = StorageService.getCachedCustomers();
 });
+
+function onPullRefresh(ev: CustomEvent) {
+  allCustomers.value = StorageService.getCachedCustomers();
+  sessionStore.loadFromStorage();
+  (ev.target as HTMLIonRefresherElement).complete();
+}
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-PH', {

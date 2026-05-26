@@ -10,7 +10,7 @@
           </div>
         </ion-title>
         <ion-buttons slot="end">
-          <ion-button fill="clear" :disabled="isSyncing" @click="handleSync">
+          <ion-button fill="clear" :disabled="isSyncing || !isOnline" @click="handleSync">
             <ion-icon :icon="isSyncing ? hourglassOutline : syncOutline" slot="icon-only" />
           </ion-button>
         </ion-buttons>
@@ -23,7 +23,13 @@
             <ion-icon :icon="timeOutline" />
             {{ lastSyncLabel }}
           </span>
-          <span class="sync-today">{{ todayLabel }}</span>
+          <Transition name="net-notice-fade">
+            <span v-if="!isOnline" class="offline-badge">
+              <ion-icon :icon="cloudOfflineOutline" />
+              OFFLINE
+            </span>
+            <span v-else class="sync-today">{{ todayLabel }}</span>
+          </Transition>
         </div>
       </ion-toolbar>
     </ion-header>
@@ -31,10 +37,49 @@
     <!-- ── Content ── -->
     <ion-content :scroll-events="true">
 
+      <!-- Pull-to-refresh -->
+      <ion-refresher slot="fixed" @ionRefresh="onPullRefresh($event)">
+        <ion-refresher-content
+          pulling-icon="chevron-down-circle-outline"
+          :pulling-text="isOnline ? 'Pull to sync' : 'Offline — nothing to sync'"
+          refreshing-spinner="crescent"
+          :refreshing-text="isOnline ? 'Syncing…' : 'Offline'"
+        />
+      </ion-refresher>
+
+      <!-- Network notice -->
+      <Transition name="net-notice-fade">
+        <div v-if="networkNotice" :class="['net-notice', `net-notice--${networkNotice}`]">
+          <ion-icon :icon="networkNotice === 'offline' ? cloudOfflineOutline : warningOutline" />
+          <div class="net-notice-text">
+            <span class="net-notice-main">{{
+              networkNotice === 'offline'
+                ? (hasCache ? 'Offline Mode' : 'No Connection')
+                : 'Connection seems slow'
+            }}</span>
+            <span class="net-notice-sub">{{
+              networkNotice === 'offline'
+                ? (hasCache
+                    ? 'Scanning available — reconnect to sync or submit orders.'
+                    : 'Connect to a network to load items before scanning.')
+                : 'Sync may take longer than usual.'
+            }}</span>
+          </div>
+        </div>
+      </Transition>
+
       <!-- No cache state -->
       <div v-if="!hasCache && !isSyncing" class="state-card">
+        <!-- Offline with no items — cannot scan -->
+        <template v-if="!isOnline">
+          <ion-icon :icon="cloudOfflineOutline" color="warning" />
+          <p>Offline — no data loaded</p>
+          <p class="state-sub">
+            Connect to a network to sync items and customers before scanning.
+          </p>
+        </template>
         <!-- Synced but API returned 0 items -->
-        <template v-if="lastSyncDate && cachedItems.length === 0">
+        <template v-else-if="lastSyncDate && cachedItems.length === 0">
           <ion-icon :icon="alertCircleOutline" color="warning" />
           <p>No items found</p>
           <p class="state-sub">
@@ -48,7 +93,7 @@
           <p>Data not loaded yet.</p>
           <p class="state-sub">Tap Sync to download customers and items before scanning.</p>
         </template>
-        <ion-button @click="handleSync">
+        <ion-button v-if="isOnline" @click="handleSync">
           <ion-icon :icon="syncOutline" slot="start" />
           {{ lastSyncDate && cachedItems.length === 0 ? 'Retry Sync' : 'Sync Now' }}
         </ion-button>
@@ -57,8 +102,8 @@
       <!-- Syncing state -->
       <div v-else-if="isSyncing" class="state-card">
         <ion-spinner name="crescent" />
-        <p>Syncing data…</p>
-        <p class="state-sub">This may take a moment for large item lists.</p>
+        <p>{{ syncMainMsg }}</p>
+        <p class="state-sub">{{ syncSubMsg }}</p>
       </div>
 
       <!-- Sync error -->
@@ -474,7 +519,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue';
 import {
   IonPage,
   IonHeader,
@@ -502,6 +547,8 @@ import {
   IonModal,
   IonSearchbar,
   IonSpinner,
+  IonRefresher,
+  IonRefresherContent,
   toastController,
 } from '@ionic/vue';
 import {
@@ -509,7 +556,9 @@ import {
   timeOutline,
   hourglassOutline,
   cloudDownloadOutline,
+  cloudOfflineOutline,
   alertCircleOutline,
+  warningOutline,
   chevronDownOutline,
   barcodeOutline,
   addCircleOutline,
@@ -527,6 +576,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore, computeTotal } from '@/stores/session.store';
 import { useSync } from '@/composables/useSync';
 import { useCustomerFilter } from '@/composables/useCustomerFilter';
+import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import { StorageService } from '@/services/storage.service';
 import { formatCurrency, formatDiscount } from '@/utils/format';
 import ItemSelectorModal from '@/components/ItemSelectorModal.vue';
@@ -536,6 +586,7 @@ import type { Customer, Item, ItemCategory, DiscountType } from '@/types';
 const authStore = useAuthStore();
 const sessionStore = useSessionStore();
 const { isSyncing, syncError, lastSyncDate, lastSyncLabel, hasCache, sync } = useSync();
+const { isOnline, isSlowConnection } = useNetworkStatus();
 
 /* ─── Cached data ─── */
 const cachedCustomers = ref<Customer[]>([]);
@@ -565,6 +616,56 @@ async function handleSync() {
   await sync();
   refreshCache();
 }
+
+async function onPullRefresh(ev: CustomEvent) {
+  if (isOnline.value) await handleSync();
+  (ev.target as HTMLIonRefresherElement).complete();
+}
+
+/* ─── Cycling sync messages ─── */
+const syncMessages = [
+  { main: 'Syncing data…',           sub: 'This may take a moment for large item lists.' },
+  { main: 'Fetching items catalog…', sub: 'Downloading the full product list from the server.' },
+  { main: 'Loading product data…',   sub: 'Organizing items for fast barcode lookup.' },
+  { main: 'Preparing inventory…',    sub: 'Almost done — building your item cache.' },
+  { main: 'Almost there…',           sub: 'Finishing up. Just a few seconds more.' },
+];
+const syncMsgIndex = ref(0);
+let syncMsgTimer: ReturnType<typeof setInterval> | null = null;
+
+/* ─── Slow-sync warning ─── */
+const isSyncingSlow = ref(false);
+let syncSlowTimer: ReturnType<typeof setTimeout> | null = null;
+
+watch(isSyncing, (active) => {
+  if (active) {
+    syncMsgIndex.value = 0;
+    syncMsgTimer = setInterval(() => {
+      syncMsgIndex.value = (syncMsgIndex.value + 1) % syncMessages.length;
+    }, 5000);
+    syncSlowTimer = setTimeout(() => { isSyncingSlow.value = true; }, 10_000);
+  } else {
+    if (syncMsgTimer)  { clearInterval(syncMsgTimer);  syncMsgTimer  = null; }
+    if (syncSlowTimer) { clearTimeout(syncSlowTimer);  syncSlowTimer = null; }
+    syncMsgIndex.value  = 0;
+    isSyncingSlow.value = false;
+  }
+});
+
+onUnmounted(() => {
+  if (syncMsgTimer)  { clearInterval(syncMsgTimer);  syncMsgTimer  = null; }
+  if (syncSlowTimer) { clearTimeout(syncSlowTimer);  syncSlowTimer = null; }
+});
+
+const syncMainMsg = computed(() => syncMessages[syncMsgIndex.value].main);
+const syncSubMsg  = computed(() => syncMessages[syncMsgIndex.value].sub);
+
+/* ─── Network notice ─── */
+const networkNotice = computed<'offline' | 'slow' | null>(() => {
+  if (!isOnline.value) return 'offline';
+  if (isSlowConnection.value || isSyncingSlow.value) return 'slow';
+  return null;
+});
 
 /* ─── Customer modal ─── */
 const showCustomerModal = ref(false);
@@ -789,6 +890,20 @@ async function toast(message: string, color: string) {
   color: var(--app-text-muted);
 }
 .sync-today { font-size: 11px; color: var(--app-gold-light); }
+.offline-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: var(--ion-color-warning-shade);
+  background: rgba(var(--ion-color-warning-rgb), 0.18);
+  border: 1px solid rgba(var(--ion-color-warning-rgb), 0.35);
+  border-radius: 4px;
+  padding: 2px 7px 2px 5px;
+}
+.offline-badge ion-icon { font-size: 11px; }
 
 /* ── State cards ── */
 .state-card {
@@ -813,6 +928,48 @@ async function toast(message: string, color: string) {
   font-size: 13px;
   color: var(--ion-color-danger);
 }
+
+/* ── Network notice ── */
+.net-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid transparent;
+}
+.net-notice ion-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+.net-notice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.net-notice-main {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.net-notice-sub {
+  font-size: 11px;
+  opacity: 0.8;
+  line-height: 1.3;
+}
+.net-notice--offline {
+  background: rgba(var(--ion-color-warning-rgb), 0.1);
+  border-color: rgba(var(--ion-color-warning-rgb), 0.25);
+  color: var(--ion-color-warning-shade);
+}
+.net-notice--slow {
+  background: rgba(var(--ion-color-warning-rgb), 0.1);
+  border-color: rgba(var(--ion-color-warning-rgb), 0.2);
+  color: var(--ion-color-warning-shade);
+}
+.net-notice-fade-enter-active,
+.net-notice-fade-leave-active { transition: opacity 0.3s ease, transform 0.3s ease; }
+.net-notice-fade-enter-from,
+.net-notice-fade-leave-to    { opacity: 0; transform: translateY(-6px); }
 
 /* ── Form card ── */
 .form-card { margin: 10px 12px 0; }

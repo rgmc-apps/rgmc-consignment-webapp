@@ -9,6 +9,25 @@
           <p class="login-subtitle">Web App</p>
         </div>
 
+        <!-- Network notice -->
+        <Transition name="net-notice-fade">
+          <div v-if="networkNotice" :class="['net-notice', `net-notice--${networkNotice}`]">
+            <ion-icon :icon="networkNotice === 'offline' ? cloudOfflineOutline : warningOutline" />
+            <div class="net-notice-text">
+              <span class="net-notice-main">{{
+                networkNotice === 'offline'
+                  ? 'No internet connection'
+                  : 'Connection seems slow'
+              }}</span>
+              <span class="net-notice-sub">{{
+                networkNotice === 'offline'
+                  ? 'Check your Wi-Fi or mobile data.'
+                  : 'Sign-in may take longer than usual.'
+              }}</span>
+            </div>
+          </div>
+        </Transition>
+
         <!-- Form card -->
         <ion-card class="login-card">
           <ion-card-content>
@@ -85,7 +104,7 @@
             >
               <ion-spinner v-if="isLoading || isSyncing" name="crescent" slot="start" />
               <span>{{
-                isSyncing ? 'Loading data…' :
+                isSyncing ? syncBtnLabel :
                 isLoading  ? 'Signing in…'  :
                              'Sign In'
               }}</span>
@@ -100,7 +119,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   IonPage,
@@ -116,10 +135,11 @@ import {
   IonIcon,
   IonSpinner,
 } from '@ionic/vue';
-import { eyeOutline, eyeOffOutline, alertCircleOutline } from 'ionicons/icons';
+import { eyeOutline, eyeOffOutline, alertCircleOutline, cloudOfflineOutline, warningOutline } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
+import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import type { Brand } from '@/types';
 
 const router = useRouter();
@@ -135,6 +155,56 @@ const currentYear = new Date().getFullYear();
 
 const isLoading = computed(() => authStore.isLoading);
 const isSyncing = ref(false);
+
+const syncBtnMessages = [
+  'Loading data…',
+  'Fetching items…',
+  'Loading customers…',
+  'Preparing app…',
+  'Almost ready…',
+];
+const syncBtnIndex = ref(0);
+let syncBtnTimer: ReturnType<typeof setInterval> | null = null;
+
+watch(isSyncing, (active) => {
+  if (active) {
+    syncBtnIndex.value = 0;
+    syncBtnTimer = setInterval(() => {
+      syncBtnIndex.value = (syncBtnIndex.value + 1) % syncBtnMessages.length;
+    }, 5000);
+  } else {
+    if (syncBtnTimer) { clearInterval(syncBtnTimer); syncBtnTimer = null; }
+    syncBtnIndex.value = 0;
+  }
+});
+
+onUnmounted(() => {
+  if (syncBtnTimer)  { clearInterval(syncBtnTimer);  syncBtnTimer  = null; }
+  if (syncSlowTimer) { clearTimeout(syncSlowTimer);  syncSlowTimer = null; }
+});
+
+const syncBtnLabel = computed(() => syncBtnMessages[syncBtnIndex.value]);
+
+const { isOnline, isSlowConnection } = useNetworkStatus();
+
+const isSyncingSlow = ref(false);
+let syncSlowTimer: ReturnType<typeof setTimeout> | null = null;
+
+watch(isSyncing, (active) => {
+  if (active) {
+    syncSlowTimer = setTimeout(() => { isSyncingSlow.value = true; }, 10_000);
+  } else {
+    if (syncSlowTimer) { clearTimeout(syncSlowTimer); syncSlowTimer = null; }
+    isSyncingSlow.value = false;
+  }
+});
+
+const networkNotice = computed<'offline' | 'slow' | null>(() => {
+  if (!isOnline.value) return 'offline';
+  if (isSlowConnection.value || isSyncingSlow.value) return 'slow';
+  return null;
+});
+
 const canSubmit = computed(
   () => selectedBrandId.value && username.value.trim() && password.value.trim(),
 );
@@ -306,4 +376,47 @@ async function handleLogin() {
   color: var(--app-text-muted);
   margin: 0;
 }
+
+/* ── Network notice ── */
+.net-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  width: 100%;
+  margin-bottom: 12px;
+  box-sizing: border-box;
+}
+.net-notice ion-icon {
+  font-size: 1.3rem;
+  flex-shrink: 0;
+}
+.net-notice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.net-notice-main {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.net-notice-sub {
+  font-size: 11px;
+  opacity: 0.8;
+  line-height: 1.3;
+}
+.net-notice--offline {
+  background: rgba(var(--ion-color-danger-rgb), 0.15);
+  color: var(--ion-color-danger-shade);
+}
+.net-notice--slow {
+  background: rgba(var(--ion-color-warning-rgb), 0.15);
+  color: var(--ion-color-warning-shade);
+}
+.net-notice-fade-enter-active,
+.net-notice-fade-leave-active { transition: opacity 0.3s ease, transform 0.3s ease; }
+.net-notice-fade-enter-from,
+.net-notice-fade-leave-to    { opacity: 0; transform: translateY(-6px); }
 </style>
