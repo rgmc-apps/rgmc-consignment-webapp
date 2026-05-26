@@ -33,12 +33,24 @@
 
       <!-- No cache state -->
       <div v-if="!hasCache && !isSyncing" class="state-card">
-        <ion-icon :icon="cloudDownloadOutline" color="medium" />
-        <p>Data not loaded yet.</p>
-        <p class="state-sub">Tap Sync to download customers and items before scanning.</p>
+        <!-- Synced but API returned 0 items -->
+        <template v-if="lastSyncDate && cachedItems.length === 0">
+          <ion-icon :icon="alertCircleOutline" color="warning" />
+          <p>No items found</p>
+          <p class="state-sub">
+            Sync completed but the server returned no items.
+            Contact your administrator if this persists.
+          </p>
+        </template>
+        <!-- Never synced (or sync failed before storing anything) -->
+        <template v-else>
+          <ion-icon :icon="cloudDownloadOutline" color="medium" />
+          <p>Data not loaded yet.</p>
+          <p class="state-sub">Tap Sync to download customers and items before scanning.</p>
+        </template>
         <ion-button @click="handleSync">
           <ion-icon :icon="syncOutline" slot="start" />
-          Sync Now
+          {{ lastSyncDate && cachedItems.length === 0 ? 'Retry Sync' : 'Sync Now' }}
         </ion-button>
       </div>
 
@@ -344,8 +356,8 @@
     <ion-modal
       :is-open="showConfirmModal"
       @did-dismiss="cancelConfirm"
-      :breakpoints="[0, 0.6]"
-      :initial-breakpoint="0.6"
+      :breakpoints="[0, 0.92]"
+      :initial-breakpoint="0.92"
       :handle="true"
     >
       <ion-content class="ion-padding conf-content">
@@ -369,8 +381,8 @@
           </div>
 
           <!-- Quantity stepper -->
-          <div class="conf-qty-wrap">
-            <p class="conf-qty-label">Quantity</p>
+          <div class="conf-field-wrap">
+            <p class="conf-field-label">Quantity</p>
             <div class="conf-qty-row">
               <ion-button
                 fill="outline"
@@ -396,6 +408,38 @@
                 <ion-icon :icon="addOutline" slot="icon-only" />
               </ion-button>
             </div>
+          </div>
+
+          <!-- Discount -->
+          <div class="conf-field-wrap">
+            <p class="conf-field-label">Discount</p>
+            <div class="conf-discount-row">
+              <ion-segment
+                v-model="confirmDiscountType"
+                class="conf-disc-seg"
+              >
+                <ion-segment-button value="percent">
+                  <ion-label>%</ion-label>
+                </ion-segment-button>
+                <ion-segment-button value="amount">
+                  <ion-label>₱ Amt</ion-label>
+                </ion-segment-button>
+              </ion-segment>
+              <ion-input
+                v-model.number="confirmDiscountValue"
+                type="number"
+                inputmode="decimal"
+                min="0"
+                placeholder="0"
+                class="conf-disc-input"
+              />
+            </div>
+          </div>
+
+          <!-- Grand total -->
+          <div class="conf-total-row">
+            <span class="conf-total-label">Grand Total</span>
+            <span class="conf-total-value">{{ formatCurrency(confirmTotal) }}</span>
           </div>
 
           <!-- Action buttons -->
@@ -491,7 +535,7 @@ import type { Customer, Item, ItemCategory, DiscountType } from '@/types';
 /* ─── Stores / composables ─── */
 const authStore = useAuthStore();
 const sessionStore = useSessionStore();
-const { isSyncing, syncError, lastSyncLabel, hasCache, sync } = useSync();
+const { isSyncing, syncError, lastSyncDate, lastSyncLabel, hasCache, sync } = useSync();
 
 /* ─── Cached data ─── */
 const cachedCustomers = ref<Customer[]>([]);
@@ -504,10 +548,15 @@ function refreshCache() {
   categories.value = StorageService.getCachedItemCategories();
 }
 
-onMounted(() => {
+onMounted(async () => {
   refreshCache();
   if (!sessionStore.currentSession && authStore.brand && authStore.user) {
     sessionStore.startNewSession(authStore.brand, authStore.user);
+  }
+  /* Auto-sync if items are not in memory (tab refresh or first visit after
+     skipping login pre-sync). Login already pre-syncs so this is usually a no-op. */
+  if (cachedItems.value.length === 0) {
+    await handleSync();
   }
 });
 
@@ -583,6 +632,17 @@ const todayLabel = computed(() =>
 const showConfirmModal = ref(false);
 const confirmItem = ref<Item | null>(null);
 const confirmQty = ref(1);
+const confirmDiscountType = ref<DiscountType>('percent');
+const confirmDiscountValue = ref(0);
+
+const confirmTotal = computed(() =>
+  computeTotal(
+    confirmItem.value?.unitPrice ?? 0,
+    confirmQty.value || 1,
+    confirmDiscountType.value,
+    confirmDiscountValue.value || 0,
+  ),
+);
 
 function onItemSelected(item: Item) {
   form.itemId = item.id;
@@ -597,6 +657,8 @@ function onItemSelected(item: Item) {
   showItemModal.value = false;
   confirmItem.value = item;
   confirmQty.value = 1;
+  confirmDiscountType.value = 'percent';
+  confirmDiscountValue.value = 0;
   showConfirmModal.value = true;
 }
 
@@ -607,16 +669,15 @@ function cancelConfirm() {
 async function doConfirm(orderType: 'sales' | 'returns') {
   if (!confirmItem.value || !selectedCustomer.value) return;
   const item = confirmItem.value;
-  const qty = Math.max(1, confirmQty.value || 1);
   const line = {
     itemId: item.id,
     itemNumber: item.number,
     itemName: item.displayName,
     description: item.description || item.displayName,
     srp: item.unitPrice,
-    quantity: qty,
-    discountType: 'percent' as DiscountType,
-    discountValue: 0,
+    quantity: Math.max(1, confirmQty.value || 1),
+    discountType: confirmDiscountType.value,
+    discountValue: Math.max(0, confirmDiscountValue.value || 0),
   };
   if (orderType === 'sales') {
     sessionStore.addSalesOrder(line);
@@ -1013,11 +1074,11 @@ async function toast(message: string, color: string) {
   margin-bottom: 20px;
 }
 
-.conf-qty-wrap {
-  margin-bottom: 24px;
+.conf-field-wrap {
+  margin-bottom: 20px;
 }
 
-.conf-qty-label {
+.conf-field-label {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 1px;
@@ -1047,6 +1108,54 @@ async function toast(message: string, color: string) {
   color: var(--app-dark);
   --padding-start: 0;
   --padding-end: 0;
+}
+
+.conf-discount-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.conf-disc-seg {
+  flex: 0 0 auto;
+  width: 130px;
+  --background: var(--app-surface-alt);
+  border-radius: 8px;
+  height: 38px;
+}
+
+.conf-disc-input {
+  flex: 1;
+  text-align: right;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--app-dark);
+  --padding-end: 4px;
+  border-bottom: 2px solid var(--app-border);
+}
+
+.conf-total-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--app-gold-pale);
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+
+.conf-total-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--app-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.conf-total-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--app-gold);
 }
 
 .conf-btn {

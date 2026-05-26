@@ -80,11 +80,15 @@
             <ion-button
               expand="block"
               class="login-btn"
-              :disabled="!canSubmit || isLoading"
+              :disabled="!canSubmit || isLoading || isSyncing"
               @click="handleLogin"
             >
-              <ion-spinner v-if="isLoading" name="crescent" slot="start" />
-              <span>{{ isLoading ? 'Signing in…' : 'Sign In' }}</span>
+              <ion-spinner v-if="isLoading || isSyncing" name="crescent" slot="start" />
+              <span>{{
+                isSyncing ? 'Loading data…' :
+                isLoading  ? 'Signing in…'  :
+                             'Sign In'
+              }}</span>
             </ion-button>
           </ion-card-content>
         </ion-card>
@@ -130,6 +134,7 @@ const showPassword = ref(false);
 const currentYear = new Date().getFullYear();
 
 const isLoading = computed(() => authStore.isLoading);
+const isSyncing = ref(false);
 const canSubmit = computed(
   () => selectedBrandId.value && username.value.trim() && password.value.trim(),
 );
@@ -161,10 +166,32 @@ async function handleLogin() {
   authStore.clearError();
   const selectedBrand = brands.value.find((b) => b.id === selectedBrandId.value);
   if (!selectedBrand) return;
+
   const ok = await authStore.login(selectedBrand, username.value, password.value);
-  if (ok) {
-    router.replace('/app/home');
+  if (!ok) return;
+
+  /* Pre-fetch master data right after authentication so ScanningPage is
+     ready without requiring a manual sync tap. Failure is non-fatal. */
+  isSyncing.value = true;
+  try {
+    const [customers, items, categories] = await Promise.all([
+      ApiService.getCustomers(),
+      ApiService.getItems(),
+      ApiService.getItemCategories(),
+    ]);
+    StorageService.setCachedCustomers(customers);
+    StorageService.setCachedItems(items);
+    StorageService.setCachedItemCategories(categories);
+    StorageService.setSyncTimestamp('customers');
+    StorageService.setSyncTimestamp('items');
+    StorageService.setSyncTimestamp('itemCategories');
+  } catch {
+    /* Sync failure is non-fatal — user can retry from the scanning page */
+  } finally {
+    isSyncing.value = false;
   }
+
+  router.replace('/app/home');
 }
 </script>
 
