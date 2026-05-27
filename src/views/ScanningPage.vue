@@ -586,13 +586,22 @@ import type { Customer, Item, ItemCategory, DiscountType } from '@/types';
 /* ─── Stores / composables ─── */
 const authStore = useAuthStore();
 const sessionStore = useSessionStore();
-const { isSyncing, syncError, lastSyncDate, lastSyncLabel, hasCache, sync } = useSync();
+const { isSyncing, syncError, lastSyncDate, lastSyncLabel, sync } = useSync();
 const { isOnline, isSlowConnection } = useNetworkStatus();
 
 /* ─── Cached data ─── */
 const cachedCustomers = ref<Customer[]>([]);
 const cachedItems = ref<Item[]>([]);
 const categories = ref<ItemCategory[]>([]);
+
+/* hasCache must depend on the reactive component refs (not on
+   StorageService directly) so it re-evaluates after refreshCache()
+   updates them post-sync.  The useSync version reads _itemsMemory —
+   a plain JS variable invisible to Vue's tracker — so it would
+   always return the initial false value and never update. */
+const hasCache = computed(
+  () => cachedItems.value.length > 0 && cachedCustomers.value.length > 0 && categories.value.length > 0,
+);
 
 function refreshCache() {
   cachedCustomers.value = StorageService.getCachedCustomers();

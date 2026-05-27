@@ -19,13 +19,6 @@ export function useSync() {
     });
   });
 
-  const hasCache = computed(() => {
-    const customers = StorageService.getCachedCustomers();
-    const items = StorageService.getCachedItems();
-    const categories = StorageService.getCachedItemCategories();
-    return customers.length > 0 && items.length > 0 && categories.length > 0;
-  });
-
   async function sync(): Promise<void> {
     if (isSyncing.value) return;
     isSyncing.value = true;
@@ -69,7 +62,6 @@ export function useSync() {
     syncError,
     lastSyncDate,
     lastSyncLabel,
-    hasCache,
     sync,
     syncIfStale,
   };
