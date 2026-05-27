@@ -249,43 +249,6 @@ ion-spinner {
   }
 }
 
-/* ─────────────────────────────────────────────────────────────────
-   Desktop centering — on screens ≥ 768 px the app renders as a
-   centred phone-width column so the mobile-first layout stays sharp.
-   On phones this block has no effect.
-───────────────────────────────────────────────────────────────── */
-@media (min-width: 768px) {
-  body {
-    /* Subtle dark grid pattern behind the app column */
-    background: #0c0c0c;
-    background-image:
-      linear-gradient(rgba(160, 115, 32, 0.04) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(160, 115, 32, 0.04) 1px, transparent 1px);
-    background-size: 32px 32px;
-  }
-
-  /* Centre ion-app as a fixed phone-width column.
-     Ionic sets position:fixed; left:0; right:0 by default,
-     so we override left, right, and width. */
-  ion-app {
-    position: fixed !important;
-    top: 0 !important;
-    bottom: 0 !important;
-    left: 50% !important;
-    right: auto !important;
-    transform: translateX(-50%) !important;
-    width: 520px !important;
-    max-width: 100vw;
-    /* Gold-rimmed frame + depth shadow */
-    box-shadow:
-      0 0 0 1px rgba(160, 115, 32, 0.25),
-      0 0 0 2px rgba(0, 0, 0, 0.6),
-      0 24px 100px rgba(0, 0, 0, 0.8);
-    border-radius: 0 0 24px 24px;
-    overflow: hidden;
-  }
-}
-
 /* Global typography */
 * {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -296,14 +259,22 @@ ion-toolbar ion-title {
   text-align: center;
 }
 
-/* ── Inner content max-width + auto-margins so cards never span
-      the full viewport on very wide phones or desktop ── */
+/* ── Inner content: centred column that scales with the viewport.
+      The app stays full-screen on all devices; only the scrollable
+      content column is constrained so cards never stretch edge-to-edge
+      on wide screens.  On phones (< 600 px) this has no visible effect.
+──────────────────────────────────────────────────────────────────── */
 ion-content::part(scroll) {
-  /* Centres the scrollable column for any screen wider than 520 px.
-     On narrow phones this has no visible effect. */
-  max-width: 520px;
+  max-width: 720px;   /* comfortable reading / form width on desktop  */
   margin-left: auto;
   margin-right: auto;
+}
+
+/* On narrow mobile keep content flush to the edges */
+@media (max-width: 599px) {
+  ion-content::part(scroll) {
+    max-width: 100%;
+  }
 }
 
 /* Utility classes */

@@ -284,7 +284,7 @@ async function handleLogin() {
   gap: 24px;
   box-sizing: border-box;
   width: 100%;
-  max-width: 520px;
+  max-width: 480px; /* login card stays comfortably narrow even on wide screens */
   margin: 0 auto;
 }
 
