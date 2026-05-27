@@ -2,179 +2,154 @@
 
 ## Goal
 
-Ship the **RGMC Consignment Web App** to production on Google Cloud Run. All application code is complete and type-clean. The remaining work is to commit this session's changes and rebuild + redeploy the Docker image.
+Ship and maintain the **RGMC Consignment Web App** on Google Cloud Run. The app is a mobile-first Ionic/Vue scanning tool for sales reps to build sales/return orders against a GCP-hosted Business Central API. All core features are built and deployed; remaining work is debugging a live data issue and verifying the latest fixes.
 
-**Acceptance criteria:**
+**Acceptance criteria (from original spec):**
 - App loads at the Cloud Run URL
-- Login pre-syncs data automatically (button cycles through sync labels, then lands on a ready home screen)
-- ScanningPage has items available without requiring a manual sync tap
-- Barcode/item scan → confirm sheet with quantity stepper, discount selector, grand total, Add to Sales/Return buttons
-- Scanning works when offline if items were loaded before going offline (OFFLINE badge visible in header)
-- SubmitPage submit buttons are disabled when offline; re-enable on reconnect
-- Pull-to-refresh gesture works on ScanningPage (triggers sync), Home, and History
+- Login pre-syncs data automatically (button cycles through sync labels, lands on home)
+- ScanningPage has items available without a manual sync tap
+- Barcode/item scan → confirm sheet with quantity stepper, discount selector, grand total
+- Offline mode works (OFFLINE badge, scan available if items loaded, SubmitPage disabled)
+- Pull-to-refresh on ScanningPage, LandingPage, HistoryPage
 - No `QuotaExceededError` in localStorage for items
-- All six screens function against the live GCP API via nginx proxy (no CORS errors)
+- All six screens work against live GCP API via nginx proxy (no CORS errors)
+- All elements centred on mobile and desktop views
 
 ---
 
 ## Current State
 
-**All application code: COMPLETE AND TYPE-CLEAN.** `vue-tsc --noEmit` exits 0.
-
-**Cloud Run deployment: STALE.** The running container is behind — it does not include any of the changes from this session. A commit + fresh build + deploy is required.
-
 | Area | Status |
 |---|---|
 | All `src/` source files | ✅ Complete, TypeScript clean |
 | `vite build` | ✅ Passes |
-| `Dockerfile` + `nginx.conf` + `docker-entrypoint.sh` | ✅ Fixed (previous session) |
-| `.env.production` | ✅ `VITE_API_BASE_URL` empty — nginx proxy handles `/bc/*` |
-| `storage.service.ts` — items in-memory | ✅ Committed (`9cabbf6`) |
-| Cycling sync messages (LoginPage + ScanningPage) | ✅ Coded, **NOT committed** |
-| Network status notice (offline/slow banner) | ✅ Coded, **NOT committed** |
-| Offline mode (badge + scan works offline + SubmitPage guard) | ✅ Coded, **NOT committed** |
-| Pull-to-refresh (ScanningPage, LandingPage, HistoryPage) | ✅ Coded, **NOT committed** |
-| `README.md` | ✅ Written this session |
-| Cloud Run deployment | ⏳ **Needs commit + rebuild + redeploy** |
+| Dockerfile / nginx.conf / docker-entrypoint.sh | ✅ Working |
+| Offline mode + pull-to-refresh | ✅ Deployed (`87e8772`) |
+| ion-icon loadIcon URL error fix | ✅ Deployed (`8c4841a`) |
+| API response shape defensive handling | ✅ Deployed (`faf1e09`) — **but root cause unconfirmed** |
+| Desktop/mobile centring | ✅ Deployed (`39caa91`) |
+| **`/bc/items` items loading on scan page** | ⚠️ **UNRESOLVED** — returns 200, but items may or may not appear |
+| Cloud Run live revision | `rgmc-consignment-webapp-00013-gzv` |
+| Cloud Build for `39caa91` (centring commit) | `a13a439f` — **WORKING at last check** (~5 min build) |
+
+**Live URL:** `https://rgmc-consignment-webapp-a52bp7y4ea-as.a.run.app`
 
 ---
 
-## Files Changed This Session (all uncommitted)
+## Files Actively Being Edited
 
-### New file
+*(All committed and pushed — working tree is clean except for local `dist/` build artifacts which are irrelevant to deployment)*
 
-- `src/composables/useNetworkStatus.ts` — `useNetworkStatus()` composable. Exposes `isOnline` (tracks `window online`/`offline` events via `navigator.onLine`) and `isSlowConnection` (reads `navigator.connection.effectiveType`, considers `'slow-2g'` and `'2g'` as slow). Registers and cleans up all event listeners in `onMounted`/`onUnmounted`.
-
-### Modified files
-
-- **`src/views/LoginPage.vue`**
-  - Added `syncBtnMessages` array + `syncBtnIndex` ref + `syncBtnTimer` interval: button label cycles every 5 s while `isSyncing` is true ("Loading data…" → "Fetching items…" → "Loading customers…" → "Preparing app…" → "Almost ready…")
-  - Added `useNetworkStatus` — `{ isOnline, isSlowConnection }`
-  - Added `isSyncingSlow` ref: set to true after 10 s of syncing, cleared when sync ends
-  - Added `networkNotice` computed: `'offline'` | `'slow'` | `null`
-  - Template: amber network notice div between logo block and login card (uses `cloudOfflineOutline` / `warningOutline`); fades in/out with CSS transition
-
-- **`src/views/ScanningPage.vue`**
-  - Added `syncMessages` array + `syncMsgIndex` ref + `syncMsgTimer` interval: state card text cycles every 5 s during sync
-  - Added `isSyncingSlow` ref + `syncSlowTimer` (10 s timeout): triggers amber "slow" notice
-  - Added `useNetworkStatus` — `{ isOnline, isSlowConnection }`
-  - Added `networkNotice` computed: `'offline'` | `'slow'` | `null`
-  - Added `onPullRefresh(ev)`: calls `handleSync()` if online, always calls `ev.target.complete()`
-  - Sync button: `disabled="isSyncing || !isOnline"`
-  - Sync-bar: shows amber `OFFLINE` pill badge (with `cloudOfflineOutline`) when `!isOnline`, otherwise shows the today label; transitions between them
-  - Network notice template: offline copy is context-aware — "Offline Mode / Scanning available…" when items are loaded, "No Connection / Connect to load items…" when not
-  - No-cache state card: new `!isOnline` branch ("Offline — no data loaded"), sync button hidden when offline
-  - `IonRefresher` + `IonRefresherContent` added inside `ion-content`
-  - Offline notice CSS uses warning/amber (not danger/red) to signal limited-but-functional mode
-
-- **`src/views/SubmitPage.vue`**
-  - Added `useNetworkStatus` — `{ isOnline }`
-  - Added `cloudOfflineOutline` to icon imports
-  - Offline notice card at top of content (amber, fades in/out)
-  - Both submit buttons: `disabled="… || !isOnline"`
-
-- **`src/views/LandingPage.vue`**
-  - Added `IonRefresher`, `IonRefresherContent` to Ionic imports
-  - Added `onPullRefresh(ev)`: re-reads `StorageService.getCachedCustomers()` + calls `sessionStore.loadFromStorage()`, then completes
-  - `IonRefresher` added inside `ion-content`
-
-- **`src/views/HistoryPage.vue`**
-  - Added `IonRefresher`, `IonRefresherContent` to Ionic imports
-  - Added `onPullRefresh(ev)`: calls `sessionStore.loadFromStorage()`, then completes
-  - `IonRefresher` added inside `ion-content`
+- `src/views/ScanningPage.vue` — Fixed `pulling-icon` string→SVG import (loadIcon fix); added `chevronDownCircleOutline` to icon imports
+- `src/views/LandingPage.vue` — Same loadIcon fix
+- `src/views/HistoryPage.vue` — Same loadIcon fix
+- `src/services/api.service.ts` — Replaced all `res.data.data` calls with `extractList<T>(res.data)` helper; added interceptor that `console.info`s every `/bc/*` response shape; removed `ApiListResponse` import (no longer needed)
+- `src/theme/variables.css` — Added `@media (min-width: 768px)` block that centres `ion-app` as a 520px phone-column with gold frame; added `ion-content::part(scroll)` max-width; added `ion-title { text-align: center }`
+- `src/views/LoginPage.vue` — Login container `margin: 0 auto`, `max-width: 520px`; footer `text-align: center`
 
 ---
 
-## Failed Attempts (all sessions)
+## Failed Attempts
 
-- **localStorage items storage** — localStorage has a hard 5 MB per-origin cap. Even with 6-field slimming + 120-char description truncation, the GCP items catalog exceeded it. Fixed: items now live in `_itemsMemory` (module-level JS variable) — never written to localStorage.
-- **Inline `envsubst` in Dockerfile** — `CMD envsubst '$PORT' < template > config && nginx` was unreliable in Alpine busybox sh; nginx ran as child of sh, not PID 1. Fixed with `docker-entrypoint.sh`.
-- **Unquoted nginx regex braces** — `location ~* \.[0-9a-f]{8}\.(js|css...)$` caused nginx startup failure because nginx treats `{` in unquoted regex as block syntax. Fixed by wrapping the regex in double quotes.
-- **Setting `VITE_API_BASE_URL` to GCP origin** — Browser CORS policy blocked all requests. Fixed by leaving `VITE_API_BASE_URL` empty and proxying `/bc/*` server-side via nginx `proxy_pass`.
+- **`pulling-icon="chevron-down-circle-outline"` (string attribute)** — Ionic's `ion-icon` web component calls `new URL(svgPath, import.meta.url)` to dynamically fetch the SVG. In the production Vite bundle, `import.meta.url` resolves to an empty/invalid base, causing `TypeError: Failed to construct 'URL': Invalid base URL`. Fixed by importing the icon object and binding with `:pulling-icon="chevronDownCircleOutline"`. Every other `ion-icon` in the codebase already used the `:icon="imported"` pattern correctly.
+
+- **`res.data.data` direct access for API responses** — If the GCP API returns `{ "value": [...] }` (Business Central OData native) or a bare array `[...]` instead of `{ "data": [...] }`, the old code returned `undefined` which then crashed `_itemsMemory = undefined.map(...)`. Fixed with `extractList<T>()` that tries `.data`, then `.value`, then bare array, returning `[]` on all unknown shapes.
+
+- **localStorage for items** — localStorage has a hard 5 MB per-origin cap. Even with 6-field slimming + 120-char description truncation, the items catalog exceeded it. Items now live in `_itemsMemory` (module-level JS variable in `storage.service.ts`).
+
+- **Inline `envsubst` in Dockerfile** — Unreliable in Alpine busybox sh; nginx ran as child of sh, not PID 1. Fixed with `docker-entrypoint.sh`.
+
+- **Unquoted nginx regex braces** — `location ~* \.[0-9a-f]{8}\.(js|css...)$` caused nginx startup failure. Fixed by wrapping regex in double quotes.
+
+- **`VITE_API_BASE_URL` set to GCP origin** — CORS blocked all requests. Fixed by leaving it empty and proxying `/bc/*` server-side via nginx.
 
 ---
 
 ## Next Step
 
-**Commit all changes, then rebuild and redeploy.**
+**Confirm whether items now load after the `extractList()` fix.**
 
-```powershell
-# 1. Commit
-git add src/composables/useNetworkStatus.ts `
-        src/views/LoginPage.vue `
-        src/views/ScanningPage.vue `
-        src/views/SubmitPage.vue `
-        src/views/LandingPage.vue `
-        src/views/HistoryPage.vue `
-        README.md handoff.md
-git commit -m "add cycling sync messages, offline mode, network notices, pull-to-refresh"
+1. Wait for Cloud Build `a13a439f` to finish (or trigger `gcloud builds list --limit=3` to verify SUCCESS)
+2. Open `https://rgmc-consignment-webapp-a52bp7y4ea-as.a.run.app` in Chrome
+3. Open DevTools → **Console** tab
+4. Log in → navigate to Scan tab → watch for this log line:
 
-# 2. Build + push + deploy (requires Docker Desktop + gcloud auth)
-docker build -t gcr.io/durable-woods-465907-n1/rgmc-consignment-webapp .
-docker push gcr.io/durable-woods-465907-n1/rgmc-consignment-webapp
-gcloud run deploy rgmc-consignment-webapp `
-  --image gcr.io/durable-woods-465907-n1/rgmc-consignment-webapp `
-  --region asia-southeast1 `
-  --platform managed `
-  --allow-unauthenticated
 ```
+[API] GET /bc/items  status=200  → keys=…  { … }
+```
+
+**Interpret the log:**
+
+| Log output | Meaning | Action |
+|---|---|---|
+| `→ keys=data` with items in array | `extractList()` works, items load ✅ | Done |
+| `→ keys=value` with items | extractList now handles this ✅ | Verify items appear |
+| `→ bare array` with items | extractList now handles this ✅ | Verify items appear |
+| `→ keys=data` with **empty array** | API genuinely returns no data | Investigate GCP API — may need brand filter param or server-side issue |
+| `→ keys=` (empty object `{}`) | API returning empty body | GCP API issue, not frontend |
+
+If items still don't appear after a successful shape match, check `StorageService.getCachedItems()` in the console — if `_itemsMemory` is populated but scan screen shows empty, the bug is in `refreshCache()` / `cachedItems.value` reactivity.
 
 ---
 
 ## Context & Gotchas
 
-### Cloud Run details
-- **Project ID**: `durable-woods-465907-n1`
-- **Service name**: `rgmc-consignment-webapp`
-- **Region**: `asia-southeast1`
-- **GCP API upstream**: `https://rgmc-gcp-api-935246372408.asia-southeast1.run.app`
+### Deployment
+- **GitHub push → Cloud Build trigger → Cloud Run deploy** (automatic, no manual docker build needed)
+- Project ID: `durable-woods-465907-n1`
+- Service: `rgmc-consignment-webapp`, Region: `asia-southeast1`
+- GCP API upstream: `https://rgmc-gcp-api-935246372408.asia-southeast1.run.app`
+- Build takes ~5 min end-to-end after push
 
-### Items are in-memory, not localStorage
-`_itemsMemory` in `storage.service.ts` is a module-level `let`. It persists for the lifetime of the browser tab but is lost on refresh. This is intentional — localStorage's 5 MB quota cannot hold the full items catalog. The login pre-sync and the ScanningPage auto-sync-on-mount together ensure items are always available without user action.
+### `dist/` is tracked in git but irrelevant
+`.gitignore` only excludes `node_modules`. The `dist/` directory is committed. However, the Dockerfile runs `npm run build` during Docker build, so Cloud Build always builds from source — committed `dist/` files are overwritten and never used for the deployed app. Don't worry about the local `dist/` diff.
 
-### Offline mode requires items to already be in memory
-`useNetworkStatus.isOnline` is reactive — the UI updates the moment the device goes offline/online. But if `_itemsMemory` is empty when the device goes offline, scanning is blocked (state card shows "Offline — no data loaded"). The user must reconnect and sync once before losing connectivity.
+### Items are in-memory only, not localStorage
+`_itemsMemory` in `storage.service.ts` is a module-level `let`. Survives tab navigation but lost on page refresh. This is intentional — localStorage quota cannot hold the full catalog. Login pre-sync and ScanningPage `onMounted` auto-sync ensure items are always re-loaded when needed.
 
-### nginx.conf is a TEMPLATE
-`nginx.conf` contains the literal `${PORT}` placeholder. It is copied to `/etc/nginx/nginx.conf.template` in the image. `docker-entrypoint.sh` runs `envsubst '$PORT'` at container startup to produce the real `/etc/nginx/nginx.conf`. Never run nginx directly against the template file.
-
-The `envsubst '$PORT'` (single-quoted) is intentional: it substitutes only `$PORT`, leaving nginx's own `$uri`, `$remote_addr`, `$proxy_add_x_forwarded_for` etc. untouched.
+### nginx.conf is a template
+Contains literal `${PORT}`. Copied to `/etc/nginx/nginx.conf.template`; `docker-entrypoint.sh` runs `envsubst '$PORT'` at container start to produce the real config. The single-quoted `'$PORT'` is intentional — only substitutes PORT, leaves nginx vars like `$uri` untouched.
 
 ### VITE_API_BASE_URL is baked at build time
-It is set to empty in `.env.production`. Vite bakes `import.meta.env.VITE_API_BASE_URL` into the JS bundle as an empty string, so axios makes relative `/bc/*` requests. nginx intercepts these and proxies them to the GCP API. Do NOT set this as a Cloud Run runtime env var — it has no effect on the running container.
+Set to empty string in `.env.production`. Vite bakes it into the bundle. Axios makes relative `/bc/*` requests. Nginx proxies them to the GCP API. Do NOT set this as a Cloud Run runtime env var — it has no runtime effect.
 
-### Pre-sync flow on login
-`LoginPage.handleLogin()` runs auth then immediately runs `Promise.all([getCustomers, getItems, getItemCategories])`. Sync failure is a silent catch — the user still navigates to `/app/home`. Items land in `_itemsMemory` before the navigation completes, so ScanningPage's `onMounted` auto-sync guard (`if cachedItems.value.length === 0`) is a no-op on fresh login.
+### Desktop centring approach
+`ion-app` has `position:fixed; left:0; right:0` by default (Ionic). The centering override uses:
+```css
+ion-app {
+  position: fixed !important;
+  left: 50% !important;
+  right: auto !important;
+  transform: translateX(-50%) !important;
+  width: 520px !important;
+}
+```
+`!important` is required to override Ionic's hardcoded inline styles.
 
-### Tab refresh flow
-On browser refresh: auth guard redirects to `/splash` → SplashPage detects auth in localStorage → redirects to `/app/home`. No items are in memory (`_itemsMemory = []`). When user navigates to ScanningPage, `onMounted` detects empty items and calls `handleSync()` automatically. The scanning UI shows cycling sync messages during this auto-sync, then transitions to the ready state.
+### `ion-content::part(scroll)` CSS shadow part
+Used to set `max-width: 520px; margin: auto` on the inner scroll container of every page globally. This is a native CSS shadow-part selector — supported in all modern browsers. If it ever stops working (e.g., Ionic update changes the part name), content will revert to full-width on desktop without breaking mobile.
 
-### Pull-to-refresh behaviour per page
-- **ScanningPage**: triggers `handleSync()` if online; completes immediately if offline (no-op)
-- **LandingPage**: re-reads customers from `StorageService` + calls `sessionStore.loadFromStorage()`
-- **HistoryPage**: calls `sessionStore.loadFromStorage()` only
+### Auth guard + storage load ordering
+`router.beforeEach` fires before `authStore.loadFromStorage()` (which runs in `router.isReady().then()`). Direct URL navigation to `/app/*` always redirects to `/splash`, which loads auth and redirects to `/app/home`. Do NOT move `loadFromStorage()` before the guard.
 
-### Confirm sheet breakpoint
-The confirm sheet uses `breakpoints="[0, 0.92]"` and `initial-breakpoint="0.92"`. The handle at the top lets users drag it down to dismiss.
-
-### Auth guard race condition (by design)
-`router.beforeEach` in `src/main.ts` fires before `authStore.loadFromStorage()` (which runs inside `router.isReady().then()`). Direct URL navigation to `/app/*` always redirects to `/splash`, which loads auth from localStorage and redirects to `/app/home`. Do not move `loadFromStorage()` before the guard.
-
-### localStorage keys (current)
+### localStorage keys
 | Key | Contents |
 |---|---|
-| `rgmc_auth` | `{ brand: Brand, user: Contact }` |
+| `rgmc_auth` | `{ brand, user }` |
 | `rgmc_cache_brands` | Brand[] |
 | `rgmc_cache_contacts` | Contact[] |
-| `rgmc_cache_customers` | Slim Customer[] — only {id, number, displayName, city} |
+| `rgmc_cache_customers` | Slim Customer[] `{id, number, displayName, city}` |
 | `rgmc_cache_item_categories` | ItemCategory[] |
 | `rgmc_sync_timestamps` | `{ customers, items, itemCategories: ISOString }` |
-| `rgmc_sessions` | ScanSession[] with `status: 'submitted' \| 'failed'` |
-| `rgmc_drafts` | ScanSession[] with `status: 'draft'` |
-| ~~`rgmc_cache_items`~~ | **Removed** — items now in `_itemsMemory` only |
+| `rgmc_sessions` | ScanSession[] `status: 'submitted' \| 'failed'` |
+| `rgmc_drafts` | ScanSession[] `status: 'draft'` |
+| ~~`rgmc_cache_items`~~ | **Removed** — items in `_itemsMemory` only |
 
 ### OrderLine type (common bug source)
-`OrderLine` has `itemName` (not `itemDisplayName`) and has NO `itemCategoryCode` field. Check `src/types/index.ts` before adding any new code that references order line fields.
+`OrderLine` has `itemName` (not `itemDisplayName`) and has NO `itemCategoryCode` field. Check `src/types/index.ts` before adding any code that references order line fields.
 
-### Capacitor not yet initialized
-`@capacitor/cli` and `@capacitor/core` are in `package.json` but `npx cap add android/ios` has never been run. No `android/` or `ios/` directories exist. Mobile native build is not set up.
+### `extractList<T>()` in api.service.ts
+Added this session. Handles `{ data: T[] }`, `{ value: T[] }` (BC OData), and `T[]` (bare array). Returns `[]` on unknown shapes and logs a warning. All five GET list methods now use it instead of `res.data.data`.
+
+### Capacitor not initialised
+`@capacitor/cli` and `@capacitor/core` are in `package.json` but `npx cap add android/ios` has never been run. No `android/` or `ios/` directories exist.
