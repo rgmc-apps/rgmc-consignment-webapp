@@ -40,7 +40,7 @@
       <!-- Pull-to-refresh -->
       <ion-refresher slot="fixed" @ionRefresh="onPullRefresh($event)">
         <ion-refresher-content
-          pulling-icon="chevron-down-circle-outline"
+          :pulling-icon="chevronDownCircleOutline"
           :pulling-text="isOnline ? 'Pull to sync' : 'Offline — nothing to sync'"
           refreshing-spinner="crescent"
           :refreshing-text="isOnline ? 'Syncing…' : 'Offline'"
@@ -560,6 +560,7 @@ import {
   alertCircleOutline,
   warningOutline,
   chevronDownOutline,
+  chevronDownCircleOutline,
   barcodeOutline,
   addCircleOutline,
   addOutline,

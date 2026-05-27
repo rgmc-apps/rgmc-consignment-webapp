@@ -53,7 +53,7 @@
 
       <ion-refresher slot="fixed" @ionRefresh="onPullRefresh($event)">
         <ion-refresher-content
-          pulling-icon="chevron-down-circle-outline"
+          :pulling-icon="chevronDownCircleOutline"
           pulling-text="Pull to refresh"
           refreshing-spinner="crescent"
           refreshing-text="Refreshing…"
@@ -321,6 +321,7 @@ import {
   cartOutline,
   returnUpBackOutline,
   refreshOutline,
+  chevronDownCircleOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
 import { formatCurrency, formatDate, formatDateTime, formatDiscount } from '@/utils/format';

@@ -20,7 +20,7 @@
 
       <ion-refresher slot="fixed" @ionRefresh="onPullRefresh($event)">
         <ion-refresher-content
-          pulling-icon="chevron-down-circle-outline"
+          :pulling-icon="chevronDownCircleOutline"
           pulling-text="Pull to refresh"
           refreshing-spinner="crescent"
           refreshing-text="Refreshing…"
@@ -137,6 +137,7 @@ import {
   documentTextOutline,
   trashOutline,
   storefrontOutline,
+  chevronDownCircleOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
