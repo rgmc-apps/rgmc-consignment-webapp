@@ -278,10 +278,14 @@ async function handleLogin() {
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: center;   /* horizontal centre for all children */
   justify-content: center;
   padding: 32px 20px;
   gap: 24px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
 }
 
 .login-logo-block {
@@ -329,6 +333,7 @@ async function handleLogin() {
   font-weight: 700;
   color: var(--app-dark);
   margin: 0 0 16px;
+  text-align: left; /* form fields are left-aligned for readability */
 }
 
 .login-field {
@@ -375,6 +380,7 @@ async function handleLogin() {
   font-size: 12px;
   color: var(--app-text-muted);
   margin: 0;
+  text-align: center;
 }
 
 /* ── Network notice ── */
