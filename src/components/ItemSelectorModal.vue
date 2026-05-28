@@ -123,6 +123,26 @@
               </p>
             </div>
 
+            <!-- Multi-barcode picker (appears when >1 barcodes are in frame) -->
+            <div v-if="scanStatus === 'multiple'" class="multi-picker">
+              <p class="multi-picker-title">Multiple barcodes detected</p>
+              <p class="multi-picker-sub">Code 128 listed first — tap one to use it:</p>
+              <button
+                v-for="(b, idx) in detectedBarcodes"
+                :key="idx"
+                class="multi-bc-btn"
+                :class="{ 'multi-bc-btn--priority': b.format === 'code_128' }"
+                @click="pickBarcode(b.rawValue)"
+              >
+                <span class="multi-bc-format">{{ formatLabel(b.format) }}</span>
+                <span class="multi-bc-value">{{ b.rawValue }}</span>
+              </button>
+              <button class="multi-rescan-btn" @click="resumeScanning">
+                <ion-icon :icon="refreshOutline" />
+                Scan Again
+              </button>
+            </div>
+
             <!-- Manual input fallback -->
             <div class="manual-wrap">
               <p class="manual-label">Or enter barcode manually:</p>
@@ -171,6 +191,7 @@ import {
   listOutline,
   searchOutline,
   alertCircleOutline,
+  refreshOutline,
 } from 'ionicons/icons';
 import { formatCurrency } from '@/utils/format';
 import type { Item, ItemCategory } from '@/types';
@@ -224,22 +245,35 @@ function handleSelect(item: Item) {
 
 /* ─── Scanner state ─── */
 type ViewMode = 'list' | 'scanner';
-type ScanStatus = 'starting' | 'scanning' | 'detected' | 'error';
+type ScanStatus = 'starting' | 'scanning' | 'detected' | 'error' | 'multiple';
+
+interface DetectedBarcode { rawValue: string; format: string; }
+
+const FORMAT_PRIORITY: Record<string, number> = {
+  code_128: 0, code_39: 1, ean_13: 2, ean_8: 3, upc_a: 4, upc_e: 5, qr_code: 6,
+};
+const FORMAT_LABELS: Record<string, string> = {
+  code_128: 'Code 128', code_39: 'Code 39', ean_13: 'EAN-13',
+  ean_8: 'EAN-8', upc_a: 'UPC-A', upc_e: 'UPC-E', qr_code: 'QR Code',
+};
+function formatLabel(fmt: string) { return FORMAT_LABELS[fmt] ?? fmt; }
 
 const viewMode = ref<ViewMode>('list');
 const videoEl = ref<HTMLVideoElement | null>(null);
 const videoStream = ref<MediaStream | null>(null);
 const scanStatus = ref<ScanStatus>('starting');
 const manualBarcode = ref('');
+const detectedBarcodes = ref<DetectedBarcode[]>([]);
 const cameraAvailable = ref('mediaDevices' in navigator && 'getUserMedia' in navigator.mediaDevices);
 let detectionInterval: ReturnType<typeof setInterval> | null = null;
 
 const scanHintText = computed(() => {
   switch (scanStatus.value) {
-    case 'starting': return 'Starting camera…';
-    case 'scanning': return 'Point camera at barcode';
-    case 'detected': return 'Barcode detected!';
-    case 'error': return 'Camera unavailable — use manual input';
+    case 'starting':  return 'Starting camera…';
+    case 'scanning':  return 'Point camera at barcode';
+    case 'detected':  return 'Barcode detected!';
+    case 'multiple':  return 'Multiple barcodes found — select one below';
+    case 'error':     return 'Camera unavailable — use manual input';
     default: return '';
   }
 });
@@ -271,24 +305,53 @@ async function openScanner() {
 }
 
 function startAutoDetection() {
-  const detector = new (window as unknown as { BarcodeDetector: new (opts: object) => { detect: (el: HTMLVideoElement) => Promise<Array<{ rawValue: string }>> } }).BarcodeDetector({
-    formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'qr_code'],
+  type RawDetector = { detect: (el: HTMLVideoElement) => Promise<DetectedBarcode[]> };
+  const detector = new (window as unknown as { BarcodeDetector: new (opts: object) => RawDetector }).BarcodeDetector({
+    // code_128 listed first to signal priority intent; actual sort happens on results
+    formats: ['code_128', 'ean_13', 'ean_8', 'code_39', 'upc_a', 'upc_e', 'qr_code'],
   });
 
   detectionInterval = setInterval(async () => {
-    if (!videoEl.value || scanStatus.value === 'detected') return;
+    if (!videoEl.value || scanStatus.value === 'detected' || scanStatus.value === 'multiple') return;
     try {
-      const results = await detector.detect(videoEl.value);
-      if (results.length > 0) {
-        const code = results[0].rawValue;
+      const raw = await detector.detect(videoEl.value);
+      if (raw.length === 0) return;
+
+      if (raw.length === 1) {
         scanStatus.value = 'detected';
         stopCamera();
-        setTimeout(() => resolveBarcode(code), 250);
+        setTimeout(() => resolveBarcode(raw[0].rawValue), 250);
+        return;
       }
+
+      // Multiple barcodes — sort by format priority (code_128 first) then show picker
+      const sorted = [...raw].sort(
+        (a, b) => (FORMAT_PRIORITY[a.format] ?? 99) - (FORMAT_PRIORITY[b.format] ?? 99),
+      );
+      stopDetectionOnly();
+      detectedBarcodes.value = sorted;
+      scanStatus.value = 'multiple';
     } catch {
-      /* per-frame errors are normal when video isn't ready */
+      /* per-frame errors are normal while video is still buffering */
     }
   }, 250);
+}
+
+function stopDetectionOnly() {
+  if (detectionInterval) { clearInterval(detectionInterval); detectionInterval = null; }
+}
+
+function pickBarcode(code: string) {
+  detectedBarcodes.value = [];
+  scanStatus.value = 'detected';
+  stopCamera();
+  setTimeout(() => resolveBarcode(code), 200);
+}
+
+function resumeScanning() {
+  detectedBarcodes.value = [];
+  scanStatus.value = 'scanning';
+  if ('BarcodeDetector' in window) startAutoDetection();
 }
 
 function closeScanner() {
@@ -505,4 +568,101 @@ onUnmounted(() => stopCamera());
   border: 1px solid #333;
   border-radius: 8px;
 }
+
+/* ── Multi-barcode picker ── */
+.multi-picker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  background: rgba(10, 10, 10, 0.96);
+  border-top: 1px solid #2a2a2a;
+  padding: 16px 16px 8px;
+  max-height: 62%;
+  overflow-y: auto;
+  pointer-events: all;
+}
+
+.multi-picker-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 2px;
+}
+
+.multi-picker-sub {
+  font-size: 11px;
+  color: #666;
+  margin: 0 0 12px;
+}
+
+.multi-bc-btn {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 11px 14px;
+  margin-bottom: 8px;
+  background: #1a1a1a;
+  border: 1px solid #2e2e2e;
+  border-radius: 10px;
+  cursor: pointer;
+  gap: 12px;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.multi-bc-btn:active {
+  background: #252525;
+}
+
+.multi-bc-btn--priority {
+  border-color: var(--app-gold);
+  background: rgba(160, 115, 32, 0.1);
+}
+
+.multi-bc-format {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #555;
+  flex-shrink: 0;
+  min-width: 64px;
+}
+
+.multi-bc-btn--priority .multi-bc-format {
+  color: var(--app-gold);
+}
+
+.multi-bc-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  text-align: right;
+  font-family: monospace;
+}
+
+.multi-rescan-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 10px;
+  margin-top: 2px;
+  background: transparent;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #777;
+  font-size: 13px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.scan-hint--multiple { color: var(--app-gold); }
 </style>
