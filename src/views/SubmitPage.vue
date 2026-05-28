@@ -283,7 +283,7 @@ async function confirmSubmit(type: 'sales' | 'returns') {
 
   const alert = await alertController.create({
     header: `Submit ${label}`,
-    message: `Submit ${lines.length} line(s) for <strong>${s.customer.displayName}</strong>?`,
+    message: `Submit ${lines.length} line(s) for ${s.customer.displayName}?`,
     buttons: [
       { text: 'Cancel', role: 'cancel' },
       { text: 'Submit', role: 'confirm' },
@@ -304,7 +304,6 @@ async function doSubmitSales(customerNumber: string) {
   salesStatus.value = 'submitting';
   const payload: SalesOrderPayload = {
     customerNumber,
-    ...(session.value?.orderDate ? { orderDate: session.value.orderDate } : {}),
     lines: sessionStore.salesOrders.map((l) => ({
       itemNumber: l.itemNumber,
       description: l.description,
@@ -331,7 +330,6 @@ async function doSubmitReturns(customerNumber: string) {
   returnsStatus.value = 'submitting';
   const payload: SalesReturnOrderPayload = {
     customerNumber,
-    ...(session.value?.orderDate ? { orderDate: session.value.orderDate } : {}),
     lines: sessionStore.returnOrders.map((l) => ({
       itemNumber: l.itemNumber,
       description: l.description,
