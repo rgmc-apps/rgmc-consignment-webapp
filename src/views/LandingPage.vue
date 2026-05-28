@@ -55,7 +55,7 @@
             v-for="draft in sessionStore.drafts"
             :key="draft.id"
             button
-            detail
+            :detail="false"
             @click="resumeDraft(draft)"
           >
             <ion-icon :icon="documentTextOutline" slot="start" color="warning" />
@@ -67,6 +67,19 @@
                 {{ formatDate(draft.updatedAt) }}
               </p>
             </ion-label>
+            <!-- Submit shortcut — only for drafts that already have order lines -->
+            <ion-button
+              v-if="draft.salesOrders.length > 0 || draft.returnOrders.length > 0"
+              slot="end"
+              fill="solid"
+              color="primary"
+              size="small"
+              class="draft-submit-btn"
+              @click.stop="submitDraft(draft)"
+            >
+              <ion-icon :icon="sendOutline" slot="start" />
+              Submit
+            </ion-button>
             <ion-button
               slot="end"
               fill="clear"
@@ -137,6 +150,7 @@ import {
   documentTextOutline,
   trashOutline,
   storefrontOutline,
+  sendOutline,
   chevronDownCircleOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
@@ -188,6 +202,12 @@ function formatDate(iso: string): string {
 function resumeDraft(draft: ScanSession) {
   sessionStore.resumeDraft(draft);
   router.push('/app/scan');
+}
+
+/** Resume a draft that already has order lines and go straight to Submit. */
+function submitDraft(draft: ScanSession) {
+  sessionStore.resumeDraft(draft);
+  router.push('/app/submit');
 }
 
 async function confirmDeleteDraft(id: string) {
@@ -285,6 +305,14 @@ async function handleLogout() {
 .customers-list {
   background: var(--app-surface);
   margin: 0 0 8px;
+}
+
+.draft-submit-btn {
+  --border-radius: 6px;
+  height: 30px;
+  font-size: 12px;
+  font-weight: 700;
+  margin-right: 4px;
 }
 
 .section-count {

@@ -348,6 +348,12 @@ async function doSubmitReturns(customerNumber: string) {
 }
 
 function finalizeSession() {
+  // Nothing submitted yet — keep as draft and return home
+  if (!anyDone.value && !anyFailed.value) {
+    sessionStore.saveAsDraftAndExit();
+    router.replace('/app/home');
+    return;
+  }
   const combinedError = [salesError.value, returnsError.value].filter(Boolean).join('; ');
   if (anyFailed.value) {
     sessionStore.markFailed(combinedError || 'Partial submission failure');

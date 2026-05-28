@@ -112,6 +112,17 @@ export const useSessionStore = defineStore('session', () => {
     _saveDraft();
   }
 
+  /** Called by "Save as Draft & Go Back" — keeps the session in drafts,
+   *  does NOT move it to history, and clears it as the active session. */
+  function saveAsDraftAndExit(): void {
+    if (!currentSession.value) return;
+    currentSession.value.status = 'draft';
+    _touch();
+    StorageService.saveDraft({ ...currentSession.value });
+    drafts.value = StorageService.getDrafts();
+    currentSession.value = null;
+  }
+
   function markSubmitted(salesSeries?: string, returnSeries?: string): void {
     if (!currentSession.value) return;
     currentSession.value.status = 'submitted';
@@ -193,6 +204,7 @@ export const useSessionStore = defineStore('session', () => {
     addReturnOrder,
     removeSalesOrder,
     removeReturnOrder,
+    saveAsDraftAndExit,
     markSubmitted,
     markFailed,
     retryFailedSession,
