@@ -28,7 +28,7 @@
               <ion-icon :icon="cloudOfflineOutline" />
               OFFLINE
             </span>
-            <span v-else class="sync-today">{{ todayLabel }}</span>
+            <span v-else class="sync-today">{{ todayLabel }} <span class="version-tag">v{{ appVersion }}</span></span>
           </Transition>
         </div>
       </ion-toolbar>
@@ -759,6 +759,8 @@ const todayLabel = computed(() =>
   }),
 );
 
+const appVersion = __APP_VERSION__;
+
 /* ─── Confirm sheet ─── */
 const showConfirmModal = ref(false);
 const confirmItem = ref<Item | null>(null);
@@ -920,6 +922,7 @@ async function toast(message: string, color: string) {
   color: var(--app-text-muted);
 }
 .sync-today { font-size: 11px; color: var(--app-gold-light); }
+.version-tag { opacity: 0.5; font-size: 10px; font-weight: 600; letter-spacing: 0.3px; }
 .offline-badge {
   display: inline-flex;
   align-items: center;
