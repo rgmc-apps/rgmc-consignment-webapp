@@ -34,6 +34,10 @@
                 {{ session.brand.displayName }} &bull;
                 {{ formatDate(session.createdAt) }}
               </p>
+              <p v-if="session.orderDate" class="cust-order-date">
+                <ion-icon :icon="calendarOutline" />
+                Order Date: <strong>{{ session.orderDate }}</strong>
+              </p>
             </div>
           </div>
         </ion-card-content>
@@ -232,6 +236,7 @@ import {
   alertCircleOutline,
   checkmarkDoneOutline,
   cloudOfflineOutline,
+  calendarOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
 import { ApiService } from '@/services/api.service';
@@ -299,6 +304,7 @@ async function doSubmitSales(customerNumber: string) {
   salesStatus.value = 'submitting';
   const payload: SalesOrderPayload = {
     customerNumber,
+    ...(session.value?.orderDate ? { orderDate: session.value.orderDate } : {}),
     lines: sessionStore.salesOrders.map((l) => ({
       itemNumber: l.itemNumber,
       description: l.description,
@@ -325,6 +331,7 @@ async function doSubmitReturns(customerNumber: string) {
   returnsStatus.value = 'submitting';
   const payload: SalesReturnOrderPayload = {
     customerNumber,
+    ...(session.value?.orderDate ? { orderDate: session.value.orderDate } : {}),
     lines: sessionStore.returnOrders.map((l) => ({
       itemNumber: l.itemNumber,
       description: l.description,
@@ -390,6 +397,15 @@ async function showToast(message: string, color: string) {
   color: var(--app-text-muted);
   margin: 3px 0 0;
 }
+.cust-order-date {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin: 4px 0 0;
+}
+.cust-order-date ion-icon { font-size: 13px; }
 
 /* ── Section ── */
 .section {

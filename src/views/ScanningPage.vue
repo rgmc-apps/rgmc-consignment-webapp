@@ -125,6 +125,20 @@
               <p v-else class="cust-placeholder">Tap to select customer…</p>
               <ion-icon :icon="chevronDownOutline" color="medium" />
             </div>
+
+            <!-- Order date -->
+            <div class="order-date-section">
+              <p class="field-label">ORDER DATE</p>
+              <div class="order-date-row">
+                <ion-icon :icon="calendarOutline" color="medium" class="order-date-icon" />
+                <input
+                  type="date"
+                  :value="orderDateValue"
+                  @change="(e) => { orderDateValue = (e.target as HTMLInputElement).value }"
+                  class="order-date-input"
+                />
+              </div>
+            </div>
           </ion-card-content>
         </ion-card>
 
@@ -561,6 +575,7 @@ import {
   warningOutline,
   chevronDownOutline,
   chevronDownCircleOutline,
+  calendarOutline,
   barcodeOutline,
   addCircleOutline,
   addOutline,
@@ -687,6 +702,11 @@ const customerSearchRef = computed(() => customerSearch.value);
 const { filteredCustomers } = useCustomerFilter(brandRef, allCustomersRef, customerSearchRef);
 
 const selectedCustomer = computed(() => sessionStore.currentSession?.customer ?? null);
+
+const orderDateValue = computed({
+  get: () => sessionStore.currentSession?.orderDate ?? new Date().toISOString().split('T')[0],
+  set: (val: string) => sessionStore.setOrderDate(val),
+});
 
 function selectCustomer(c: Customer) {
   sessionStore.setCustomer(c);
@@ -1327,5 +1347,33 @@ async function toast(message: string, color: string) {
 
 .conf-btn {
   margin-bottom: 10px;
+}
+
+/* ── Order date ── */
+.order-date-section {
+  border-top: 1px solid var(--app-border);
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.order-date-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.order-date-icon { font-size: 18px; flex-shrink: 0; }
+
+.order-date-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--app-dark);
+  font-family: inherit;
+  padding: 4px 0;
 }
 </style>

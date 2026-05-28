@@ -17,12 +17,17 @@ function computeTotal(srp: number, quantity: number, discountType: DiscountType,
   return Math.max(0, gross - discountValue);
 }
 
+function todayISO(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
 function buildSession(brand: Brand, user: Contact): ScanSession {
   return {
     id: generateId(),
     brand: { id: brand.id, code: brand.code, displayName: brand.displayName },
     user: { displayName: user.displayName },
     customer: null,
+    orderDate: todayISO(),
     salesOrders: [],
     returnOrders: [],
     createdAt: new Date().toISOString(),
@@ -74,6 +79,13 @@ export const useSessionStore = defineStore('session', () => {
   function setCustomer(customer: Customer): void {
     if (!currentSession.value) return;
     currentSession.value.customer = customer;
+    _touch();
+    _saveDraft();
+  }
+
+  function setOrderDate(date: string): void {
+    if (!currentSession.value) return;
+    currentSession.value.orderDate = date;
     _touch();
     _saveDraft();
   }
@@ -200,6 +212,7 @@ export const useSessionStore = defineStore('session', () => {
     startNewSession,
     resumeDraft,
     setCustomer,
+    setOrderDate,
     addSalesOrder,
     addReturnOrder,
     removeSalesOrder,
