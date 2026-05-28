@@ -4,34 +4,39 @@
 
 Ship and maintain the **RGMC Consignment Web App** on Google Cloud Run — a mobile-first Ionic/Vue scanning tool for sales reps to build sales/return orders against a GCP-hosted Business Central API.
 
-**Acceptance criteria (all now met as of this session):**
+**Acceptance criteria (all met as of this session):**
 - ✅ Login pre-syncs data automatically (cycling labels, lands on home)
 - ✅ ScanningPage shows items after sync (no manual re-tap needed)
 - ✅ Barcode/item scan → confirm sheet with qty stepper, discount, grand total
+- ✅ Multi-barcode picker: Code 128 prioritised first, user picks when multiple detected
+- ✅ Single barcode confirm panel with beep + haptic before resolving
 - ✅ Offline mode (OFFLINE badge, scan works if items loaded, SubmitPage disabled offline)
 - ✅ Pull-to-refresh on ScanningPage, LandingPage, HistoryPage
 - ✅ No `QuotaExceededError` in localStorage (items in `_itemsMemory`)
 - ✅ All screens work against live GCP API via nginx proxy
 - ✅ "Save as Draft & Go Back" saves as `draft` status (not `submitted`)
+- ✅ Drafts without a customer selected are NOT saved or shown on Home
 - ✅ Drafts with order lines have a Submit shortcut button on the Home page
 - ✅ App is full-screen on desktop; content centred in a 720 px column
+- ✅ Stale-chunk errors on deploy fixed (nginx no-cache + router error handler)
+- ✅ Order date field on ScanningPage (saved locally, NOT sent to API — backend bug)
+- ✅ Version number `v1.0.0` displayed in sync bar next to date
 
 ---
 
 ## Current State
 
 **All code complete and deployed. No known open bugs.**
+Cloud Build `1a502180` was WORKING at session end (triggered by the customer-less draft fix commit `7c87652`).
 
 | Area | Status |
 |---|---|
 | All `src/` source files | ✅ Clean, TypeScript passes, build passes |
-| Cloud Run live revision | `rgmc-consignment-webapp-00019-g7m` |
-| Cloud Build for `ca80527` | QUEUED at session end — deploying draft fix |
 | Live URL | `https://rgmc-consignment-webapp-a52bp7y4ea-as.a.run.app` |
+| Latest deployed commit | `7c87652` (building at session end) |
 
-**Note on `dist/` in git:** `.gitignore` only excludes `node_modules`; `dist/` IS tracked. The user committed `28dc4bf` (dist-only, "fixed draft saving") after a local build. Cloud Build always runs `npm run build` from source, so committed dist files do not affect what's deployed.
-
-**Debug log still present:** `api.service.ts` interceptor logs every `/bc/*` response shape to the browser console via `console.info`. Useful for diagnosing API issues; can be removed once the team is confident the response shapes are stable.
+**Known open backend issue:**
+`orderDate` (YYYY-MM-DD string) was added to the API payload but the GCP Python backend returns `500 — Object of type date is not JSON serializable`. The field has been **removed from the API payload** for now. It is still saved locally on `ScanSession.orderDate` and displayed in the app. The backend needs a fix before this can be re-enabled.
 
 ---
 
@@ -41,103 +46,118 @@ Ship and maintain the **RGMC Consignment Web App** on Google Cloud Run — a mob
 
 ### This session's changes
 
-- `src/stores/session.store.ts` — Added `saveAsDraftAndExit()`: sets `status:'draft'`, touches `updatedAt`, writes to drafts storage, nulls `currentSession`. Added to the exported return object. (`ca80527`)
+- `nginx.conf` — Moved `Cache-Control: no-store, no-cache, must-revalidate` from `location = /index.html` into `location /` (the actual SPA fallback path). Old location only fired on direct `/index.html` requests, not route fallbacks. Security headers also repeated there due to nginx `add_header` inheritance rules. (`f060b39`)
 
-- `src/views/SubmitPage.vue` — Fixed `finalizeSession()`: when `!anyDone && !anyFailed` (button label "Save as Draft & Go Back"), now calls `saveAsDraftAndExit()` and navigates to `/app/home`. Previously fell through to `markSubmitted()` unconditionally. (`ca80527`)
+- `src/router/index.ts` — Added `router.onError()` handler: if a dynamic import fails (stale chunk after deploy), hard-navigates to the target route to reload fresh assets. (`f060b39`)
 
-- `src/views/LandingPage.vue` — Added `sendOutline` icon import; added `submitDraft(draft)` function that calls `resumeDraft()` + `router.push('/app/submit')`; added gold **Submit** button on each draft row where `salesOrders.length > 0 || returnOrders.length > 0`; added `.draft-submit-btn` CSS; changed `detail` to `:detail="false"` on the draft item (was showing a default chevron alongside the new buttons). (`ca80527`)
+- `src/components/ItemSelectorModal.vue` — Major scanner upgrade:
+  - `ScanStatus` extended with `'multiple'` and `'confirm'`
+  - `FORMAT_PRIORITY` / `FORMAT_LABELS` constants for Code 128-first sorting
+  - `startAutoDetection()`: single barcode → confirm panel; multiple → sorted picker; both trigger `beepAndHaptic()`
+  - `beepAndHaptic()`: 1800 Hz square wave via Web Audio API + `navigator.vibrate(60)`; `AudioContext` unlocked during tap gesture for iOS
+  - `openScanner()`: creates and resumes `AudioContext` before any `await`
+  - `stopCamera()`: closes `AudioContext` on teardown
+  - New confirm panel UI (`.single-confirm`) + multi-picker UI (`.multi-picker`) in template
+  - (`9c1e131`, `3857f54`)
 
-- `src/views/ScanningPage.vue` — Removed `hasCache` from `useSync()` destructure; replaced with a local `computed()` that depends on reactive `cachedItems.value`, `cachedCustomers.value`, `categories.value`. This is what actually fixes items not showing after sync. (`11dcc89`)
+- `src/types/index.ts` — Added `orderDate?: string` to `ScanSession`. `SalesOrderPayload` and `SalesReturnOrderPayload` do NOT have `orderDate` (removed after backend 500 error). (`bff6568`, `e3ecc32`)
 
-- `src/composables/useSync.ts` — Removed the broken `hasCache` computed and its export. It read `_itemsMemory` (a plain JS variable) which Vue's tracker cannot observe, so it was permanently cached as `false`. (`11dcc89`)
+- `src/stores/session.store.ts` — Added `todayISO()` helper; `buildSession()` initialises `orderDate` to today. Added `setOrderDate(date)` function. `_saveDraft()` now returns early if `currentSession.customer` is null — prevents customerless ghost drafts. `saveAsDraftAndExit()` only persists to storage when a customer is set (still nulls `currentSession` unconditionally). (`bff6568`, `7c87652`)
 
-- `src/theme/variables.css` — Removed the 520 px phone-column `ion-app` override. Kept `ion-content::part(scroll)` max-width 720 px with `margin: auto` for content centering. Mobile (≤599 px) overridden to `max-width: 100%`. (`fe1420b`)
+- `src/views/ScanningPage.vue` — Added ORDER DATE field below customer card (native `<input type="date">`, `orderDateValue` writable computed). Added `appVersion = __APP_VERSION__` constant; displayed as muted `v1.0.0` tag in sync bar next to `todayLabel`. (`bff6568`, `06123be`)
 
-- `src/views/LoginPage.vue` — Login container `max-width` changed from `520px` to `480px`. (`fe1420b`)
+- `src/views/SubmitPage.vue` — Removed `<strong>` HTML tags from alert confirmation message (Ionic escapes HTML in message property). Added `calendarOutline` icon; order date shown in info card. `orderDate` removed from both API payloads. (`e3ecc32`, `bff6568`)
 
-- `src/services/api.service.ts` — `extractList<T>()` handles `{ data:[] }`, `{ value:[] }` (BC OData), bare array. Interceptor logs every `/bc/*` response shape to console. (`faf1e09`, previous session)
+- `src/views/LandingPage.vue` — Added `visibleDrafts` computed that filters `sessionStore.drafts` to only those with `customer !== null`. `hasDrafts` section uses `visibleDrafts.length > 0` and `v-for` iterates `visibleDrafts`. (`7c87652`)
+
+- `src/env.d.ts` — Added `declare const __APP_VERSION__: string` global. (`06123be`)
+
+- `vite.config.ts` — Added `define: { __APP_VERSION__: JSON.stringify(version) }` injecting version from `package.json` at build time. (`06123be`)
+
+- `package.json` — Bumped `"version"` from `"0.1.0"` to `"1.0.0"`. (`06123be`)
 
 ---
 
 ## Failed Attempts
 
-- **`useSync.hasCache` as a shared computed** — Read `StorageService.getCachedItems()` which returns the plain JS module variable `_itemsMemory`. Vue's reactivity tracker cannot observe plain variables, so the computed cached its initial `false` value and never re-evaluated after sync. **Fix**: local reactive computed in ScanningPage that uses the component's Vue refs.
+- **`location = /index.html { no-cache }` in nginx** — Only fires when browser literally requests `/index.html`. SPA fallback routes (e.g. `/app/home`) go through `location /` which had no cache headers, so browsers cached `index.html` indefinitely. After a new deploy with new chunk hashes, the old cached `index.html` referenced non-existent chunks → MIME type error. **Fix**: moved no-cache to `location /`.
 
-- **Phone-column desktop mode** — Constrained `ion-app` to 520 px with `left:50%; transform:translateX(-50%)`. User wanted full-screen desktop behaviour. Reverted; kept inner-content centering only.
+- **`orderDate` in API payload** — Sending `orderDate: "2026-05-28"` caused `500 — Object of type date is not JSON serializable` from the GCP Python backend. The backend parses the string into a Python `datetime.date` object and then fails to serialize the response. **Fix**: removed from API payload. Backend must fix its JSON encoder before this can be re-added.
 
-- **`pulling-icon="chevron-down-circle-outline"` (string)** — Ionic's `ion-icon` used `new URL(path, import.meta.url)` to fetch the SVG. In production, `import.meta.url` resolves to an invalid base. Fixed with `:pulling-icon="chevronDownCircleOutline"` (imported SVG object).
+- **`<strong>` HTML in `alertController.message`** — Ionic 7+ escapes HTML in the alert `message` property, so `<strong>Customer Name</strong>` displayed literally. **Fix**: plain text only.
 
-- **`localStorage` for items** — 5 MB quota exceeded. Items now in `_itemsMemory` only.
-
-- **Inline `envsubst` in Dockerfile** — Unreliable in Alpine sh. Fixed with `docker-entrypoint.sh`.
-
-- **Unquoted nginx regex braces** — Caused nginx startup failure. Fixed by quoting the regex.
-
-- **`VITE_API_BASE_URL` set to GCP origin** — CORS blocked all requests. Fixed by leaving empty; nginx proxies `/bc/*`.
+- **`useSync.hasCache` as shared computed** (from prior session) — Read `StorageService.getCachedItems()` which returns a plain JS variable `_itemsMemory`. Vue's reactivity tracker cannot observe it, so the computed always returned initial `false`. Fixed with a local reactive computed in `ScanningPage` that depends on component-level Vue refs.
 
 ---
 
 ## Next Step
 
-**Verify the draft fix works end-to-end on the live app** once Cloud Build `27b5cedc` finishes deploying:
+**Verify the customer-less draft fix and all scanner features on the live app** once Cloud Build `1a502180` finishes:
 
-1. Log in → Scan → add items → go to Review & Submit
-2. Tap **"Save as Draft & Go Back"** (before submitting anything)
-3. Confirm: navigates to `/app/home`, draft appears in "Pending Drafts" with `draft` status (amber icon, NOT in History)
-4. Tap the gold **Submit** button on the draft row → should go directly to `/app/submit` with the session pre-loaded
-5. Submit orders → tap **Finish Session** → session moves to History as `submitted`
+1. Open scanner → do NOT select a customer → navigate back to Home → confirm NO draft appears
+2. Open scanner → select a customer → add an item → go back → confirm draft IS visible on Home
+3. Open scanner → scan a barcode → verify beep + haptic + confirm panel → tap "Use This Barcode"
+4. Scan a product label with multiple barcodes → verify picker shows Code 128 first (gold border)
+5. Check sync bar shows `Thu, May 28, 2026 v1.0.0`
+6. Check order date field in customer card defaults to today and is editable
 
-If the Cloud Build is still running, check with:
-```powershell
-gcloud builds list --limit=3 --format="table(id,status,createTime)"
-```
+When backend `orderDate` is fixed, re-add to payloads in `src/views/SubmitPage.vue` (`doSubmitSales` and `doSubmitReturns`) and to the types `SalesOrderPayload`/`SalesReturnOrderPayload` in `src/types/index.ts`.
 
 ---
 
 ## Context & Gotchas
 
 ### Deployment
-- **GitHub push → Cloud Build trigger → Cloud Run** (automatic, ~5 min)
+- **GitHub push → Cloud Build trigger → Cloud Run** (~5 min)
 - Project: `durable-woods-465907-n1` | Service: `rgmc-consignment-webapp` | Region: `asia-southeast1`
 - GCP API: `https://rgmc-gcp-api-935246372408.asia-southeast1.run.app`
 - Dockerfile always runs `npm run build` — committed `dist/` is irrelevant
 
-### `_itemsMemory` — plain JS, not reactive
-`let _itemsMemory: Item[] = []` in `storage.service.ts` is intentionally NOT a Vue ref (to avoid the old localStorage quota issue). Any computed that reads `StorageService.getCachedItems()` directly will NOT update reactively. Always gate display logic on component-level Vue refs that `refreshCache()` writes to.
+### Version number
+- Defined in `package.json → version`
+- Injected at build time by Vite: `define: { __APP_VERSION__: JSON.stringify(version) }`
+- To bump: change `"version"` in `package.json`, push, redeploy — no code changes needed
+- Declared as `const __APP_VERSION__: string` in `src/env.d.ts` for TypeScript
 
-### `hasCache` — only exists in `ScanningPage.vue` now
-`useSync.ts` no longer exports `hasCache`. The ScanningPage has its own local computed:
+### `orderDate` — backend not ready
+- Field is on `ScanSession.orderDate?: string` (YYYY-MM-DD) and is saved to localStorage/drafts
+- Displayed in ScanningPage (customer card) and SubmitPage (info card)
+- NOT sent to the API — backend Python serialization bug with `datetime.date` objects
+- To re-enable: add `...(session.value?.orderDate ? { orderDate: session.value.orderDate } : {})` back to payloads in `SubmitPage.vue`, and add `orderDate?: string` back to `SalesOrderPayload`/`SalesReturnOrderPayload` in `types/index.ts`
+
+### Draft save guard
+`_saveDraft()` returns early if `currentSession.customer` is null. This means:
+- Opening the scanner never creates a storage entry until a customer is picked
+- `saveAsDraftAndExit()` with no customer → nulls the session, no storage write
+- `LandingPage.visibleDrafts` filters as a safety net for pre-existing customerless drafts in storage
+
+### Barcode scanner — AudioContext / iOS
+`AudioContext` is created inside `openScanner()` **before any `await`** so it runs within the user-gesture stack (required by iOS Safari). If created after an `await`, iOS will refuse to play audio. The context is closed in `stopCamera()`. On iOS silent mode, beep is muted but `navigator.vibrate()` still fires on Android.
+
+### `BarcodeDetector` availability
+`BarcodeDetector` is available in Chrome for Android and desktop Chrome. Not available in Safari (iOS/macOS) or Firefox. The scanner gracefully falls back to manual text input when the API is absent.
+
+### `_itemsMemory` — plain JS, not reactive
+`let _itemsMemory: Item[] = []` in `storage.service.ts` is NOT a Vue ref (avoids old localStorage quota issue). Any computed that reads `StorageService.getCachedItems()` directly will NOT update reactively. Always gate display logic on component-level Vue refs.
+
+### `hasCache` — only exists in `ScanningPage.vue`
+`useSync.ts` no longer exports `hasCache`. Local computed:
 ```typescript
 const hasCache = computed(
   () => cachedItems.value.length > 0 && cachedCustomers.value.length > 0 && categories.value.length > 0
 );
 ```
-This is correct and reactive. Do not re-add `hasCache` to `useSync` without making it accept reactive refs as parameters.
 
 ### Draft vs. History flow
-| Action | Method called | Result |
+| Action | Method | Result |
 |---|---|---|
-| Save as Draft & Go Back (0 submissions) | `saveAsDraftAndExit()` | Stays in drafts, `status:'draft'`, → `/app/home` |
-| After any failed submission | `markFailed(error)` | Moves to history, `status:'failed'` — NOT nulled from currentSession |
+| Save as Draft & Go Back (0 submissions, customer set) | `saveAsDraftAndExit()` | Stays in drafts, `status:'draft'`, → `/app/home` |
+| Save as Draft & Go Back (no customer) | `saveAsDraftAndExit()` | Session discarded, → `/app/home`, nothing saved |
+| After any failed submission | `markFailed(error)` | Moves to history, `status:'failed'` — does NOT null currentSession |
 | After all submitted | `markSubmitted(series?)` | Moves to history, `status:'submitted'`, nulls currentSession |
 
-Note: `markFailed()` does NOT null `currentSession`. The session stays active so the user can retry from SubmitPage. Only `markSubmitted()` and `saveAsDraftAndExit()` null it.
-
-### Resubmit button visibility
-The Submit button on draft rows only appears when:
-```javascript
-draft.salesOrders.length > 0 || draft.returnOrders.length > 0
-```
-Drafts with a customer selected but no items scanned yet only show the tap-to-resume path (→ Scan).
-
-### nginx.conf is a template
-Contains `${PORT}` placeholder. `docker-entrypoint.sh` runs `envsubst '$PORT'` at container start. Single-quoted to preserve nginx's `$uri`, `$remote_addr`, etc.
-
-### `VITE_API_BASE_URL` baked at build time
-Empty in `.env.production`. Axios makes relative `/bc/*` requests. Nginx proxies to GCP API. Runtime env var has no effect.
-
-### Auth guard ordering
-`router.beforeEach` fires before `authStore.loadFromStorage()`. Direct URL navigation always hits `/splash` → loads auth → redirects. Do not reorder.
+### nginx `add_header` inheritance
+In nginx, `add_header` in a `location` block replaces parent `add_header` directives (no merge). The `location /` block explicitly lists all security headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy) alongside `Cache-Control: no-store` to avoid silently dropping them.
 
 ### localStorage keys
 | Key | Contents |
@@ -149,11 +169,17 @@ Empty in `.env.production`. Axios makes relative `/bc/*` requests. Nginx proxies
 | `rgmc_cache_item_categories` | ItemCategory[] |
 | `rgmc_sync_timestamps` | `{ customers, items, itemCategories: ISO }` |
 | `rgmc_sessions` | ScanSession[] `status:'submitted'\|'failed'` |
-| `rgmc_drafts` | ScanSession[] `status:'draft'` |
+| `rgmc_drafts` | ScanSession[] `status:'draft'` (customerless entries filtered on display) |
 | ~~`rgmc_cache_items`~~ | **Removed** — items in `_itemsMemory` only |
 
 ### `OrderLine` type gotcha
 Has `itemName` (not `itemDisplayName`) and NO `itemCategoryCode`. Check `src/types/index.ts` before adding code that references order line fields.
 
-### Capacitor not initialised
-`@capacitor/cli` and `@capacitor/core` in `package.json` but `npx cap add android/ios` never run. No `android/` or `ios/` directories.
+### nginx.conf is a template
+Contains `${PORT}` placeholder. `docker-entrypoint.sh` runs `envsubst '$PORT'` at container start. Single-quoted to preserve nginx's `$uri`, `$remote_addr`, etc.
+
+### `VITE_API_BASE_URL` baked at build time
+Empty in `.env.production`. Axios makes relative `/bc/*` requests. Nginx proxies to GCP API. Runtime env var has no effect.
+
+### Auth guard ordering
+`router.beforeEach` fires before `authStore.loadFromStorage()`. Direct URL navigation always hits `/splash` → loads auth → redirects. Do not reorder.

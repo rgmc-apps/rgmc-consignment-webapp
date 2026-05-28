@@ -119,11 +119,13 @@ export interface SalesOrderLine {
 
 export interface SalesOrderPayload {
   customerNumber: string;
+  orderDate?: string;
   lines: SalesOrderLine[];
 }
 
 export interface SalesReturnOrderPayload {
   customerNumber: string;
+  orderDate?: string;
   lines: SalesOrderLine[];
 }
 

@@ -1,1 +1,29 @@
-node_modules
+# Dependencies
+node_modules/
+
+# Build output — Docker runs npm run build; dist/ not needed in git
+dist/
+
+# Vite local env overrides (never commit)
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+desktop.ini
+*.suo
+*.user
+
+# Claude Code session files
+.claude/
+handoff.md
+
+# Dev-only scripts
+screenshots/
+screenshot-tour.js
+handoff.py

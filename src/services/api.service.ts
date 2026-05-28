@@ -98,7 +98,7 @@ export const ApiService = {
   },
 
   async submitSalesReturnOrder(payload: SalesReturnOrderPayload): Promise<unknown> {
-    const res = await apiClient.post('/bc/sales-return-orders', payload);
+    const res = await apiClient.post('/bc/custom/sales-return-orders', payload);
     return res.data;
   },
 };
