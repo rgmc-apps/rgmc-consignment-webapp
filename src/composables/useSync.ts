@@ -25,15 +25,19 @@ export function useSync() {
     syncError.value = null;
 
     try {
-      const [customers, items, categories] = await Promise.all([
+      const [customers, items, categories, brands, contacts] = await Promise.all([
         ApiService.getCustomers(),
         ApiService.getItems(),
         ApiService.getItemCategories(),
+        ApiService.getBrands(),
+        ApiService.getContacts(),
       ]);
 
       StorageService.setCachedCustomers(customers);
-      StorageService.setCachedItems(items);
+      StorageService.setCachedItems(items);       // writes IDB in background
       StorageService.setCachedItemCategories(categories);
+      StorageService.setCachedBrands(brands);
+      StorageService.setCachedContacts(contacts);
       StorageService.setSyncTimestamp('customers');
       StorageService.setSyncTimestamp('items');
       StorageService.setSyncTimestamp('itemCategories');

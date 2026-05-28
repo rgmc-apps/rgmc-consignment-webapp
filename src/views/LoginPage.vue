@@ -139,6 +139,7 @@ import { eyeOutline, eyeOffOutline, alertCircleOutline, cloudOfflineOutline, war
 import { useAuthStore } from '@/stores/auth.store';
 import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
+import { useSync } from '@/composables/useSync';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import type { Brand } from '@/types';
 
@@ -154,7 +155,7 @@ const showPassword = ref(false);
 const currentYear = new Date().getFullYear();
 
 const isLoading = computed(() => authStore.isLoading);
-const isSyncing = ref(false);
+const { isSyncing, sync } = useSync();
 
 const syncBtnMessages = [
   'Loading data…',
@@ -240,26 +241,9 @@ async function handleLogin() {
   const ok = await authStore.login(selectedBrand, username.value, password.value);
   if (!ok) return;
 
-  /* Pre-fetch master data right after authentication so ScanningPage is
-     ready without requiring a manual sync tap. Failure is non-fatal. */
-  isSyncing.value = true;
-  try {
-    const [customers, items, categories] = await Promise.all([
-      ApiService.getCustomers(),
-      ApiService.getItems(),
-      ApiService.getItemCategories(),
-    ]);
-    StorageService.setCachedCustomers(customers);
-    StorageService.setCachedItems(items);
-    StorageService.setCachedItemCategories(categories);
-    StorageService.setSyncTimestamp('customers');
-    StorageService.setSyncTimestamp('items');
-    StorageService.setSyncTimestamp('itemCategories');
-  } catch {
-    /* Sync failure is non-fatal — user can retry from the scanning page */
-  } finally {
-    isSyncing.value = false;
-  }
+  /* Full offline prep — fetch all master data so the app works without a
+     network connection after this login. Failure is non-fatal. */
+  await sync();
 
   router.replace('/app/home');
 }

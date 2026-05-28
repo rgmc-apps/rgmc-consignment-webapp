@@ -42,9 +42,28 @@ function remove(key: string): void {
 }
 
 /* Items are too large for localStorage's 5MB per-origin cap.
-   Store in a module-level variable so they survive navigation within
-   the same tab but don't cause quota errors. Users sync once per session. */
+   Primary store: module-level variable for in-session access.
+   Secondary store: IndexedDB so items survive tab refresh / offline restarts. */
 let _itemsMemory: Item[] = [];
+
+const IDB_NAME = 'rgmc-cache';
+const IDB_ITEMS_STORE = 'items';
+
+function openItemsIDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_ITEMS_STORE)) {
+        db.createObjectStore(IDB_ITEMS_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror  = () => reject(req.error);
+  });
+}
+
+let _initPromise: Promise<void> | null = null;
 
 export const StorageService = {
   /* ─── Auth ─── */
@@ -86,12 +105,12 @@ export const StorageService = {
     set(KEYS.CACHE_CUSTOMERS, slim);
   },
 
-  /* Items: in-memory only — no localStorage writes */
+  /* Items: in-memory + IndexedDB for offline persistence */
   getCachedItems(): Item[] {
     return _itemsMemory;
   },
   setCachedItems(items: Item[]): void {
-    _itemsMemory = items.map((i) => ({
+    const slim = items.map((i) => ({
       id: i.id,
       number: i.number,
       displayName: i.displayName,
@@ -99,6 +118,40 @@ export const StorageService = {
       itemCategoryCode: i.itemCategoryCode,
       unitPrice: i.unitPrice,
     })) as Item[];
+    _itemsMemory = slim;
+    // Persist to IndexedDB — fire and forget so the sync isn't blocked
+    openItemsIDB().then((db) => {
+      const tx = db.transaction(IDB_ITEMS_STORE, 'readwrite');
+      tx.objectStore(IDB_ITEMS_STORE).put(slim, 'all');
+      tx.oncomplete = () => db.close();
+      tx.onerror   = () => db.close();
+    }).catch(() => {});
+  },
+
+  /* Restore items from IndexedDB into _itemsMemory on startup */
+  async loadCachedItemsAsync(): Promise<Item[]> {
+    try {
+      const db = await openItemsIDB();
+      const items = await new Promise<Item[]>((res) => {
+        const tx  = db.transaction(IDB_ITEMS_STORE, 'readonly');
+        const req = tx.objectStore(IDB_ITEMS_STORE).get('all');
+        req.onsuccess = () => { db.close(); res((req.result as Item[]) ?? []); };
+        req.onerror   = () => { db.close(); res([]); };
+      });
+      if (items.length) _itemsMemory = items;
+      return items;
+    } catch {
+      return _itemsMemory;
+    }
+  },
+
+  /* Idempotent startup initialiser — call once at app mount.
+     Loads items from IDB so offline scanning works after a refresh. */
+  init(): Promise<void> {
+    if (!_initPromise) {
+      _initPromise = this.loadCachedItemsAsync().then(() => undefined);
+    }
+    return _initPromise;
   },
 
   getCachedItemCategories(): ItemCategory[] {

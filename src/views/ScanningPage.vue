@@ -625,12 +625,13 @@ function refreshCache() {
 }
 
 onMounted(async () => {
+  /* Restore items from IndexedDB before checking cache — ensures items
+     are available after a browser refresh even when offline. */
+  await StorageService.init();
   refreshCache();
   if (!sessionStore.currentSession && authStore.brand && authStore.user) {
     sessionStore.startNewSession(authStore.brand, authStore.user);
   }
-  /* Auto-sync if items are not in memory (tab refresh or first visit after
-     skipping login pre-sync). Login already pre-syncs so this is usually a no-op. */
   if (cachedItems.value.length === 0) {
     await handleSync();
   }
