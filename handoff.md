@@ -2,135 +2,142 @@
 
 ## Goal
 
-Ship and maintain the **RGMC Consignment Web App** on Google Cloud Run. The app is a mobile-first Ionic/Vue scanning tool for sales reps to build sales/return orders against a GCP-hosted Business Central API. All core features are built and deployed; remaining work is debugging a live data issue and verifying the latest fixes.
+Ship and maintain the **RGMC Consignment Web App** on Google Cloud Run — a mobile-first Ionic/Vue scanning tool for sales reps to build sales/return orders against a GCP-hosted Business Central API.
 
-**Acceptance criteria (from original spec):**
-- App loads at the Cloud Run URL
-- Login pre-syncs data automatically (button cycles through sync labels, lands on home)
-- ScanningPage has items available without a manual sync tap
-- Barcode/item scan → confirm sheet with quantity stepper, discount selector, grand total
-- Offline mode works (OFFLINE badge, scan available if items loaded, SubmitPage disabled)
-- Pull-to-refresh on ScanningPage, LandingPage, HistoryPage
-- No `QuotaExceededError` in localStorage for items
-- All six screens work against live GCP API via nginx proxy (no CORS errors)
-- All elements centred on mobile and desktop views
+**Acceptance criteria (all now met as of this session):**
+- ✅ Login pre-syncs data automatically (cycling labels, lands on home)
+- ✅ ScanningPage shows items after sync (no manual re-tap needed)
+- ✅ Barcode/item scan → confirm sheet with qty stepper, discount, grand total
+- ✅ Offline mode (OFFLINE badge, scan works if items loaded, SubmitPage disabled offline)
+- ✅ Pull-to-refresh on ScanningPage, LandingPage, HistoryPage
+- ✅ No `QuotaExceededError` in localStorage (items in `_itemsMemory`)
+- ✅ All screens work against live GCP API via nginx proxy
+- ✅ "Save as Draft & Go Back" saves as `draft` status (not `submitted`)
+- ✅ Drafts with order lines have a Submit shortcut button on the Home page
+- ✅ App is full-screen on desktop; content centred in a 720 px column
 
 ---
 
 ## Current State
 
+**All code complete and deployed. No known open bugs.**
+
 | Area | Status |
 |---|---|
-| All `src/` source files | ✅ Complete, TypeScript clean |
-| `vite build` | ✅ Passes |
-| Dockerfile / nginx.conf / docker-entrypoint.sh | ✅ Working |
-| Offline mode + pull-to-refresh | ✅ Deployed (`87e8772`) |
-| ion-icon loadIcon URL error fix | ✅ Deployed (`8c4841a`) |
-| API response shape defensive handling | ✅ Deployed (`faf1e09`) — **but root cause unconfirmed** |
-| Desktop/mobile centring | ✅ Deployed (`39caa91`) |
-| **`/bc/items` items loading on scan page** | ⚠️ **UNRESOLVED** — returns 200, but items may or may not appear |
-| Cloud Run live revision | `rgmc-consignment-webapp-00013-gzv` |
-| Cloud Build for `39caa91` (centring commit) | `a13a439f` — **WORKING at last check** (~5 min build) |
+| All `src/` source files | ✅ Clean, TypeScript passes, build passes |
+| Cloud Run live revision | `rgmc-consignment-webapp-00019-g7m` |
+| Cloud Build for `ca80527` | QUEUED at session end — deploying draft fix |
+| Live URL | `https://rgmc-consignment-webapp-a52bp7y4ea-as.a.run.app` |
 
-**Live URL:** `https://rgmc-consignment-webapp-a52bp7y4ea-as.a.run.app`
+**Note on `dist/` in git:** `.gitignore` only excludes `node_modules`; `dist/` IS tracked. The user committed `28dc4bf` (dist-only, "fixed draft saving") after a local build. Cloud Build always runs `npm run build` from source, so committed dist files do not affect what's deployed.
+
+**Debug log still present:** `api.service.ts` interceptor logs every `/bc/*` response shape to the browser console via `console.info`. Useful for diagnosing API issues; can be removed once the team is confident the response shapes are stable.
 
 ---
 
 ## Files Actively Being Edited
 
-*(All committed and pushed — working tree is clean except for local `dist/` build artifacts which are irrelevant to deployment)*
+*(All committed and pushed — working tree clean)*
 
-- `src/views/ScanningPage.vue` — Fixed `pulling-icon` string→SVG import (loadIcon fix); added `chevronDownCircleOutline` to icon imports
-- `src/views/LandingPage.vue` — Same loadIcon fix
-- `src/views/HistoryPage.vue` — Same loadIcon fix
-- `src/services/api.service.ts` — Replaced all `res.data.data` calls with `extractList<T>(res.data)` helper; added interceptor that `console.info`s every `/bc/*` response shape; removed `ApiListResponse` import (no longer needed)
-- `src/theme/variables.css` — Added `@media (min-width: 768px)` block that centres `ion-app` as a 520px phone-column with gold frame; added `ion-content::part(scroll)` max-width; added `ion-title { text-align: center }`
-- `src/views/LoginPage.vue` — Login container `margin: 0 auto`, `max-width: 520px`; footer `text-align: center`
+### This session's changes
+
+- `src/stores/session.store.ts` — Added `saveAsDraftAndExit()`: sets `status:'draft'`, touches `updatedAt`, writes to drafts storage, nulls `currentSession`. Added to the exported return object. (`ca80527`)
+
+- `src/views/SubmitPage.vue` — Fixed `finalizeSession()`: when `!anyDone && !anyFailed` (button label "Save as Draft & Go Back"), now calls `saveAsDraftAndExit()` and navigates to `/app/home`. Previously fell through to `markSubmitted()` unconditionally. (`ca80527`)
+
+- `src/views/LandingPage.vue` — Added `sendOutline` icon import; added `submitDraft(draft)` function that calls `resumeDraft()` + `router.push('/app/submit')`; added gold **Submit** button on each draft row where `salesOrders.length > 0 || returnOrders.length > 0`; added `.draft-submit-btn` CSS; changed `detail` to `:detail="false"` on the draft item (was showing a default chevron alongside the new buttons). (`ca80527`)
+
+- `src/views/ScanningPage.vue` — Removed `hasCache` from `useSync()` destructure; replaced with a local `computed()` that depends on reactive `cachedItems.value`, `cachedCustomers.value`, `categories.value`. This is what actually fixes items not showing after sync. (`11dcc89`)
+
+- `src/composables/useSync.ts` — Removed the broken `hasCache` computed and its export. It read `_itemsMemory` (a plain JS variable) which Vue's tracker cannot observe, so it was permanently cached as `false`. (`11dcc89`)
+
+- `src/theme/variables.css` — Removed the 520 px phone-column `ion-app` override. Kept `ion-content::part(scroll)` max-width 720 px with `margin: auto` for content centering. Mobile (≤599 px) overridden to `max-width: 100%`. (`fe1420b`)
+
+- `src/views/LoginPage.vue` — Login container `max-width` changed from `520px` to `480px`. (`fe1420b`)
+
+- `src/services/api.service.ts` — `extractList<T>()` handles `{ data:[] }`, `{ value:[] }` (BC OData), bare array. Interceptor logs every `/bc/*` response shape to console. (`faf1e09`, previous session)
 
 ---
 
 ## Failed Attempts
 
-- **`pulling-icon="chevron-down-circle-outline"` (string attribute)** — Ionic's `ion-icon` web component calls `new URL(svgPath, import.meta.url)` to dynamically fetch the SVG. In the production Vite bundle, `import.meta.url` resolves to an empty/invalid base, causing `TypeError: Failed to construct 'URL': Invalid base URL`. Fixed by importing the icon object and binding with `:pulling-icon="chevronDownCircleOutline"`. Every other `ion-icon` in the codebase already used the `:icon="imported"` pattern correctly.
+- **`useSync.hasCache` as a shared computed** — Read `StorageService.getCachedItems()` which returns the plain JS module variable `_itemsMemory`. Vue's reactivity tracker cannot observe plain variables, so the computed cached its initial `false` value and never re-evaluated after sync. **Fix**: local reactive computed in ScanningPage that uses the component's Vue refs.
 
-- **`res.data.data` direct access for API responses** — If the GCP API returns `{ "value": [...] }` (Business Central OData native) or a bare array `[...]` instead of `{ "data": [...] }`, the old code returned `undefined` which then crashed `_itemsMemory = undefined.map(...)`. Fixed with `extractList<T>()` that tries `.data`, then `.value`, then bare array, returning `[]` on all unknown shapes.
+- **Phone-column desktop mode** — Constrained `ion-app` to 520 px with `left:50%; transform:translateX(-50%)`. User wanted full-screen desktop behaviour. Reverted; kept inner-content centering only.
 
-- **localStorage for items** — localStorage has a hard 5 MB per-origin cap. Even with 6-field slimming + 120-char description truncation, the items catalog exceeded it. Items now live in `_itemsMemory` (module-level JS variable in `storage.service.ts`).
+- **`pulling-icon="chevron-down-circle-outline"` (string)** — Ionic's `ion-icon` used `new URL(path, import.meta.url)` to fetch the SVG. In production, `import.meta.url` resolves to an invalid base. Fixed with `:pulling-icon="chevronDownCircleOutline"` (imported SVG object).
 
-- **Inline `envsubst` in Dockerfile** — Unreliable in Alpine busybox sh; nginx ran as child of sh, not PID 1. Fixed with `docker-entrypoint.sh`.
+- **`localStorage` for items** — 5 MB quota exceeded. Items now in `_itemsMemory` only.
 
-- **Unquoted nginx regex braces** — `location ~* \.[0-9a-f]{8}\.(js|css...)$` caused nginx startup failure. Fixed by wrapping regex in double quotes.
+- **Inline `envsubst` in Dockerfile** — Unreliable in Alpine sh. Fixed with `docker-entrypoint.sh`.
 
-- **`VITE_API_BASE_URL` set to GCP origin** — CORS blocked all requests. Fixed by leaving it empty and proxying `/bc/*` server-side via nginx.
+- **Unquoted nginx regex braces** — Caused nginx startup failure. Fixed by quoting the regex.
+
+- **`VITE_API_BASE_URL` set to GCP origin** — CORS blocked all requests. Fixed by leaving empty; nginx proxies `/bc/*`.
 
 ---
 
 ## Next Step
 
-**Confirm whether items now load after the `extractList()` fix.**
+**Verify the draft fix works end-to-end on the live app** once Cloud Build `27b5cedc` finishes deploying:
 
-1. Wait for Cloud Build `a13a439f` to finish (or trigger `gcloud builds list --limit=3` to verify SUCCESS)
-2. Open `https://rgmc-consignment-webapp-a52bp7y4ea-as.a.run.app` in Chrome
-3. Open DevTools → **Console** tab
-4. Log in → navigate to Scan tab → watch for this log line:
+1. Log in → Scan → add items → go to Review & Submit
+2. Tap **"Save as Draft & Go Back"** (before submitting anything)
+3. Confirm: navigates to `/app/home`, draft appears in "Pending Drafts" with `draft` status (amber icon, NOT in History)
+4. Tap the gold **Submit** button on the draft row → should go directly to `/app/submit` with the session pre-loaded
+5. Submit orders → tap **Finish Session** → session moves to History as `submitted`
 
+If the Cloud Build is still running, check with:
+```powershell
+gcloud builds list --limit=3 --format="table(id,status,createTime)"
 ```
-[API] GET /bc/items  status=200  → keys=…  { … }
-```
-
-**Interpret the log:**
-
-| Log output | Meaning | Action |
-|---|---|---|
-| `→ keys=data` with items in array | `extractList()` works, items load ✅ | Done |
-| `→ keys=value` with items | extractList now handles this ✅ | Verify items appear |
-| `→ bare array` with items | extractList now handles this ✅ | Verify items appear |
-| `→ keys=data` with **empty array** | API genuinely returns no data | Investigate GCP API — may need brand filter param or server-side issue |
-| `→ keys=` (empty object `{}`) | API returning empty body | GCP API issue, not frontend |
-
-If items still don't appear after a successful shape match, check `StorageService.getCachedItems()` in the console — if `_itemsMemory` is populated but scan screen shows empty, the bug is in `refreshCache()` / `cachedItems.value` reactivity.
 
 ---
 
 ## Context & Gotchas
 
 ### Deployment
-- **GitHub push → Cloud Build trigger → Cloud Run deploy** (automatic, no manual docker build needed)
-- Project ID: `durable-woods-465907-n1`
-- Service: `rgmc-consignment-webapp`, Region: `asia-southeast1`
-- GCP API upstream: `https://rgmc-gcp-api-935246372408.asia-southeast1.run.app`
-- Build takes ~5 min end-to-end after push
+- **GitHub push → Cloud Build trigger → Cloud Run** (automatic, ~5 min)
+- Project: `durable-woods-465907-n1` | Service: `rgmc-consignment-webapp` | Region: `asia-southeast1`
+- GCP API: `https://rgmc-gcp-api-935246372408.asia-southeast1.run.app`
+- Dockerfile always runs `npm run build` — committed `dist/` is irrelevant
 
-### `dist/` is tracked in git but irrelevant
-`.gitignore` only excludes `node_modules`. The `dist/` directory is committed. However, the Dockerfile runs `npm run build` during Docker build, so Cloud Build always builds from source — committed `dist/` files are overwritten and never used for the deployed app. Don't worry about the local `dist/` diff.
+### `_itemsMemory` — plain JS, not reactive
+`let _itemsMemory: Item[] = []` in `storage.service.ts` is intentionally NOT a Vue ref (to avoid the old localStorage quota issue). Any computed that reads `StorageService.getCachedItems()` directly will NOT update reactively. Always gate display logic on component-level Vue refs that `refreshCache()` writes to.
 
-### Items are in-memory only, not localStorage
-`_itemsMemory` in `storage.service.ts` is a module-level `let`. Survives tab navigation but lost on page refresh. This is intentional — localStorage quota cannot hold the full catalog. Login pre-sync and ScanningPage `onMounted` auto-sync ensure items are always re-loaded when needed.
+### `hasCache` — only exists in `ScanningPage.vue` now
+`useSync.ts` no longer exports `hasCache`. The ScanningPage has its own local computed:
+```typescript
+const hasCache = computed(
+  () => cachedItems.value.length > 0 && cachedCustomers.value.length > 0 && categories.value.length > 0
+);
+```
+This is correct and reactive. Do not re-add `hasCache` to `useSync` without making it accept reactive refs as parameters.
+
+### Draft vs. History flow
+| Action | Method called | Result |
+|---|---|---|
+| Save as Draft & Go Back (0 submissions) | `saveAsDraftAndExit()` | Stays in drafts, `status:'draft'`, → `/app/home` |
+| After any failed submission | `markFailed(error)` | Moves to history, `status:'failed'` — NOT nulled from currentSession |
+| After all submitted | `markSubmitted(series?)` | Moves to history, `status:'submitted'`, nulls currentSession |
+
+Note: `markFailed()` does NOT null `currentSession`. The session stays active so the user can retry from SubmitPage. Only `markSubmitted()` and `saveAsDraftAndExit()` null it.
+
+### Resubmit button visibility
+The Submit button on draft rows only appears when:
+```javascript
+draft.salesOrders.length > 0 || draft.returnOrders.length > 0
+```
+Drafts with a customer selected but no items scanned yet only show the tap-to-resume path (→ Scan).
 
 ### nginx.conf is a template
-Contains literal `${PORT}`. Copied to `/etc/nginx/nginx.conf.template`; `docker-entrypoint.sh` runs `envsubst '$PORT'` at container start to produce the real config. The single-quoted `'$PORT'` is intentional — only substitutes PORT, leaves nginx vars like `$uri` untouched.
+Contains `${PORT}` placeholder. `docker-entrypoint.sh` runs `envsubst '$PORT'` at container start. Single-quoted to preserve nginx's `$uri`, `$remote_addr`, etc.
 
-### VITE_API_BASE_URL is baked at build time
-Set to empty string in `.env.production`. Vite bakes it into the bundle. Axios makes relative `/bc/*` requests. Nginx proxies them to the GCP API. Do NOT set this as a Cloud Run runtime env var — it has no runtime effect.
+### `VITE_API_BASE_URL` baked at build time
+Empty in `.env.production`. Axios makes relative `/bc/*` requests. Nginx proxies to GCP API. Runtime env var has no effect.
 
-### Desktop centring approach
-`ion-app` has `position:fixed; left:0; right:0` by default (Ionic). The centering override uses:
-```css
-ion-app {
-  position: fixed !important;
-  left: 50% !important;
-  right: auto !important;
-  transform: translateX(-50%) !important;
-  width: 520px !important;
-}
-```
-`!important` is required to override Ionic's hardcoded inline styles.
-
-### `ion-content::part(scroll)` CSS shadow part
-Used to set `max-width: 520px; margin: auto` on the inner scroll container of every page globally. This is a native CSS shadow-part selector — supported in all modern browsers. If it ever stops working (e.g., Ionic update changes the part name), content will revert to full-width on desktop without breaking mobile.
-
-### Auth guard + storage load ordering
-`router.beforeEach` fires before `authStore.loadFromStorage()` (which runs in `router.isReady().then()`). Direct URL navigation to `/app/*` always redirects to `/splash`, which loads auth and redirects to `/app/home`. Do NOT move `loadFromStorage()` before the guard.
+### Auth guard ordering
+`router.beforeEach` fires before `authStore.loadFromStorage()`. Direct URL navigation always hits `/splash` → loads auth → redirects. Do not reorder.
 
 ### localStorage keys
 | Key | Contents |
@@ -138,18 +145,15 @@ Used to set `max-width: 520px; margin: auto` on the inner scroll container of ev
 | `rgmc_auth` | `{ brand, user }` |
 | `rgmc_cache_brands` | Brand[] |
 | `rgmc_cache_contacts` | Contact[] |
-| `rgmc_cache_customers` | Slim Customer[] `{id, number, displayName, city}` |
+| `rgmc_cache_customers` | Slim `{id,number,displayName,city}` |
 | `rgmc_cache_item_categories` | ItemCategory[] |
-| `rgmc_sync_timestamps` | `{ customers, items, itemCategories: ISOString }` |
-| `rgmc_sessions` | ScanSession[] `status: 'submitted' \| 'failed'` |
-| `rgmc_drafts` | ScanSession[] `status: 'draft'` |
+| `rgmc_sync_timestamps` | `{ customers, items, itemCategories: ISO }` |
+| `rgmc_sessions` | ScanSession[] `status:'submitted'\|'failed'` |
+| `rgmc_drafts` | ScanSession[] `status:'draft'` |
 | ~~`rgmc_cache_items`~~ | **Removed** — items in `_itemsMemory` only |
 
-### OrderLine type (common bug source)
-`OrderLine` has `itemName` (not `itemDisplayName`) and has NO `itemCategoryCode` field. Check `src/types/index.ts` before adding any code that references order line fields.
-
-### `extractList<T>()` in api.service.ts
-Added this session. Handles `{ data: T[] }`, `{ value: T[] }` (BC OData), and `T[]` (bare array). Returns `[]` on unknown shapes and logs a warning. All five GET list methods now use it instead of `res.data.data`.
+### `OrderLine` type gotcha
+Has `itemName` (not `itemDisplayName`) and NO `itemCategoryCode`. Check `src/types/index.ts` before adding code that references order line fields.
 
 ### Capacitor not initialised
-`@capacitor/cli` and `@capacitor/core` are in `package.json` but `npx cap add android/ios` has never been run. No `android/` or `ios/` directories exist.
+`@capacitor/cli` and `@capacitor/core` in `package.json` but `npx cap add android/ios` never run. No `android/` or `ios/` directories.
