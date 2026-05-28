@@ -84,6 +84,10 @@
             <ion-icon v-else :icon="sendOutline" slot="start" />
             {{ salesStatus === 'submitting' ? 'Submitting…' : 'Submit Sales Orders' }}
           </ion-button>
+          <div v-if="!isOnline" class="submit-offline-notice">
+            <ion-icon :icon="cloudOfflineOutline" />
+            <span>You're offline — reconnect to submit.</span>
+          </div>
         </div>
 
         <Transition name="status-in">
@@ -147,6 +151,10 @@
             <ion-icon v-else :icon="returnDownBackOutline" slot="start" />
             {{ returnsStatus === 'submitting' ? 'Submitting…' : 'Submit Return Orders' }}
           </ion-button>
+          <div v-if="!isOnline" class="submit-offline-notice">
+            <ion-icon :icon="cloudOfflineOutline" />
+            <span>You're offline — reconnect to submit.</span>
+          </div>
         </div>
 
         <Transition name="status-in">
@@ -461,6 +469,21 @@ async function showToast(message: string, color: string) {
 
 /* ── Submit action ── */
 .submit-action { padding: 12px; }
+
+.submit-offline-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: rgba(var(--ion-color-warning-rgb), 0.12);
+  border: 1px solid rgba(var(--ion-color-warning-rgb), 0.35);
+  color: var(--ion-color-warning-shade);
+  font-size: 12px;
+  font-weight: 500;
+}
+.submit-offline-notice ion-icon { font-size: 15px; flex-shrink: 0; }
 
 /* ── Status badges ── */
 .status-badge {

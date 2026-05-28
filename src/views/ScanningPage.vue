@@ -10,6 +10,14 @@
           </div>
         </ion-title>
         <ion-buttons slot="end">
+          <ion-button
+            v-if="selectedCustomer"
+            fill="clear"
+            color="medium"
+            @click="saveDraftAndGoHome"
+          >
+            <ion-icon :icon="saveOutline" slot="icon-only" />
+          </ion-button>
           <ion-button fill="clear" :disabled="isSyncing || !isOnline" @click="handleSync">
             <ion-icon :icon="isSyncing ? hourglassOutline : syncOutline" slot="icon-only" />
           </ion-button>
@@ -534,6 +542,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import {
   IonPage,
   IonHeader,
@@ -587,6 +596,7 @@ import {
   checkmarkOutline,
   closeOutline,
   arrowForwardOutline,
+  saveOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore, computeTotal } from '@/stores/session.store';
@@ -599,6 +609,7 @@ import ItemSelectorModal from '@/components/ItemSelectorModal.vue';
 import type { Customer, Item, ItemCategory, DiscountType } from '@/types';
 
 /* ─── Stores / composables ─── */
+const router = useRouter();
 const authStore = useAuthStore();
 const sessionStore = useSessionStore();
 const { isSyncing, syncError, lastSyncDate, lastSyncLabel, sync } = useSync();
@@ -641,6 +652,11 @@ onMounted(async () => {
 async function handleSync() {
   await sync();
   refreshCache();
+}
+
+function saveDraftAndGoHome() {
+  sessionStore.saveAsDraftAndExit();
+  router.replace('/app/home');
 }
 
 async function onPullRefresh(ev: CustomEvent) {
