@@ -48,11 +48,11 @@
       </div>
 
       <!-- Pending drafts -->
-      <div v-if="sessionStore.hasDrafts">
+      <div v-if="visibleDrafts.length > 0">
         <p class="section-label">Pending Drafts</p>
         <ion-list lines="full" class="drafts-list">
           <ion-item
-            v-for="draft in sessionStore.drafts"
+            v-for="draft in visibleDrafts"
             :key="draft.id"
             button
             :detail="false"
@@ -162,6 +162,8 @@ import type { Customer, ScanSession } from '@/types';
 const router = useRouter();
 const authStore = useAuthStore();
 const sessionStore = useSessionStore();
+
+const visibleDrafts = computed(() => sessionStore.drafts.filter((d) => d.customer !== null));
 
 const allCustomers = ref<Customer[]>([]);
 const searchQuery = ref('');

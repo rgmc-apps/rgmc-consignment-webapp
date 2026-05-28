@@ -128,10 +128,12 @@ export const useSessionStore = defineStore('session', () => {
    *  does NOT move it to history, and clears it as the active session. */
   function saveAsDraftAndExit(): void {
     if (!currentSession.value) return;
-    currentSession.value.status = 'draft';
-    _touch();
-    StorageService.saveDraft({ ...currentSession.value });
-    drafts.value = StorageService.getDrafts();
+    if (currentSession.value.customer) {
+      currentSession.value.status = 'draft';
+      _touch();
+      StorageService.saveDraft({ ...currentSession.value });
+      drafts.value = StorageService.getDrafts();
+    }
     currentSession.value = null;
   }
 
@@ -190,10 +192,9 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   function _saveDraft(): void {
-    if (currentSession.value) {
-      StorageService.saveDraft({ ...currentSession.value });
-      drafts.value = StorageService.getDrafts();
-    }
+    if (!currentSession.value || !currentSession.value.customer) return;
+    StorageService.saveDraft({ ...currentSession.value });
+    drafts.value = StorageService.getDrafts();
   }
 
   return {
