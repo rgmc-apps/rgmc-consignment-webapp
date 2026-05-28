@@ -123,6 +123,22 @@
               </p>
             </div>
 
+            <!-- Single barcode confirmation -->
+            <div v-if="scanStatus === 'confirm'" class="single-confirm">
+              <div class="single-confirm-header">
+                <ion-icon :icon="checkmarkCircleOutline" class="single-confirm-icon" />
+                <p class="single-confirm-title">Barcode detected</p>
+              </div>
+              <p class="single-confirm-value">{{ confirmedBarcode }}</p>
+              <ion-button expand="block" color="primary" class="single-confirm-btn" @click="acceptBarcode">
+                Use This Barcode
+              </ion-button>
+              <button class="multi-rescan-btn" @click="resumeScanning">
+                <ion-icon :icon="refreshOutline" />
+                Scan Again
+              </button>
+            </div>
+
             <!-- Multi-barcode picker (appears when >1 barcodes are in frame) -->
             <div v-if="scanStatus === 'multiple'" class="multi-picker">
               <p class="multi-picker-title">Multiple barcodes detected</p>
@@ -192,6 +208,7 @@ import {
   searchOutline,
   alertCircleOutline,
   refreshOutline,
+  checkmarkCircleOutline,
 } from 'ionicons/icons';
 import { formatCurrency } from '@/utils/format';
 import type { Item, ItemCategory } from '@/types';
@@ -245,7 +262,7 @@ function handleSelect(item: Item) {
 
 /* ─── Scanner state ─── */
 type ViewMode = 'list' | 'scanner';
-type ScanStatus = 'starting' | 'scanning' | 'detected' | 'error' | 'multiple';
+type ScanStatus = 'starting' | 'scanning' | 'detected' | 'error' | 'multiple' | 'confirm';
 
 interface DetectedBarcode { rawValue: string; format: string; }
 
@@ -264,14 +281,17 @@ const videoStream = ref<MediaStream | null>(null);
 const scanStatus = ref<ScanStatus>('starting');
 const manualBarcode = ref('');
 const detectedBarcodes = ref<DetectedBarcode[]>([]);
+const confirmedBarcode = ref('');
 const cameraAvailable = ref('mediaDevices' in navigator && 'getUserMedia' in navigator.mediaDevices);
 let detectionInterval: ReturnType<typeof setInterval> | null = null;
+let audioCtx: AudioContext | null = null;
 
 const scanHintText = computed(() => {
   switch (scanStatus.value) {
     case 'starting':  return 'Starting camera…';
     case 'scanning':  return 'Point camera at barcode';
     case 'detected':  return 'Barcode detected!';
+    case 'confirm':   return 'Barcode detected — confirm to use it';
     case 'multiple':  return 'Multiple barcodes found — select one below';
     case 'error':     return 'Camera unavailable — use manual input';
     default: return '';
@@ -283,6 +303,12 @@ async function openScanner() {
   barcodeNotFound.value = false;
   manualBarcode.value = '';
   scanStatus.value = 'starting';
+
+  // Unlock AudioContext while still in the tap gesture — required by iOS Safari
+  try {
+    audioCtx = new AudioContext();
+    if (audioCtx.state === 'suspended') void audioCtx.resume();
+  } catch { audioCtx = null; }
 
   await new Promise((r) => setTimeout(r, 80)); // let DOM render video element
 
@@ -304,6 +330,23 @@ async function openScanner() {
   }
 }
 
+function beepAndHaptic() {
+  navigator.vibrate?.(60);
+  if (!audioCtx) return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(1800, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+    osc.start(audioCtx.currentTime);
+    osc.stop(audioCtx.currentTime + 0.08);
+  } catch { /* ignore */ }
+}
+
 function startAutoDetection() {
   type RawDetector = { detect: (el: HTMLVideoElement) => Promise<DetectedBarcode[]> };
   const detector = new (window as unknown as { BarcodeDetector: new (opts: object) => RawDetector }).BarcodeDetector({
@@ -312,15 +355,17 @@ function startAutoDetection() {
   });
 
   detectionInterval = setInterval(async () => {
-    if (!videoEl.value || scanStatus.value === 'detected' || scanStatus.value === 'multiple') return;
+    if (!videoEl.value || scanStatus.value === 'detected' || scanStatus.value === 'multiple' || scanStatus.value === 'confirm') return;
     try {
       const raw = await detector.detect(videoEl.value);
       if (raw.length === 0) return;
 
+      beepAndHaptic();
+
       if (raw.length === 1) {
-        scanStatus.value = 'detected';
-        stopCamera();
-        setTimeout(() => resolveBarcode(raw[0].rawValue), 250);
+        stopDetectionOnly();
+        confirmedBarcode.value = raw[0].rawValue;
+        scanStatus.value = 'confirm';
         return;
       }
 
@@ -341,6 +386,14 @@ function stopDetectionOnly() {
   if (detectionInterval) { clearInterval(detectionInterval); detectionInterval = null; }
 }
 
+function acceptBarcode() {
+  const code = confirmedBarcode.value;
+  confirmedBarcode.value = '';
+  scanStatus.value = 'detected';
+  stopCamera();
+  setTimeout(() => resolveBarcode(code), 150);
+}
+
 function pickBarcode(code: string) {
   detectedBarcodes.value = [];
   scanStatus.value = 'detected';
@@ -350,6 +403,7 @@ function pickBarcode(code: string) {
 
 function resumeScanning() {
   detectedBarcodes.value = [];
+  confirmedBarcode.value = '';
   scanStatus.value = 'scanning';
   if ('BarcodeDetector' in window) startAutoDetection();
 }
@@ -360,9 +414,11 @@ function closeScanner() {
 }
 
 function stopCamera() {
-  if (detectionInterval) { clearInterval(detectionInterval); detectionInterval = null; }
+  stopDetectionOnly();
   videoStream.value?.getTracks().forEach((t) => t.stop());
   videoStream.value = null;
+  audioCtx?.close();
+  audioCtx = null;
 }
 
 function submitManual() {
@@ -665,4 +721,56 @@ onUnmounted(() => stopCamera());
 }
 
 .scan-hint--multiple { color: var(--app-gold); }
+.scan-hint--confirm  { color: var(--ion-color-success); }
+
+/* ── Single barcode confirm panel ── */
+.single-confirm {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  background: rgba(10, 10, 10, 0.96);
+  border-top: 1px solid #1e3a2a;
+  padding: 16px 16px 8px;
+  pointer-events: all;
+}
+
+.single-confirm-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.single-confirm-icon {
+  font-size: 20px;
+  color: var(--ion-color-success);
+}
+
+.single-confirm-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+}
+
+.single-confirm-value {
+  font-size: 20px;
+  font-weight: 800;
+  color: #fff;
+  font-family: monospace;
+  letter-spacing: 2px;
+  text-align: center;
+  padding: 14px 12px;
+  margin: 0 0 14px;
+  background: #111;
+  border: 1px solid #1e3a2a;
+  border-radius: 10px;
+  word-break: break-all;
+}
+
+.single-confirm-btn {
+  margin-bottom: 8px;
+}
 </style>
