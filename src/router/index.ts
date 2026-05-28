@@ -53,4 +53,13 @@ const router = createRouter({
   routes,
 });
 
+// After a new deployment, old chunk filenames no longer exist on the server.
+// Nginx returns index.html (SPA fallback) which the browser rejects as wrong MIME.
+// Hard-navigating to the target route fetches the fresh index.html + new chunks.
+router.onError((error, to) => {
+  if (error.message.includes('dynamically imported module')) {
+    window.location.assign(to.fullPath);
+  }
+});
+
 export default router;
