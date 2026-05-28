@@ -152,7 +152,21 @@ async function load() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // Restore IDB items so getCachedItems() is accurate before the cache check
+  await StorageService.init();
+
+  const hasLocalCache =
+    StorageService.getCachedCustomers().length > 0 &&
+    StorageService.getCachedItems().length > 0 &&
+    StorageService.getCachedItemCategories().length > 0;
+
+  // Already logged in + full local cache → skip network, go straight to app
+  if (authStore.isAuthenticated && hasLocalCache) {
+    router.replace('/app/home');
+    return;
+  }
+
   load();
 });
 </script>
