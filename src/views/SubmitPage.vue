@@ -1,5 +1,6 @@
 <template>
   <ion-page>
+    <div v-if="sweepActive" class="gold-sweep-overlay" aria-hidden="true" />
     <ion-header>
       <ion-toolbar>
         <ion-buttons slot="start">
@@ -247,6 +248,7 @@ import {
   calendarOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
+import { useGoldAccent } from '@/composables/useGoldAccent';
 import { ApiService } from '@/services/api.service';
 import { formatCurrency, formatDate, formatDiscount } from '@/utils/format';
 import type { SalesOrderPayload, SalesReturnOrderPayload } from '@/types';
@@ -255,6 +257,7 @@ const router = useRouter();
 const sessionStore = useSessionStore();
 const session = computed(() => sessionStore.currentSession);
 const { isOnline } = useNetworkStatus();
+const { sweepActive, triggerSweep } = useGoldAccent();
 
 type SubmitStatus = 'pending' | 'submitting' | 'done' | 'failed';
 
@@ -327,6 +330,7 @@ async function doSubmitSales(customerNumber: string) {
     const res = await ApiService.submitSalesOrder(payload);
     salesSeriesNo.value = (res as Record<string, string>)?.no ?? (res as Record<string, string>)?.series ?? '';
     salesStatus.value = 'done';
+    triggerSweep();
     showToast('Sales orders submitted!', 'success');
   } catch (err) {
     salesError.value = err instanceof Error ? err.message : 'Unknown error';
@@ -354,6 +358,7 @@ async function doSubmitReturns(customerNumber: string) {
     const res = await ApiService.submitSalesReturnOrder(payload);
     returnsSeriesNo.value = (res as Record<string, string>)?.no ?? (res as Record<string, string>)?.series ?? '';
     returnsStatus.value = 'done';
+    triggerSweep();
     showToast('Return orders submitted!', 'success');
   } catch (err) {
     returnsError.value = err instanceof Error ? err.message : 'Unknown error';

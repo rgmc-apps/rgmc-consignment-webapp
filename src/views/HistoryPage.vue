@@ -10,6 +10,9 @@
           </div>
         </ion-title>
         <ion-buttons slot="end">
+          <ion-button fill="clear" @click="toggleTheme">
+            <ion-icon :key="isDark ? 'dk' : 'lt'" :icon="isDark ? sunnyOutline : moonOutline" slot="icon-only" class="theme-toggle-icon" />
+          </ion-button>
           <ion-button
             v-if="filteredSessions.length"
             fill="clear"
@@ -322,13 +325,17 @@ import {
   returnUpBackOutline,
   refreshOutline,
   chevronDownCircleOutline,
+  moonOutline,
+  sunnyOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
+import { useTheme } from '@/composables/useTheme';
 import { formatCurrency, formatDate, formatDateTime, formatDiscount } from '@/utils/format';
 import type { ScanSession } from '@/types';
 
 const router = useRouter();
 const sessionStore = useSessionStore();
+const { isDark, toggleTheme } = useTheme();
 
 function onPullRefresh(ev: CustomEvent) {
   sessionStore.loadFromStorage();
@@ -522,23 +529,25 @@ function buildSessionLines(s: ScanSession): string[] {
 /* ── Session list rows ── */
 .session-customer {
   font-weight: 700;
-  font-size: 15px;
+  font-size: var(--text-base);
+  letter-spacing: var(--tracking-tight);
 }
 .session-meta {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--app-text-muted);
 }
 .session-counts {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--ion-color-medium);
 }
 .session-series {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--app-gold);
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
 }
 .session-error {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--ion-color-danger);
   white-space: nowrap;
   overflow: hidden;
@@ -549,13 +558,15 @@ function buildSessionLines(s: ScanSession): string[] {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  gap: 5px;
 }
-.status-badge { font-size: 10px; }
+.status-badge { font-size: var(--text-2xs); font-weight: 700; letter-spacing: var(--tracking-wide); }
 .item-total {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--app-dark);
+  font-size: var(--text-base);
+  font-weight: 800;
+  color: var(--app-fg);
+  letter-spacing: var(--tracking-tighter);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Session list stagger ── */
@@ -570,7 +581,7 @@ ion-list ion-item:nth-child(8) { animation: fade-slide-up 0.28s var(--ease-out-q
 
 /* ══════════ DETAIL MODAL ══════════ */
 .detail-content {
-  --background: var(--app-bg);
+  --background: var(--app-surface-alt);
 }
 
 /* Info card */
@@ -591,14 +602,16 @@ ion-list ion-item:nth-child(8) { animation: fade-slide-up 0.28s var(--ease-out-q
   gap: 8px;
 }
 .info-label {
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 500;
   color: var(--app-text-muted);
   min-width: 72px;
+  letter-spacing: 0.2px;
 }
 .info-value {
   font-size: 13px;
   font-weight: 600;
-  color: var(--app-dark);
+  color: var(--app-fg);
   text-align: right;
 }
 .series-num {
@@ -613,9 +626,9 @@ ion-list ion-item:nth-child(8) { animation: fade-slide-up 0.28s var(--ease-out-q
   gap: 8px;
   margin-top: 12px;
   padding: 10px 12px;
-  background: #fff5f5;
+  background: var(--app-danger-bg);
   border-radius: 8px;
-  border: 1px solid #ffd7d7;
+  border: 1px solid var(--app-error-border);
 }
 .error-block ion-icon { flex-shrink: 0; font-size: 18px; margin-top: 1px; }
 .error-block p {
@@ -642,7 +655,7 @@ ion-list ion-item:nth-child(8) { animation: fade-slide-up 0.28s var(--ease-out-q
   flex: 1;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--app-dark);
+  color: var(--app-fg);
 }
 .count-badge { font-size: 11px; }
 
@@ -694,12 +707,13 @@ ion-list ion-item:nth-child(8) { animation: fade-slide-up 0.28s var(--ease-out-q
 .subtotal-label {
   font-size: 13px;
   font-weight: 600;
-  color: var(--app-dark);
+  color: var(--app-fg);
 }
 .subtotal-value {
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 700;
   color: var(--app-gold);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Grand total */
@@ -707,22 +721,25 @@ ion-list ion-item:nth-child(8) { animation: fade-slide-up 0.28s var(--ease-out-q
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin: 0 16px 8px;
-  padding: 14px 16px;
+  margin: 0 16px 12px;
+  padding: 16px 20px;
   background: var(--app-dark);
-  border-radius: 12px;
+  border-radius: var(--app-radius-lg);
+  border: 1px solid rgba(160, 115, 32, 0.2);
 }
 .grand-total-label {
-  font-size: 14px;
+  font-size: var(--text-xs);
   font-weight: 700;
-  color: rgba(255,255,255,0.7);
+  color: rgba(255,255,255,0.45);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: var(--tracking-wider);
 }
 .grand-total-value {
-  font-size: 20px;
+  font-size: var(--text-2xl);
   font-weight: 800;
   color: var(--app-gold);
+  letter-spacing: var(--tracking-tighter);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Retry */

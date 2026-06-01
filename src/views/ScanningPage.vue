@@ -1,7 +1,7 @@
 <template>
   <ion-page>
     <!-- ── Header ── -->
-    <ion-header>
+    <ion-header :class="{ 'gold-online-pulse': headerPulseActive }">
       <ion-toolbar>
         <ion-title>
           <div class="header-title">
@@ -20,6 +20,9 @@
           </ion-button>
           <ion-button fill="clear" :disabled="isSyncing || !isOnline" @click="handleSync">
             <ion-icon :icon="isSyncing ? hourglassOutline : syncOutline" slot="icon-only" />
+          </ion-button>
+          <ion-button fill="clear" @click="toggleTheme">
+            <ion-icon :key="isDark ? 'dk' : 'lt'" :icon="isDark ? sunnyOutline : moonOutline" slot="icon-only" class="theme-toggle-icon" />
           </ion-button>
         </ion-buttons>
       </ion-toolbar>
@@ -345,7 +348,7 @@
 
     <!-- ── Sticky submit bar ── -->
     <Transition name="submit-bar">
-    <div v-if="sessionStore.hasLines" class="submit-bar">
+    <div v-if="sessionStore.hasLines" :class="['submit-bar', { 'gold-item-flash': submitFlashActive }]">
       <div class="submit-bar__left">
         <span class="submit-bar__count">
           {{ sessionStore.salesOrders.length + sessionStore.returnOrders.length }} items
@@ -597,12 +600,16 @@ import {
   closeOutline,
   arrowForwardOutline,
   saveOutline,
+  moonOutline,
+  sunnyOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore, computeTotal } from '@/stores/session.store';
 import { useSync } from '@/composables/useSync';
 import { useCustomerFilter } from '@/composables/useCustomerFilter';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
+import { useTheme } from '@/composables/useTheme';
+import { useGoldAccent } from '@/composables/useGoldAccent';
 import { StorageService } from '@/services/storage.service';
 import { formatCurrency, formatDiscount } from '@/utils/format';
 import ItemSelectorModal from '@/components/ItemSelectorModal.vue';
@@ -614,6 +621,8 @@ const authStore = useAuthStore();
 const sessionStore = useSessionStore();
 const { isSyncing, syncError, lastSyncDate, lastSyncLabel, sync } = useSync();
 const { isOnline, isSlowConnection } = useNetworkStatus();
+const { isDark, toggleTheme } = useTheme();
+const { headerPulseActive, submitFlashActive, triggerSubmitFlash } = useGoldAccent();
 
 /* ─── Cached data ─── */
 const cachedCustomers = ref<Customer[]>([]);
@@ -840,6 +849,7 @@ async function doConfirm(orderType: 'sales' | 'returns') {
   }
   showConfirmModal.value = false;
   resetItemForm();
+  triggerSubmitFlash();
 }
 
 /* ─── Add lines ─── */
@@ -858,6 +868,7 @@ async function addToSales() {
   resetItemForm();
   activeTab.value = 'sales';
   await toast(`${form.itemName || 'Item'} added to Sales`, 'success');
+  triggerSubmitFlash();
 }
 
 async function addToReturn() {
@@ -875,6 +886,7 @@ async function addToReturn() {
   resetItemForm();
   activeTab.value = 'returns';
   await toast(`${form.itemName || 'Item'} added to Returns`, 'success');
+  triggerSubmitFlash();
 }
 
 function deleteActiveLine(lineId: string) {
@@ -919,9 +931,9 @@ async function toast(message: string, color: string) {
 
 /* ── Sync sub-bar ── */
 .sync-bar {
-  --background: #242424;
-  --border-color: #333;
-  min-height: 34px;
+  --background: #1e1e1e;
+  --border-color: rgba(255, 255, 255, 0.05);
+  min-height: 32px;
 }
 .sync-bar-inner {
   display: flex;
@@ -929,17 +941,24 @@ async function toast(message: string, color: string) {
   justify-content: space-between;
   padding: 0 16px;
   width: 100%;
-  min-height: 34px;
+  min-height: 32px;
 }
 .sync-info-text {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
-  color: var(--app-text-muted);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.3);
 }
-.sync-today { font-size: 11px; color: var(--app-gold-light); }
-.version-tag { opacity: 0.5; font-size: 10px; font-weight: 600; letter-spacing: 0.3px; }
+.sync-today { font-size: var(--text-2xs); font-weight: 600; color: var(--app-gold-light); }
+.version-tag {
+  opacity: 0.4;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
 .offline-badge {
   display: inline-flex;
   align-items: center;
@@ -965,7 +984,7 @@ async function toast(message: string, color: string) {
   text-align: center;
 }
 .state-card ion-icon { font-size: 52px; }
-.state-card p { font-size: 16px; font-weight: 600; color: var(--app-dark); margin: 0; }
+.state-card p { font-size: var(--text-md); font-weight: 600; color: var(--app-fg); margin: 0; }
 .state-sub { font-size: 13px; color: var(--app-text-muted); margin: 0 !important; }
 
 /* ── Sync error banner ── */
@@ -974,7 +993,7 @@ async function toast(message: string, color: string) {
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  background: #fff0f0;
+  background: var(--app-danger-bg);
   font-size: 13px;
   color: var(--ion-color-danger);
 }
@@ -1025,11 +1044,12 @@ async function toast(message: string, color: string) {
 .form-card { margin: 10px 12px 0; }
 
 .field-label {
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
-  letter-spacing: 1px;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
   color: var(--app-gold);
-  margin: 0 0 8px;
+  margin: 0 0 10px;
 }
 
 /* ── Customer tap ── */
@@ -1040,7 +1060,7 @@ async function toast(message: string, color: string) {
   cursor: pointer;
   padding: 6px 0;
 }
-.cust-name { font-size: 15px; font-weight: 700; color: var(--app-dark); margin: 0; }
+.cust-name { font-size: var(--text-md); font-weight: 700; color: var(--app-fg); margin: 0; letter-spacing: var(--tracking-tight); }
 .cust-sub  { font-size: 12px; color: var(--app-text-muted); margin: 2px 0 0; }
 .cust-placeholder { font-size: 14px; color: var(--app-text-muted); margin: 0; }
 
@@ -1071,7 +1091,7 @@ async function toast(message: string, color: string) {
 .item-trigger-name {
   font-size: 13px;
   font-weight: 600;
-  color: var(--app-dark);
+  color: var(--app-fg);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1081,7 +1101,7 @@ async function toast(message: string, color: string) {
 
 .readonly-val {
   font-size: 13px;
-  color: var(--app-dark);
+  color: var(--app-fg);
   text-align: right;
   max-width: 55%;
   white-space: normal;
@@ -1100,13 +1120,15 @@ async function toast(message: string, color: string) {
 /* ── Total row ── */
 .total-row {
   --background: var(--app-gold-pale);
-  border-radius: 8px;
-  margin-top: 6px;
+  border-radius: 10px;
+  margin-top: 8px;
 }
 .total-val {
-  font-size: 20px;
+  font-size: var(--text-xl);
   font-weight: 800;
   color: var(--app-gold);
+  letter-spacing: var(--tracking-tighter);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Action buttons ── */
@@ -1155,7 +1177,7 @@ async function toast(message: string, color: string) {
   border-top: 1px solid var(--app-border);
   --min-height: 44px;
 }
-.subtotal-val { font-size: 16px; font-weight: 800; color: var(--app-dark); }
+.subtotal-val { font-size: var(--text-md); font-weight: 800; color: var(--app-fg); letter-spacing: var(--tracking-tighter); font-variant-numeric: tabular-nums; }
 
 /* ── Empty orders ── */
 .empty-orders {
@@ -1174,22 +1196,41 @@ async function toast(message: string, color: string) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px 10px 16px;
+  padding: 12px 14px 12px 20px;
   background: var(--app-dark);
-  border-top: 1px solid #2a2a2a;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
   position: sticky;
   bottom: 0;
   z-index: 10;
 }
-.submit-bar__left { display: flex; flex-direction: column; gap: 1px; }
-.submit-bar__count { font-size: 11px; color: var(--app-text-muted); }
-.submit-bar__amount { font-size: 18px; font-weight: 800; color: var(--app-gold-light); }
+.submit-bar__left { display: flex; flex-direction: column; gap: 2px; }
+.submit-bar__count {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.3);
+}
+.submit-bar__amount {
+  font-size: var(--text-xl);
+  font-weight: 800;
+  color: var(--app-gold-light);
+  letter-spacing: var(--tracking-tighter);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
 .submit-bar__btn {
   --background: var(--app-gold);
   --background-activated: var(--app-gold-dark);
-  height: 42px;
+  --border-radius: 12px;
+  height: 44px;
+  font-size: 14px;
   font-weight: 700;
+  letter-spacing: 0.3px;
+  box-shadow: 0 4px 16px rgba(160, 115, 32, 0.35);
+  transition: transform 0.1s var(--ease-out-expo), box-shadow 0.1s ease;
 }
+.submit-bar__btn:active { transform: scale(0.97); box-shadow: none; }
 
 /* ── Form fields reveal ── */
 .form-fields-enter-active {
@@ -1240,9 +1281,10 @@ async function toast(message: string, color: string) {
 }
 
 .conf-item-name {
-  font-size: 18px;
+  font-size: var(--text-lg);
   font-weight: 700;
-  color: var(--app-dark);
+  color: var(--app-fg);
+  text-wrap: balance;
   margin: 0 0 6px;
   line-height: 1.3;
 }
@@ -1274,10 +1316,10 @@ async function toast(message: string, color: string) {
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  background: #fff8e1;
+  background: var(--app-warn-bg);
   border-radius: 8px;
   font-size: 13px;
-  color: #7a6000;
+  color: var(--app-warn-text);
   margin-bottom: 20px;
 }
 
@@ -1312,7 +1354,7 @@ async function toast(message: string, color: string) {
   text-align: center;
   font-size: 28px;
   font-weight: 800;
-  color: var(--app-dark);
+  color: var(--app-fg);
   --padding-start: 0;
   --padding-end: 0;
 }
@@ -1336,7 +1378,7 @@ async function toast(message: string, color: string) {
   text-align: right;
   font-size: 22px;
   font-weight: 700;
-  color: var(--app-dark);
+  color: var(--app-fg);
   --padding-end: 4px;
   border-bottom: 2px solid var(--app-border);
 }
@@ -1360,9 +1402,11 @@ async function toast(message: string, color: string) {
 }
 
 .conf-total-value {
-  font-size: 26px;
+  font-size: var(--text-2xl);
   font-weight: 800;
   color: var(--app-gold);
+  letter-spacing: var(--tracking-tighter);
+  font-variant-numeric: tabular-nums;
 }
 
 .conf-btn {
@@ -1392,7 +1436,7 @@ async function toast(message: string, color: string) {
   outline: none;
   font-size: 15px;
   font-weight: 600;
-  color: var(--app-dark);
+  color: var(--app-fg);
   font-family: inherit;
   padding: 4px 0;
 }
