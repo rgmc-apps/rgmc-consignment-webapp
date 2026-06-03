@@ -84,6 +84,7 @@ export const useAuthStore = defineStore('auth', () => {
         brand.value = selectedBrand;
         user.value = upgraded;
         StorageService.setAuth({ brand: selectedBrand, user: upgraded });
+        ApiService.updateContact(upgraded.id, { passwordHash: hash }).catch(() => {});
         return true;
       }
 
@@ -132,6 +133,7 @@ export const useAuthStore = defineStore('auth', () => {
     brand.value = b;
     user.value = updated;
     StorageService.setAuth({ brand: b, user: updated });
+    ApiService.updateContact(updated.id, { passwordHash: hash }).catch(() => {});
 
     forcePasswordSetup.value = false;
     pendingSetupData.value = null;
@@ -154,6 +156,7 @@ export const useAuthStore = defineStore('auth', () => {
       contacts[idx] = user.value;
       StorageService.setCachedContacts(contacts);
     }
+    ApiService.updateContact(user.value.id, updates).catch(() => {});
   }
 
   function logout(): void {

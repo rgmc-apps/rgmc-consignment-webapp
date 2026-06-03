@@ -2,6 +2,7 @@ import axios from 'axios';
 import type {
   Brand,
   Contact,
+  ContactUpdatePayload,
   Customer,
   Item,
   ItemCategory,
@@ -75,6 +76,11 @@ export const ApiService = {
   async getContacts(): Promise<Contact[]> {
     const res = await apiClient.get('/bc/contacts');
     return extractList<Contact>(res.data);
+  },
+
+  async updateContact(id: string, data: ContactUpdatePayload): Promise<Contact> {
+    const res = await apiClient.patch(`/bc/contacts/${id}`, data);
+    return res.data as Contact;
   },
 
   async getCustomers(): Promise<Customer[]> {

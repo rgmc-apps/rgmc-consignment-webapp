@@ -99,6 +99,17 @@ export interface ScanSession {
   errorMessage?: string;
 }
 
+export interface ContactUpdatePayload {
+  username?: string;
+  passwordHash?: string;
+  displayName?: string;
+  jobTitle?: string;
+  companyName?: string;
+  phoneNumber?: string;
+  mobilePhoneNumber?: string;
+  email?: string;
+}
+
 export interface AuthSession {
   brand: Brand;
   user: Contact;
