@@ -9,16 +9,6 @@
               <ion-icon :icon="closeOutline" slot="icon-only" />
             </ion-button>
           </ion-buttons>
-          <ion-buttons slot="end">
-            <ion-button
-              fill="clear"
-              :disabled="!isDirty"
-              class="save-btn"
-              @click="save"
-            >
-              Save
-            </ion-button>
-          </ion-buttons>
         </ion-toolbar>
       </ion-header>
 
@@ -28,7 +18,7 @@
           <div class="hero-avatar-wrap" @click="triggerPhotoUpload">
             <user-avatar
               :src="authStore.photoUrl"
-              :name="form.displayName || authStore.user?.displayName || ''"
+              :name="authStore.user?.displayName || ''"
               class="hero-avatar"
             />
             <div class="hero-avatar-badge">
@@ -37,46 +27,46 @@
             </div>
           </div>
           <input ref="photoInput" type="file" accept="image/*" style="display:none" @change="onPhotoSelected" />
-          <p class="hero-name">{{ form.displayName || authStore.user?.displayName }}</p>
+          <p class="hero-name">{{ authStore.user?.displayName }}</p>
           <span class="hero-brand">{{ authStore.brand?.displayName }}</span>
         </div>
 
         <!-- ── Personal ── -->
         <p class="section-label">Personal</p>
         <ion-list lines="inset" class="field-list">
-          <ion-item class="field-item">
+          <ion-item class="field-item field-item--readonly">
             <ion-label position="stacked" class="field-label">Display Name</ion-label>
-            <ion-input v-model="form.displayName" placeholder="Enter display name" class="field-input" />
+            <ion-input :value="authStore.user?.displayName || '—'" readonly class="field-input field-input--readonly" />
           </ion-item>
-          <ion-item class="field-item">
+          <ion-item class="field-item field-item--readonly">
             <ion-label position="stacked" class="field-label">Job Title</ion-label>
-            <ion-input v-model="form.jobTitle" placeholder="Enter job title" class="field-input" />
+            <ion-input :value="authStore.user?.jobTitle || '—'" readonly class="field-input field-input--readonly" />
           </ion-item>
         </ion-list>
 
         <!-- ── Contact ── -->
         <p class="section-label">Contact</p>
         <ion-list lines="inset" class="field-list">
-          <ion-item class="field-item">
+          <ion-item class="field-item field-item--readonly">
             <ion-label position="stacked" class="field-label">Phone Number</ion-label>
-            <ion-input v-model="form.phoneNumber" type="tel" placeholder="Enter phone number" class="field-input" />
+            <ion-input :value="authStore.user?.phoneNumber || '—'" readonly class="field-input field-input--readonly" />
           </ion-item>
-          <ion-item class="field-item">
+          <ion-item class="field-item field-item--readonly">
             <ion-label position="stacked" class="field-label">Mobile Phone</ion-label>
-            <ion-input v-model="form.mobilePhoneNumber" type="tel" placeholder="Enter mobile number" class="field-input" />
+            <ion-input :value="authStore.user?.mobilePhoneNumber || '—'" readonly class="field-input field-input--readonly" />
           </ion-item>
-          <ion-item class="field-item">
+          <ion-item class="field-item field-item--readonly">
             <ion-label position="stacked" class="field-label">Email</ion-label>
-            <ion-input v-model="form.email" type="email" placeholder="Enter email address" class="field-input" />
+            <ion-input :value="authStore.user?.email || '—'" readonly class="field-input field-input--readonly" />
           </ion-item>
         </ion-list>
 
         <!-- ── Company ── -->
         <p class="section-label">Company</p>
         <ion-list lines="inset" class="field-list">
-          <ion-item class="field-item">
+          <ion-item class="field-item field-item--readonly">
             <ion-label position="stacked" class="field-label">Company Name</ion-label>
-            <ion-input v-model="form.companyName" placeholder="Enter company name" class="field-input" />
+            <ion-input :value="authStore.user?.companyName || '—'" readonly class="field-input field-input--readonly" />
           </ion-item>
           <ion-item class="field-item field-item--readonly">
             <ion-label position="stacked" class="field-label">Company No.</ion-label>
@@ -104,16 +94,6 @@
             <ion-input :value="lastModifiedLabel" readonly class="field-input field-input--readonly" />
           </ion-item>
         </ion-list>
-
-        <!-- ── Save footer ── -->
-        <div v-if="isDirty" class="save-footer">
-          <ion-button expand="block" class="save-footer-btn" @click="save">
-            Save Changes
-          </ion-button>
-          <ion-button expand="block" fill="clear" color="medium" @click="resetForm">
-            Discard
-          </ion-button>
-        </div>
 
         <!-- ── Security ── -->
         <p class="section-label">Security</p>
@@ -176,7 +156,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, computed, watch } from 'vue';
+import { ref, computed } from 'vue';
 import {
   IonModal,
   IonPage,
@@ -208,47 +188,10 @@ import { useAuthStore } from '@/stores/auth.store';
 import { ApiService } from '@/services/api.service';
 import UserAvatar from '@/components/UserAvatar.vue';
 
-const props = defineProps<{ isOpen: boolean }>();
+defineProps<{ isOpen: boolean }>();
 const emit = defineEmits<{ close: [] }>();
 
 const authStore = useAuthStore();
-
-const form = reactive({
-  displayName: '',
-  jobTitle: '',
-  companyName: '',
-  phoneNumber: '',
-  mobilePhoneNumber: '',
-  email: '',
-});
-
-function resetForm() {
-  const u = authStore.user;
-  if (!u) return;
-  form.displayName = u.displayName ?? '';
-  form.jobTitle = u.jobTitle ?? '';
-  form.companyName = u.companyName ?? '';
-  form.phoneNumber = u.phoneNumber ?? '';
-  form.mobilePhoneNumber = u.mobilePhoneNumber ?? '';
-  form.email = u.email ?? '';
-}
-
-watch(() => props.isOpen, (open) => {
-  if (open) resetForm();
-});
-
-const isDirty = computed(() => {
-  const u = authStore.user;
-  if (!u) return false;
-  return (
-    form.displayName !== (u.displayName ?? '') ||
-    form.jobTitle !== (u.jobTitle ?? '') ||
-    form.companyName !== (u.companyName ?? '') ||
-    form.phoneNumber !== (u.phoneNumber ?? '') ||
-    form.mobilePhoneNumber !== (u.mobilePhoneNumber ?? '') ||
-    form.email !== (u.email ?? '')
-  );
-});
 
 const lastModifiedLabel = computed(() => {
   const dt = authStore.user?.lastModifiedDateTime;
@@ -262,18 +205,6 @@ const lastModifiedLabel = computed(() => {
   });
 });
 
-async function save() {
-  authStore.updateUser({ ...form });
-  const toast = await toastController.create({
-    message: 'Profile updated.',
-    duration: 1800,
-    color: 'success',
-    position: 'bottom',
-  });
-  toast.present();
-  emit('close');
-}
-
 /* ── Photo upload ── */
 const photoInput = ref<HTMLInputElement | null>(null);
 const isUploadingPhoto = ref(false);
@@ -286,7 +217,6 @@ async function onPhotoSelected(event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0];
   if (!file || !authStore.user) return;
   isUploadingPhoto.value = true;
-  // Optimistic local preview
   const reader = new FileReader();
   reader.onload = (e) => { authStore.setPhotoUrl(e.target?.result as string); };
   reader.readAsDataURL(file);
@@ -474,30 +404,6 @@ async function savePassword() {
 .field-input--readonly {
   color: var(--app-text-muted);
   opacity: 0.7;
-}
-
-/* ── Save footer ── */
-.save-footer {
-  padding: 20px 16px 0;
-  animation: fade-slide-up 0.2s var(--ease-out-quart) both;
-}
-
-.save-footer-btn {
-  --background: var(--app-gold);
-  --background-activated: var(--app-gold-dark);
-  --border-radius: 12px;
-  height: 50px;
-  font-size: 15px;
-  font-weight: 700;
-  box-shadow: var(--app-shadow-gold);
-  margin-bottom: 4px;
-}
-
-/* ── Header save button ── */
-.save-btn {
-  font-weight: 700;
-  color: var(--app-gold);
-  font-size: 15px;
 }
 
 /* ── Password hint ── */
