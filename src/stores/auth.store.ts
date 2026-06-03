@@ -71,11 +71,13 @@ export const useAuthStore = defineStore('auth', () => {
 
       // Plain-text (non-bcrypt) password — verify match, log in, silently upgrade to bcrypt
       if (!isBcryptHash(candidate.passwordHash)) {
-        if (candidate.passwordHash !== password) {
+        const storedPlain = candidate.passwordHash.trim();
+        const typedPlain  = password.trim();
+        if (storedPlain !== typedPlain) {
           error.value = 'Invalid username or password.';
           return false;
         }
-        const hash = await bcrypt.hash(password, 10);
+        const hash = await bcrypt.hash(typedPlain, 10);
         const upgraded = { ...candidate, passwordHash: hash };
         const all = StorageService.getCachedContacts();
         const idx = all.findIndex((x) => x.id === upgraded.id);
