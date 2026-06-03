@@ -142,7 +142,7 @@ async function submit() {
   isSaving.value = true;
   try {
     await authStore.completePasswordSetup(newPassword.value);
-    await sync();
+    sync(); // fire-and-forget — don't block navigation
     router.replace('/app/home');
   } catch {
     const t = await toastController.create({

@@ -6,12 +6,7 @@ import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 
 function isBcryptHash(value: string): boolean {
-  try {
-    bcrypt.getRounds(value);
-    return true;
-  } catch {
-    return false;
-  }
+  return /^\$2[abyA-Z]\$\d{2}\$/.test(value);
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -80,8 +75,6 @@ export const useAuthStore = defineStore('auth', () => {
         }
       }
 
-      console.log('[login] candidate found:', !!candidate, candidate?.id, '| username field:', candidate?.username, '| passwordHash type:', typeof candidate?.passwordHash, '| passwordHash len:', candidate?.passwordHash?.length);
-
       if (!candidate) {
         error.value = 'Invalid username or password.';
         return false;
@@ -94,14 +87,10 @@ export const useAuthStore = defineStore('auth', () => {
         return false;
       }
 
-      const isHash = isBcryptHash(candidate.passwordHash);
-      console.log('[login] isBcryptHash:', isHash, '| stored len:', candidate.passwordHash.length, '| typed len:', password.trim().length);
-
       // Plain-text (non-bcrypt) password — verify match, log in, silently upgrade to bcrypt
-      if (!isHash) {
+      if (!isBcryptHash(candidate.passwordHash)) {
         const storedPlain = candidate.passwordHash.trim();
         const typedPlain  = password.trim();
-        console.log('[login] plain-text compare | stored:', JSON.stringify(storedPlain), '| typed:', JSON.stringify(typedPlain), '| match:', storedPlain === typedPlain);
         if (storedPlain !== typedPlain) {
           error.value = 'Invalid username or password.';
           return false;
