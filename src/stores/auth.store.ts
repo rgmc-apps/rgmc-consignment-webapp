@@ -80,7 +80,7 @@ export const useAuthStore = defineStore('auth', () => {
         }
       }
 
-      console.debug('[login] candidate found:', !!candidate, candidate?.id, '| username field:', candidate?.username, '| passwordHash type:', typeof candidate?.passwordHash, '| passwordHash len:', candidate?.passwordHash?.length);
+      console.log('[login] candidate found:', !!candidate, candidate?.id, '| username field:', candidate?.username, '| passwordHash type:', typeof candidate?.passwordHash, '| passwordHash len:', candidate?.passwordHash?.length);
 
       if (!candidate) {
         error.value = 'Invalid username or password.';
@@ -95,13 +95,13 @@ export const useAuthStore = defineStore('auth', () => {
       }
 
       const isHash = isBcryptHash(candidate.passwordHash);
-      console.debug('[login] isBcryptHash:', isHash, '| stored len:', candidate.passwordHash.length, '| typed len:', password.trim().length);
+      console.log('[login] isBcryptHash:', isHash, '| stored len:', candidate.passwordHash.length, '| typed len:', password.trim().length);
 
       // Plain-text (non-bcrypt) password — verify match, log in, silently upgrade to bcrypt
       if (!isHash) {
         const storedPlain = candidate.passwordHash.trim();
         const typedPlain  = password.trim();
-        console.debug('[login] plain-text compare | stored:', JSON.stringify(storedPlain), '| typed:', JSON.stringify(typedPlain), '| match:', storedPlain === typedPlain);
+        console.log('[login] plain-text compare | stored:', JSON.stringify(storedPlain), '| typed:', JSON.stringify(typedPlain), '| match:', storedPlain === typedPlain);
         if (storedPlain !== typedPlain) {
           error.value = 'Invalid username or password.';
           return false;

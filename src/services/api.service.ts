@@ -79,9 +79,20 @@ export const ApiService = {
     // Normalise field-name variations the BC API may return
     return raw.map((c) => ({
       ...c,
-      username:     c['username']     ?? c['userName']     ?? c['user_name']     ?? undefined,
-      passwordHash: c['passwordHash'] ?? c['passwordhash'] ?? c['password_hash'] ?? c['PasswordHash'] ?? undefined,
-    })) as unknown as Contact[];
+      id:                 (c['id']                                                                          ?? '') as string,
+      number:             (c['number']           ?? c['companyNo']                                          ?? '') as string,
+      type:               (c['type']                                                                        ?? '') as string,
+      displayName:        (c['displayName']       ?? c['name']                                              ?? '') as string,
+      jobTitle:           (c['jobTitle']                                                                    ?? '') as string,
+      companyNumber:      (c['companyNumber']     ?? c['companyNo']                                         ?? '') as string,
+      companyName:        (c['companyName']                                                                 ?? '') as string,
+      phoneNumber:        (c['phoneNumber']       ?? c['phoneNo']                                           ?? '') as string,
+      mobilePhoneNumber:  (c['mobilePhoneNumber'] ?? c['mobilePhoneNo']                                    ?? '') as string,
+      email:              (c['email']                                                                       ?? '') as string,
+      lastModifiedDateTime: (c['lastModifiedDateTime']                                                      ?? '') as string,
+      username:           (c['username']          ?? c['userName']     ?? c['user_name']                    ?? undefined) as string | undefined,
+      passwordHash:       (c['passwordHash']      ?? c['passwordhash'] ?? c['password_hash'] ?? c['PasswordHash'] ?? undefined) as string | undefined,
+    })) as Contact[];
   },
 
   async updateContact(id: string, data: ContactUpdatePayload): Promise<Contact> {
