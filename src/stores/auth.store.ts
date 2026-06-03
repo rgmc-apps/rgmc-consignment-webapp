@@ -69,21 +69,38 @@ export const useAuthStore = defineStore('auth', () => {
         return false;
       }
 
-      // Plain-text (non-bcrypt) password — verify match, then force bcrypt upgrade
+      // Plain-text (non-bcrypt) password — verify match, log in, silently upgrade to bcrypt
       if (!isBcryptHash(candidate.passwordHash)) {
         if (candidate.passwordHash !== password) {
           error.value = 'Invalid username or password.';
           return false;
         }
-        pendingSetupData.value = { brand: selectedBrand, contact: candidate };
-        forcePasswordSetup.value = true;
+        const hash = await bcrypt.hash(password, 10);
+        const upgraded = { ...candidate, passwordHash: hash };
+        const all = StorageService.getCachedContacts();
+        const idx = all.findIndex((x) => x.id === upgraded.id);
+        if (idx >= 0) all[idx] = upgraded;
+        StorageService.setCachedContacts(all);
+        brand.value = selectedBrand;
+        user.value = upgraded;
+        StorageService.setAuth({ brand: selectedBrand, user: upgraded });
+        return true;
+      }
+
+      // Bcrypt hash — verify login and check for default password concurrently
+      const [passwordValid, isDefaultPassword] = await Promise.all([
+        bcrypt.compare(password, candidate.passwordHash),
+        bcrypt.compare('12345678', candidate.passwordHash),
+      ]);
+
+      if (!passwordValid) {
+        error.value = 'Invalid username or password.';
         return false;
       }
 
-      // Bcrypt hash — normal comparison
-      const passwordValid = await bcrypt.compare(password, candidate.passwordHash);
-      if (!passwordValid) {
-        error.value = 'Invalid username or password.';
+      if (isDefaultPassword) {
+        pendingSetupData.value = { brand: selectedBrand, contact: candidate };
+        forcePasswordSetup.value = true;
         return false;
       }
 
