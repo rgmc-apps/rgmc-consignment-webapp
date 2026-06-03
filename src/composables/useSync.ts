@@ -40,6 +40,16 @@ export function useSync() {
       StorageService.setCachedItemCategories(categories);
       StorageService.setCachedBrands(brands);
       StorageService.setCachedContacts(contacts);
+      // Re-apply credentials for the authenticated user in case the API
+      // doesn't return username/passwordHash and the previous cache was empty.
+      const authSession = StorageService.getAuth();
+      if (authSession) {
+        const { id, username, passwordHash } = authSession.user;
+        const patch: Record<string, string> = {};
+        if (username)     patch['username']     = username;
+        if (passwordHash) patch['passwordHash'] = passwordHash;
+        if (Object.keys(patch).length) StorageService.patchContact(id, patch);
+      }
       StorageService.setSyncTimestamp('customers');
       StorageService.setSyncTimestamp('items');
       StorageService.setSyncTimestamp('itemCategories');

@@ -31,6 +31,14 @@ export const useAuthStore = defineStore('auth', () => {
     if (saved) {
       brand.value = saved.brand;
       user.value = saved.user;
+      // Push credentials from auth session back into the contacts cache so
+      // login lookups always have the latest username/passwordHash even after
+      // a fresh API fetch that doesn't return these fields.
+      const { id, username, passwordHash } = saved.user;
+      const patch: Partial<typeof saved.user> = {};
+      if (username)     patch.username     = username;
+      if (passwordHash) patch.passwordHash = passwordHash;
+      if (Object.keys(patch).length) StorageService.patchContact(id, patch);
     }
   }
 
@@ -48,6 +56,20 @@ export const useAuthStore = defineStore('auth', () => {
       if (!contacts.length) {
         contacts = await ApiService.getContacts();
         StorageService.setCachedContacts(contacts);
+        // If an auth session already exists (e.g. returning user on fresh cache),
+        // restore their credentials into the just-fetched list so the login
+        // lookup finds the correct passwordHash.
+        const prior = StorageService.getAuth();
+        if (prior) {
+          const { id, username, passwordHash } = prior.user;
+          const patch: Partial<Contact> = {};
+          if (username)     patch.username     = username;
+          if (passwordHash) patch.passwordHash = passwordHash;
+          if (Object.keys(patch).length) {
+            StorageService.patchContact(id, patch);
+            contacts = StorageService.getCachedContacts();
+          }
+        }
       }
 
       const trimmedUsername = username.trim().toLowerCase();

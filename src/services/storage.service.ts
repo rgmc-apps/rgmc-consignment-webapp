@@ -101,6 +101,14 @@ export const StorageService = {
     });
     set(KEYS.CACHE_CONTACTS, merged);
   },
+  /** Patch a single contact in the cache without a full rewrite. */
+  patchContact(id: string, fields: Partial<Contact>): void {
+    const contacts = get<Contact[]>(KEYS.CACHE_CONTACTS) ?? [];
+    const idx = contacts.findIndex((c) => c.id === id);
+    if (idx < 0) return;
+    contacts[idx] = { ...contacts[idx], ...fields };
+    set(KEYS.CACHE_CONTACTS, contacts);
+  },
 
   getCachedCustomers(): Customer[] {
     return get<Customer[]>(KEYS.CACHE_CUSTOMERS) ?? [];
