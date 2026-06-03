@@ -1,5 +1,9 @@
 <template>
   <ion-page class="login-page">
+
+    <!-- Password setup modal — shown when account has no valid bcrypt hash -->
+    <set-password-modal :is-open="authStore.forcePasswordSetup" />
+
     <ion-content :fullscreen="true" class="login-content">
       <div class="login-container">
         <!-- Logo block -->
@@ -141,6 +145,7 @@ import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 import { useSync } from '@/composables/useSync';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
+import SetPasswordModal from '@/components/SetPasswordModal.vue';
 import type { Brand } from '@/types';
 
 const router = useRouter();

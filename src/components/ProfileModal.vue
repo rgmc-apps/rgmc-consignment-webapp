@@ -104,6 +104,60 @@
           </ion-button>
         </div>
 
+        <!-- ── Security ── -->
+        <p class="section-label">Security</p>
+        <ion-list lines="inset" class="field-list">
+          <ion-item class="field-item">
+            <ion-label position="stacked" class="field-label">New Password</ion-label>
+            <ion-input
+              v-model="newPassword"
+              :type="showNewPw ? 'text' : 'password'"
+              placeholder="Min. 6 characters"
+              autocomplete="new-password"
+              :disabled="isSavingPw"
+              class="field-input"
+            />
+            <ion-button slot="end" fill="clear" size="small" @click="showNewPw = !showNewPw">
+              <ion-icon :icon="showNewPw ? eyeOffOutline : eyeOutline" slot="icon-only" />
+            </ion-button>
+          </ion-item>
+          <ion-item class="field-item" lines="none">
+            <ion-label position="stacked" class="field-label">Confirm Password</ion-label>
+            <ion-input
+              v-model="confirmPw"
+              :type="showConfirmPw ? 'text' : 'password'"
+              placeholder="Re-enter password"
+              autocomplete="new-password"
+              :disabled="isSavingPw"
+              class="field-input"
+            />
+            <ion-button slot="end" fill="clear" size="small" @click="showConfirmPw = !showConfirmPw">
+              <ion-icon :icon="showConfirmPw ? eyeOffOutline : eyeOutline" slot="icon-only" />
+            </ion-button>
+          </ion-item>
+        </ion-list>
+
+        <!-- Password validation hint -->
+        <Transition name="pw-hint-fade">
+          <div v-if="pwHintMsg" class="pw-hint" :class="{ 'pw-hint--ok': pwIsValid }">
+            <ion-icon :icon="pwIsValid ? checkmarkCircleOutline : alertCircleOutline" />
+            <span>{{ pwHintMsg }}</span>
+          </div>
+        </Transition>
+
+        <div class="pw-action">
+          <ion-button
+            expand="block"
+            class="pw-save-btn"
+            :disabled="!pwIsValid || isSavingPw"
+            @click="savePassword"
+          >
+            <ion-spinner v-if="isSavingPw" name="crescent" slot="start" />
+            <ion-icon v-else :icon="lockClosedOutline" slot="start" />
+            {{ isSavingPw ? 'Updating password…' : 'Update Password' }}
+          </ion-button>
+        </div>
+
         <div style="height: 32px;" />
       </ion-content>
     </ion-page>
@@ -111,7 +165,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, computed, watch } from 'vue';
+import { reactive, ref, computed, watch } from 'vue';
 import {
   IonModal,
   IonPage,
@@ -126,9 +180,18 @@ import {
   IonItem,
   IonLabel,
   IonInput,
+  IonSpinner,
   toastController,
 } from '@ionic/vue';
-import { closeOutline } from 'ionicons/icons';
+import {
+  closeOutline,
+  eyeOutline,
+  eyeOffOutline,
+  lockClosedOutline,
+  checkmarkCircleOutline,
+  alertCircleOutline,
+} from 'ionicons/icons';
+import bcrypt from 'bcryptjs';
 import { useAuthStore } from '@/stores/auth.store';
 
 const props = defineProps<{ isOpen: boolean }>();
@@ -199,6 +262,44 @@ async function save() {
   });
   toast.present();
   emit('close');
+}
+
+const newPassword = ref('');
+const confirmPw = ref('');
+const showNewPw = ref(false);
+const showConfirmPw = ref(false);
+const isSavingPw = ref(false);
+
+const pwHintMsg = computed(() => {
+  if (!newPassword.value && !confirmPw.value) return '';
+  if (newPassword.value.length < 6) return 'Password must be at least 6 characters.';
+  if (confirmPw.value && newPassword.value !== confirmPw.value) return 'Passwords do not match.';
+  if (newPassword.value && newPassword.value === confirmPw.value) return 'Passwords match.';
+  return '';
+});
+
+const pwIsValid = computed(
+  () => newPassword.value.length >= 6 && newPassword.value === confirmPw.value,
+);
+
+async function savePassword() {
+  if (!pwIsValid.value || isSavingPw.value) return;
+  isSavingPw.value = true;
+  try {
+    const hash = await bcrypt.hash(newPassword.value, 10);
+    authStore.updateUser({ passwordHash: hash });
+    newPassword.value = '';
+    confirmPw.value = '';
+    const toast = await toastController.create({
+      message: 'Password updated successfully.',
+      duration: 2000,
+      color: 'success',
+      position: 'bottom',
+    });
+    toast.present();
+  } finally {
+    isSavingPw.value = false;
+  }
 }
 </script>
 
@@ -328,5 +429,47 @@ async function save() {
   font-weight: 700;
   color: var(--app-gold);
   font-size: 15px;
+}
+
+/* ── Password hint ── */
+.pw-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 16px 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--app-danger-bg);
+  border: 1px solid var(--app-error-border);
+  color: var(--ion-color-danger);
+}
+
+.pw-hint--ok {
+  background: rgba(var(--ion-color-success-rgb), 0.12);
+  border-color: rgba(var(--ion-color-success-rgb), 0.3);
+  color: var(--ion-color-success);
+}
+
+.pw-hint-fade-enter-active { transition: opacity 0.2s ease, transform 0.2s var(--ease-out-quart); }
+.pw-hint-fade-leave-active { transition: opacity 0.14s ease; }
+.pw-hint-fade-enter-from   { opacity: 0; transform: translateY(-4px); }
+.pw-hint-fade-leave-to     { opacity: 0; }
+
+/* ── Password action button ── */
+.pw-action {
+  padding: 16px 16px 0;
+}
+
+.pw-save-btn {
+  --background: var(--app-surface-alt, rgba(160, 115, 32, 0.12));
+  --background-activated: rgba(160, 115, 32, 0.2);
+  --border-radius: 12px;
+  --color: var(--app-gold);
+  height: 50px;
+  font-size: 15px;
+  font-weight: 700;
+  border: 1px solid rgba(160, 115, 32, 0.35);
 }
 </style>

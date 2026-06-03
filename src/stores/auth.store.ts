@@ -5,11 +5,24 @@ import type { Brand, Contact } from '@/types';
 import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 
+function isBcryptHash(value: string): boolean {
+  try {
+    bcrypt.getRounds(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const brand = ref<Brand | null>(null);
   const user = ref<Contact | null>(null);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
+
+  /** Set when a matched contact has an empty or non-bcrypt passwordHash */
+  const forcePasswordSetup = ref(false);
+  const pendingSetupData = ref<{ brand: Brand; contact: Contact } | null>(null);
 
   const isAuthenticated = computed(() => !!brand.value && !!user.value);
 
@@ -43,6 +56,13 @@ export const useAuthStore = defineStore('auth', () => {
         (c) => c.username?.trim().toLowerCase() === trimmedUsername,
       );
 
+      // Contact found but has no valid bcrypt hash — needs first-time password setup
+      if (candidate && (!candidate.passwordHash || !isBcryptHash(candidate.passwordHash))) {
+        pendingSetupData.value = { brand: selectedBrand, contact: candidate };
+        forcePasswordSetup.value = true;
+        return false;
+      }
+
       const passwordValid =
         !!candidate?.passwordHash &&
         (await bcrypt.compare(password, candidate.passwordHash));
@@ -64,6 +84,32 @@ export const useAuthStore = defineStore('auth', () => {
     } finally {
       isLoading.value = false;
     }
+  }
+
+  async function completePasswordSetup(newPassword: string): Promise<void> {
+    if (!pendingSetupData.value) return;
+    const { brand: b, contact: c } = pendingSetupData.value;
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    const updated: Contact = { ...c, passwordHash: hash };
+
+    // Persist to cached contacts list so the hash survives future logins
+    const contacts = StorageService.getCachedContacts();
+    const idx = contacts.findIndex((x) => x.id === updated.id);
+    if (idx >= 0) contacts[idx] = updated;
+    StorageService.setCachedContacts(contacts);
+
+    brand.value = b;
+    user.value = updated;
+    StorageService.setAuth({ brand: b, user: updated });
+
+    forcePasswordSetup.value = false;
+    pendingSetupData.value = null;
+  }
+
+  function clearPasswordSetup(): void {
+    forcePasswordSetup.value = false;
+    pendingSetupData.value = null;
   }
 
   function updateUser(updates: Partial<Contact>): void {
@@ -96,8 +142,12 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     isLoading,
     error,
+    forcePasswordSetup,
+    pendingSetupData,
     loadFromStorage,
     login,
+    completePasswordSetup,
+    clearPasswordSetup,
     updateUser,
     logout,
     clearError,
