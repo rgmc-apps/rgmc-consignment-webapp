@@ -56,8 +56,13 @@ export const useAuthStore = defineStore('auth', () => {
         (c) => c.username?.trim().toLowerCase() === trimmedUsername,
       );
 
-      // Contact found but has no valid bcrypt hash — needs first-time password setup
+      // Contact found but passwordHash is plain-text or missing — validate then force setup
       if (candidate && (!candidate.passwordHash || !isBcryptHash(candidate.passwordHash))) {
+        // If a plain-text value exists, the entered password must match it exactly
+        if (candidate.passwordHash && candidate.passwordHash !== password) {
+          error.value = 'Invalid username or password.';
+          return false;
+        }
         pendingSetupData.value = { brand: selectedBrand, contact: candidate };
         forcePasswordSetup.value = true;
         return false;
