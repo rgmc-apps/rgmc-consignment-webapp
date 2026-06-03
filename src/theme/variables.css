@@ -185,7 +185,32 @@
   --ion-color-dark-tint:         #f0ede8;
 }
 
-/* Toolbar overrides — dark header with gold accent */
+/* ── ion-action-sheet (brand select on login screen) ──
+   Rendered outside component scope so must live here.
+   Uses app surface/fg tokens so it adapts to light + dark modes. */
+ion-action-sheet {
+  --background:                  var(--app-surface);
+  --color:                       var(--app-fg);
+  --button-color:                var(--app-fg);
+  --button-background:           transparent;
+  --button-background-hover:     var(--app-surface-alt);
+  --button-background-focused:   var(--app-surface-alt);
+  --button-background-activated: var(--app-surface-alt);
+}
+
+ion-action-sheet .action-sheet-title {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+ion-action-sheet .action-sheet-selected {
+  color: var(--app-gold) !important;
+  font-weight: 600;
+}
+
+/* ── Toolbar overrides — dark header with gold accent ── */
 ion-toolbar {
   --background: var(--app-header-bg);
   --color: var(--app-header-color);

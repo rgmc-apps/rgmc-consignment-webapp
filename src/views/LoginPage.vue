@@ -329,7 +329,33 @@ async function handleLogin() {
   --background: transparent;
   --border-color: var(--app-border);
   --padding-start: 0;
+  --color: var(--app-fg);
   margin-bottom: 4px;
+}
+
+/* ion-select: selected value text + placeholder */
+.login-field ion-select {
+  --color: var(--app-fg);
+  --placeholder-color: var(--app-text-muted);
+  --placeholder-opacity: 1;
+}
+
+/* ion-select caret / icon */
+.login-field ion-select::part(icon) {
+  color: var(--app-text-muted);
+  opacity: 1;
+}
+
+/* ion-label inside login fields */
+.login-field ion-label {
+  color: var(--app-text-muted) !important;
+}
+
+/* ion-input text */
+.login-field ion-input {
+  --color: var(--app-fg);
+  --placeholder-color: var(--app-text-muted);
+  --placeholder-opacity: 1;
 }
 
 .login-error {
