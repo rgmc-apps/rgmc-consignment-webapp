@@ -1,6 +1,8 @@
 <template>
   <ion-page class="login-page">
 
+    <!-- Username setup modal — shown when account was matched by display name -->
+    <set-username-modal :is-open="authStore.forceUsernameSetup" />
     <!-- Password setup modal — shown when account has no valid bcrypt hash -->
     <set-password-modal :is-open="authStore.forcePasswordSetup" />
 
@@ -146,6 +148,7 @@ import { StorageService } from '@/services/storage.service';
 import { useSync } from '@/composables/useSync';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import SetPasswordModal from '@/components/SetPasswordModal.vue';
+import SetUsernameModal from '@/components/SetUsernameModal.vue';
 import type { Brand } from '@/types';
 
 const router = useRouter();
