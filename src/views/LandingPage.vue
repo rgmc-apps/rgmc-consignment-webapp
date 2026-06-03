@@ -12,9 +12,7 @@
           <ion-button fill="clear" @click="toggleTheme">
             <ion-icon :key="isDark ? 'dk' : 'lt'" :icon="isDark ? sunnyOutline : moonOutline" slot="icon-only" class="theme-toggle-icon" />
           </ion-button>
-          <ion-button fill="clear" @click="handleLogout">
-            <ion-icon :icon="logOutOutline" slot="icon-only" />
-          </ion-button>
+          <profile-menu />
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
@@ -148,7 +146,6 @@ import {
   IonRefresherContent,
 } from '@ionic/vue';
 import {
-  logOutOutline,
   calendarOutline,
   scanOutline,
   documentTextOutline,
@@ -159,6 +156,7 @@ import {
   moonOutline,
   sunnyOutline,
 } from 'ionicons/icons';
+import ProfileMenu from '@/components/ProfileMenu.vue';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
 import { StorageService } from '@/services/storage.service';
@@ -236,23 +234,7 @@ async function confirmDeleteDraft(id: string) {
   await alert.present();
 }
 
-async function handleLogout() {
-  const alert = await alertController.create({
-    header: 'Sign Out',
-    message: 'Are you sure you want to sign out?',
-    buttons: [
-      { text: 'Cancel', role: 'cancel' },
-      {
-        text: 'Sign Out',
-        handler: () => {
-          authStore.logout();
-          router.replace('/login');
-        },
-      },
-    ],
-  });
-  await alert.present();
-}
+
 </script>
 
 <style scoped>

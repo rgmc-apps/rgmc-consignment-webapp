@@ -18,12 +18,10 @@
           >
             <ion-icon :icon="saveOutline" slot="icon-only" />
           </ion-button>
-          <ion-button fill="clear" :disabled="isSyncing || !isOnline" @click="handleSync">
-            <ion-icon :icon="isSyncing ? hourglassOutline : syncOutline" slot="icon-only" />
-          </ion-button>
           <ion-button fill="clear" @click="toggleTheme">
             <ion-icon :key="isDark ? 'dk' : 'lt'" :icon="isDark ? sunnyOutline : moonOutline" slot="icon-only" class="theme-toggle-icon" />
           </ion-button>
+          <profile-menu />
         </ion-buttons>
       </ion-toolbar>
 
@@ -104,7 +102,7 @@
           <p>Data not loaded yet.</p>
           <p class="state-sub">Tap Sync to download customers and items before scanning.</p>
         </template>
-        <ion-button v-if="isOnline" @click="handleSync">
+        <ion-button v-if="isOnline" @click="sync">
           <ion-icon :icon="syncOutline" slot="start" />
           {{ lastSyncDate && cachedItems.length === 0 ? 'Retry Sync' : 'Sync Now' }}
         </ion-button>
@@ -580,7 +578,6 @@ import {
 import {
   syncOutline,
   timeOutline,
-  hourglassOutline,
   cloudDownloadOutline,
   cloudOfflineOutline,
   alertCircleOutline,
@@ -613,6 +610,7 @@ import { useGoldAccent } from '@/composables/useGoldAccent';
 import { StorageService } from '@/services/storage.service';
 import { formatCurrency, formatDiscount } from '@/utils/format';
 import ItemSelectorModal from '@/components/ItemSelectorModal.vue';
+import ProfileMenu from '@/components/ProfileMenu.vue';
 import type { Customer, Item, ItemCategory, DiscountType } from '@/types';
 
 /* ─── Stores / composables ─── */
@@ -653,23 +651,21 @@ onMounted(async () => {
     sessionStore.startNewSession(authStore.brand, authStore.user);
   }
   if (cachedItems.value.length === 0) {
-    await handleSync();
+    await sync();
   }
 });
 
 /* ─── Sync ─── */
-async function handleSync() {
-  await sync();
-  refreshCache();
-}
-
 function saveDraftAndGoHome() {
   sessionStore.saveAsDraftAndExit();
   router.replace('/app/home');
 }
 
 async function onPullRefresh(ev: CustomEvent) {
-  if (isOnline.value) await handleSync();
+  if (isOnline.value) {
+    await sync();
+    refreshCache();
+  }
   (ev.target as HTMLIonRefresherElement).complete();
 }
 
@@ -700,6 +696,7 @@ watch(isSyncing, (active) => {
     if (syncSlowTimer) { clearTimeout(syncSlowTimer);  syncSlowTimer = null; }
     syncMsgIndex.value  = 0;
     isSyncingSlow.value = false;
+    refreshCache();
   }
 });
 

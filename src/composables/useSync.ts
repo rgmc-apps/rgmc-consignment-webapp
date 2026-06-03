@@ -2,10 +2,12 @@ import { ref, computed } from 'vue';
 import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 
+// Module-level singleton so all components share the same sync state
+const isSyncing = ref(false);
+const syncError = ref<string | null>(null);
+const lastSyncDate = ref<Date | null>(StorageService.getLastSync());
+
 export function useSync() {
-  const isSyncing = ref(false);
-  const syncError = ref<string | null>(null);
-  const lastSyncDate = ref<Date | null>(StorageService.getLastSync());
 
   const lastSyncLabel = computed(() => {
     if (!lastSyncDate.value) return 'Never synced';

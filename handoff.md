@@ -2,7 +2,7 @@
 
 ## Goal
 
-Ship and maintain the **RGMC Consignment Web App** on Google Cloud Run — a mobile-first Ionic/Vue scanning tool for sales reps to build sales/return orders against a GCP-hosted Business Central API.
+Ship and maintain the **RGMC Consignment Web App** on Google Cloud Run — a mobile-first Ionic/Vue 3 scanning tool for Philippines sales agents to build sales/return orders against a GCP-hosted Business Central API.
 
 **Acceptance criteria (all met as of this session):**
 - ✅ Login pre-syncs ALL data automatically (customers, items, categories, brands, contacts)
@@ -15,102 +15,120 @@ Ship and maintain the **RGMC Consignment Web App** on Google Cloud Run — a mob
 - ✅ No `QuotaExceededError` in localStorage (items in `_itemsMemory` + IndexedDB)
 - ✅ All screens work against live GCP API via nginx proxy
 - ✅ "Save as Draft & Go Back" saves as `draft` status (not `submitted`)
-- ✅ Drafts without a customer selected are NOT saved or shown on Home
+- ✅ Drafts without a customer are NOT saved or shown on Home
 - ✅ Drafts with order lines have a Submit shortcut button on the Home page
 - ✅ App is full-screen on desktop; content centred in a 720 px column
 - ✅ Stale-chunk errors on deploy fixed (nginx no-cache + router error handler)
 - ✅ Order date field on ScanningPage (saved locally, sent to API)
-- ✅ Version number `v1.0.0` displayed in sync bar next to date
+- ✅ Version `v1.0.0` displayed in sync bar next to date
 - ✅ Sales return order endpoint fixed (`/bc/custom/sales-return-orders`)
 - ✅ Items persisted to IndexedDB — offline scanning survives browser refresh
 - ✅ Full offline navigation — SplashPage bypasses network if auth + cache exist
 - ✅ Submit buttons disabled + inline notice when offline
 - ✅ "Save as Draft" icon in ScanningPage header (when customer selected)
-- ✅ **PWA Service Worker** — app loads from SW cache when device has no internet (ERR_INTERNET_DISCONNECTED fixed)
+- ✅ PWA Service Worker — app loads from SW cache with no internet
+- ✅ Offline toast — device going offline shows a dismissible notification
+- ✅ Dark/light mode toggle — persistent, no flash-of-wrong-theme, all surfaces adapt
+- ✅ Design overhaul — Outfit font, semantic type scale, initials avatars, welcome hero
+- ✅ `@property` gold accent system — 3 animated moments wired to meaningful events
 
 ---
 
 ## Current State
 
-**Working tree has uncommitted UI changes from a multi-session design overhaul.** Latest committed: `8542c2c`.
+**All changes committed and pushed. Latest commit: `c23d3b0 design improvements`.**
+Both local `HEAD` and `origin/master` are at `c23d3b0`.
+TypeScript: zero errors (`npx vue-tsc --noEmit` exits clean).
+Working tree: clean (no uncommitted changes).
 
-| Feature | Status |
-|---|---|
-| Offline toast (device goes offline) | ✅ Done — `App.vue` watch + `toastController` |
-| Dark/Light mode toggle | ✅ Done — `useTheme.ts` singleton composable, `data-theme` on `<html>`, persisted to `localStorage` |
-| Design overhaul (typography, initials avatars, welcome hero, semantic tokens) | ✅ Done — `variables.css`, `LandingPage.vue`, `ScanningPage.vue`, `HistoryPage.vue` |
-| `@property` gold accent system (Direction 3 overdrive) | ✅ Done — 3 animated moments wired up |
+Cloud Build will have triggered on the push. Verify deployment at:
+`https://rgmc-consignment-webapp-a52bp7y4ea-as.a.run.app`
 
-**Gold accent system — what was built:**
-- `src/composables/useGoldAccent.ts` — module-level singleton, exposes `triggerHeaderPulse`, `triggerSubmitFlash`, `triggerSweep`
-- `src/theme/variables.css` — `@property --gold-hdr-glow`, `--gold-submit-glow`, `--gold-sweep-alpha` + 3 keyframes + 3 CSS selectors
-- **Trigger 1 (online restore):** `App.vue` calls `triggerHeaderPulse()` when `isOnline` flips false→true → `ion-header.gold-online-pulse` gets a downward gold box-shadow burst via `@property`-animated `--gold-hdr-glow`
-- **Trigger 2 (item add):** `ScanningPage.vue` calls `triggerSubmitFlash()` after `doConfirm`, `addToSales`, `addToReturn` → `.submit-bar.gold-item-flash` gets upward gold glow via `@property`-animated `--gold-submit-glow`
-- **Trigger 3 (submission success):** `SubmitPage.vue` calls `triggerSweep()` after sales/returns status hits `done` → `v-if="sweepActive"` mounts `.gold-sweep-overlay` (fixed, pointer-events-none, z-index 9999) — a radial-gradient sweep driven by `@property`-animated `--gold-sweep-alpha`
-- Degrades silently in browsers without `@property` support (Chrome < 85)
+### What was built this session (all in `c23d3b0`):
+
+**1. Offline toast** (`src/App.vue`):
+- `watch(isOnline)` on `true→false` transition shows a styled toast (dark bg, gold top border, "You're now offline" + sub-message)
+- CSS classes `offline-toast` and `offline-toast-body` defined in `variables.css`
+- Toast does NOT fire on online restore (that triggers the gold pulse instead)
+
+**2. Dark/Light mode toggle** (`src/composables/useTheme.ts`, all page headers):
+- Module-level singleton `isDark` ref — shared across all components
+- `data-theme="dark"` applied to `document.documentElement` at module load (prevents flash-of-wrong-theme on return visits)
+- Persisted to `localStorage` under key `rgmc_theme`
+- Dark mode CSS vars override in `variables.css` under `[data-theme="dark"]` selector
+- Toggle button with animated icon swap (`.theme-toggle-icon` keyframe) added to ScanningPage, HistoryPage, LandingPage headers
+
+**3. Design overhaul** (multi-file):
+- Google Fonts: Outfit (300–800) loaded in `index.html` via preconnect + stylesheet link
+- `viewport` meta: removed `user-scalable=no, minimum-scale=1.0, maximum-scale=1.0` (WCAG 1.4.4 fix)
+- Semantic type scale in `rem` (not `px`): `--text-2xs` through `--text-hero` in `variables.css`
+- Proportional letter-spacing tokens in `em`: `--tracking-tighter` through `--tracking-wider`
+- Line-height tokens: `--leading-tight` through `--leading-relaxed`
+- Shadow tokens: `--app-shadow-xs`, `--app-shadow`, `--app-shadow-md`, `--app-shadow-gold`
+- Radius tokens: `--app-radius-sm` through `--app-radius-xl`
+- `--app-fg` semantic foreground token (flips light/dark) replacing `--app-dark` on text
+- Semantic utility tokens: `--app-danger-bg`, `--app-warn-bg`, `--app-warn-text`, `--app-error-border`
+- Initials avatars replacing `ion-icon` in draft/customer lists (`LandingPage.vue`)
+- Welcome hero strip (dark editorial band with radial gold glow + gold separator line)
+- Global tabular-nums utility on all monetary/numeric classes
+- Side-stripe ban enforced: no `border-left > 1px` colored accents anywhere
+
+**4. `@property` gold accent system** (`src/composables/useGoldAccent.ts`, `variables.css`, 3 pages):
+- Three `@property`-registered animatable custom properties: `--gold-hdr-glow`, `--gold-submit-glow`, `--gold-sweep-alpha`
+- **Trigger 1 — online restore** (`App.vue`): `isOnline` false→true calls `triggerHeaderPulse()`. `ion-header.gold-online-pulse` runs `gold-hdr-pulse` (1.8s) — downward `box-shadow` using `oklch(... / var(--gold-hdr-glow))` driven by the `@property`-animated number
+- **Trigger 2 — item added** (`ScanningPage.vue`): `triggerSubmitFlash()` called after `doConfirm()`, `addToSales()`, `addToReturn()`. `.submit-bar.gold-item-flash` runs `gold-submit-flash` (1s) — upward `box-shadow` burst
+- **Trigger 3 — submission success** (`SubmitPage.vue`): `triggerSweep()` called when `salesStatus` or `returnsStatus` hits `'done'`. `v-if="sweepActive"` mounts `.gold-sweep-overlay` (fixed, z-9999, pointer-events-none) — radial-gradient using `var(--gold-sweep-alpha)` sweeps from center and expands
+- Double-rAF pattern in each trigger ensures class removal + re-add restarts CSS animations cleanly
+- Degrades silently in Chrome < 85 / Safari < 16.4 (no `@property` support → animation no-ops)
 - Already covered by the global `prefers-reduced-motion` rule in `variables.css`
-
-**Changes NOT yet committed (pending since previous sessions):**
-- `src/App.vue`
-- `src/theme/variables.css`
-- `src/composables/useTheme.ts`
-- `src/composables/useGoldAccent.ts` (new)
-- `src/views/LandingPage.vue`
-- `src/views/ScanningPage.vue`
-- `src/views/HistoryPage.vue`
-- `src/views/SubmitPage.vue`
-- `index.html`
-
-Live URL: `https://rgmc-consignment-webapp-a52bp7y4ea-as.a.run.app`
-Cloud Build trigger: GitHub push → Cloud Build → Cloud Run (~5 min)
-
-**First-visit SW activation note:** The service worker only takes effect after the first online visit. Users who visited before `8542c2c` was deployed need to load the app once while online — then it will work offline on subsequent visits.
 
 ---
 
 ## Files Actively Being Edited
 
-All files are committed. Nothing in flight.
+Nothing in flight — all clean.
 
-### This session's changes (commit `8542c2c`)
+### Files changed in `c23d3b0`:
 
-- `vite.config.ts` — Added `VitePWA` plugin with `generateSW` mode, `navigateFallback: '/index.html'`, and `/bc/*` excluded from the fallback. `injectRegister: 'auto'` auto-injects `registerSW.js` into the built `index.html`.
-
-- `package.json` — Added `"vite-plugin-pwa": "^1.3.0"` to `devDependencies`.
-
-- `package-lock.json` — Updated lockfile after `npm install -D vite-plugin-pwa`.
-
-- `nginx.conf` — Added a new `location ~* "^/(sw\.js|manifest\.webmanifest|registerSW\.js)$"` block serving those files with `no-store, no-cache` so the browser always checks for SW updates on reload.
-
-### Previous session's changes (commit `9b55dc0`)
-
-- `src/views/ScanningPage.vue` — Save icon button (`saveOutline`) in header `slot="end"`, visible when `selectedCustomer` is set. Calls `saveDraftAndGoHome()`.
-
-- `src/views/SubmitPage.vue` — Inline `<div class="submit-offline-notice">` block in both sales and returns sections, shown `v-if="!isOnline"`.
+- `index.html` — Outfit font (preconnect + stylesheet), WCAG viewport fix (removed `user-scalable=no`)
+- `src/App.vue` — Offline toast watch; online-restore calls `triggerHeaderPulse()`; imports `useGoldAccent`
+- `src/composables/useTheme.ts` — NEW: module-level `isDark` singleton, `data-theme` attribute management, `localStorage` persistence
+- `src/composables/useGoldAccent.ts` — NEW: module-level refs for 3 animation states, 3 trigger functions with double-rAF + setTimeout cleanup
+- `src/theme/variables.css` — Semantic token system (type scale, tracking, leading, shadows, radii, easings), dark mode overrides, offline toast styles, `@property` registrations + keyframes + 3 animation selectors (`.gold-online-pulse`, `.gold-item-flash`, `.gold-sweep-overlay`)
+- `src/views/LandingPage.vue` — Initials avatars, welcome hero band (dark + radial glow), dark mode token fixes, toggle button in header
+- `src/views/ScanningPage.vue` — Toggle button, `useTheme`/`useGoldAccent` imports, `ion-header :class="{ 'gold-online-pulse': headerPulseActive }"`, submit-bar `:class` binding, `triggerSubmitFlash()` calls in all 3 item-add paths, typography tokens throughout
+- `src/views/HistoryPage.vue` — Toggle button, `useTheme` import, `--app-fg` text fixes, `--app-danger-bg` banner, `--app-surface-alt` detail content (was `--app-bg` which didn't exist), grand total tokens
+- `src/views/SubmitPage.vue` — `useGoldAccent` import, `v-if="sweepActive"` overlay element, `triggerSweep()` in `doSubmitSales` and `doSubmitReturns` success paths
+- `handoff.md` — Updated this file
 
 ---
 
 ## Failed Attempts
 
-- **Using Bash tool for PowerShell heredoc syntax** — `git commit -m "$(cat <<'EOF'...)"` syntax fails in PowerShell (it's bash-only). Must use PowerShell here-string syntax: `git commit -m @'...'@` with closing `'@` at column 0.
+- **Side-stripe border on draft items**: Added `border-left: 3px solid rgba(255,196,9,0.55)` on `.draft-item` during design phase — caught and removed by impeccable laws ("border-left or border-right greater than 1px as a colored accent is banned"). Replaced with `--background: rgba(255,196,9,0.04)` tint.
 
-- **Staging `dist/` after .gitignore was updated** — `git add dist/` fails with "The following paths are ignored by one of your .gitignore files". Correct: `dist/` is in `.gitignore` (added in `baac605`), and the Dockerfile builds fresh — no need to commit `dist/`.
+- **`--app-bg` token in HistoryPage**: `.detail-content { --background: var(--app-bg) }` referenced a token that was never defined in `variables.css`. Replaced with `var(--app-surface-alt)`.
+
+- **`--app-dark` for text colors**: `color: var(--app-dark)` was used for text throughout all pages. `--app-dark: #1a1a1a` is fixed (doesn't flip in dark mode), so text became invisible on dark backgrounds. Solution: new `--app-fg` token was introduced that flips between `#1a1a1a` (light) and `#edeae4` (dark). All text `color: var(--app-dark)` migrated to `color: var(--app-fg)` in ScanningPage (9 locations), HistoryPage (4 locations), SubmitPage. The `--app-dark` value is kept for permanently-dark surfaces (submit bar background, grand-total row).
+
+- **`user-scalable=no` in viewport meta**: Was causing WCAG 1.4.4 violations (blocks browser pinch-zoom). Removed from `index.html`.
+
+- **Bash heredoc for git commit on Windows**: `git commit -m "$(cat <<'EOF'...)"` syntax is bash-only and fails in PowerShell. Must use PowerShell here-string: `git commit -m @'...'@` with closing `'@` at column 0.
 
 ---
 
 ## Next Step
 
-**Commit and deploy the UI overhaul.** All changes are complete, TypeScript is clean (zero errors), logic is sound.
+**Verify the live deployment looks correct.**
 
-Suggested commit message: "feat: dark mode, typography system, and @property gold accent animations"
+1. Visit `https://rgmc-consignment-webapp-a52bp7y4ea-as.a.run.app`
+2. Check: Outfit font is loading, dark/light toggle works and persists on refresh
+3. Simulate offline (DevTools → Network → Offline) → observe toast
+4. Re-enable network → header should briefly glow gold
+5. Add an item to an order → submit bar should flash gold
+6. Submit an order → full-screen radial gold sweep should appear
 
-After pushing, verify in the live app:
-1. Dark/light toggle persists across page refresh
-2. Going offline shows the toast; coming back online pulses the header gold
-3. Adding an item in ScanningPage → submit bar briefly glows gold
-4. Submitting an order → radial gold sweep sweeps across SubmitPage
-
-If the gold effects don't appear: check browser is Chromium-based (Chrome 85+ or Edge 85+); `@property` is not yet supported in Safari < 16.4.
+If Cloud Build is still running (~5 min after the push), wait for it to complete first.
 
 ---
 
@@ -120,100 +138,98 @@ If the gold effects don't appear: check browser is Chromium-based (Chrome 85+ or
 - **GitHub push → Cloud Build trigger → Cloud Run** (~5 min)
 - Project: `durable-woods-465907-n1` | Service: `rgmc-consignment-webapp` | Region: `asia-southeast1`
 - GCP API: `https://rgmc-gcp-api-935246372408.asia-southeast1.run.app`
-- Dockerfile always runs `npm run build` — `dist/` in git is irrelevant (and now .gitignored)
+- Dockerfile always runs `npm run build` — `dist/` is in `.gitignore`
+
+### Dark mode — flash prevention
+- `useTheme.ts` applies `data-theme` to `document.documentElement` at MODULE LOAD TIME (outside any function). This runs before any Vue component mounts, preventing the flash-of-wrong-theme for returning dark-mode users.
+- The singleton `isDark` ref at module level means ALL components that call `useTheme()` share the same reactive ref — toggling in one header instantly updates all others.
+
+### `--app-fg` vs `--app-dark` split
+- `--app-dark: #1a1a1a` — permanently dark, never flips (used as background color for submit bar, grand-total row, header backgrounds)
+- `--app-fg` — flips: `#1a1a1a` in light, `#edeae4` in dark (used for ALL text colors)
+- Do not use `color: var(--app-dark)` for text. Always use `color: var(--app-fg)`.
+
+### `@property` gold system — browser support
+- `@property` is supported in Chrome 85+, Edge 85+, Firefox 128+, Safari 16.4+
+- In unsupported browsers, the custom properties are treated as non-animatable strings → `box-shadow` and `background` remain at their `initial-value: 0` (transparent/invisible). Visual effects silently don't appear. Nothing breaks.
+- The global `@media (prefers-reduced-motion: reduce)` rule in `variables.css` sets `animation-duration: 0.01ms !important` on `*` — this kills all three gold animations for accessibility users without any extra code.
+
+### `@property` — where defined
+- Must be in global CSS (not scoped component styles) to work. All three `@property` declarations are in `src/theme/variables.css` which is imported globally.
+- `@keyframes` (also global) are in `variables.css`. The CSS selectors using those keyframes (`.gold-item-flash`, `ion-header.gold-online-pulse`, `.gold-sweep-overlay`) are also in `variables.css` — avoiding Vue scoped-style attribute complications.
+
+### Gold accent timing
+- `triggerHeaderPulse()`: class held for 2000ms (animation is 1.8s)
+- `triggerSubmitFlash()`: class held for 1100ms (animation is 1s)
+- `triggerSweep()`: class held for 1200ms, `v-if` mounts/unmounts the element (animation is 1.05s) — mounting ensures animation always starts from scratch (no stale fill state)
+
+### Double-rAF pattern in `useGoldAccent.ts`
+- `ref = false` then `requestAnimationFrame(() => requestAnimationFrame(() => { ref = true; ... }))` ensures the DOM processes the class removal BEFORE re-adding it, restarting the CSS animation properly. Required for rapid re-trigger (e.g., user adds two items quickly).
+
+### `addToSales()` / `addToReturn()` — pre-existing bug (not fixed)
+- `resetItemForm()` is called BEFORE `toast(form.itemName ...)`. After reset, `form.itemName = ''`, so the toast shows "Item added to Sales" instead of the actual item name. This is a pre-existing issue, out of scope. `triggerSubmitFlash()` is called after the toast, so it works regardless.
+
+### Typography token system
+- All sizes in `rem` (not `px`) so user browser zoom preferences are respected
+- Tracking in `em` (proportional) so letter-spacing scales with font size
+- `font-variant-numeric: tabular-nums` applied globally to all monetary/numeric display classes via a selector list in `variables.css` — do not revert to `letter-spacing: -0.5px` hacks
+- `text-wrap: balance` applied to headings and key names to prevent orphan words on narrow screens
 
 ### PWA / Service Worker
 - `vite-plugin-pwa` v1.3.0 installed as dev dep
-- `generateSW` mode (default) — Workbox auto-generates `sw.js` and `workbox-[hash].js` at build time
-- Pre-caches 32 entries (~2.8 MB) covering all JS/CSS chunks and assets
+- `generateSW` mode — Workbox auto-generates `sw.js` at build time
 - `navigateFallback: '/index.html'` makes all SPA routes work offline
-- `navigateFallbackDenylist: [/^\/bc\//]` — API proxy calls bypass the fallback (they fail gracefully offline)
-- `registerType: 'autoUpdate'` — new SW activates silently in background; user gets new version on next page load
-- `cleanupOutdatedCaches: true` — removes stale pre-cache entries from old deploys
-- The SW only activates after the FIRST online visit. Users must load the app once online before offline mode works
-- `sw.js`, `manifest.webmanifest`, `registerSW.js` are served `no-cache` by nginx so the browser always checks for SW updates
-
-### nginx `add_header` inheritance
-- `add_header` in a `location` block replaces parent directives (no merge)
-- `location /` explicitly lists all security headers + `Cache-Control: no-store`
-- New `location ~* "^/(sw\.js|manifest\.webmanifest|registerSW\.js)$"` block added above the hashed-assets block — nginx uses the most specific match, so `sw.js` hits this block, NOT the hashed assets block
-- `nginx.conf` contains `${PORT}` placeholder — `docker-entrypoint.sh` runs `envsubst '$PORT'`
-
-### Version number
-- Defined in `package.json → version`
-- Injected at build time by Vite: `define: { __APP_VERSION__: JSON.stringify(version) }`
-- To bump: change `"version"` in `package.json`, push, redeploy — no code changes needed
-- Declared as `const __APP_VERSION__: string` in `src/env.d.ts` for TypeScript
-
-### `orderDate` — sent to API
-- Field is on `ScanSession.orderDate?: string` (YYYY-MM-DD), saved to localStorage/drafts
-- Sent to API in both `SalesOrderPayload` and `SalesReturnOrderPayload` as optional field
+- `navigateFallbackDenylist: [/^\/bc\//]` — API calls bypass fallback
+- SW only activates after the FIRST online visit; users need one online load before offline mode works
 
 ### API endpoints
 - Sales orders: `POST /bc/sales-orders`
-- Sales return orders: `POST /bc/custom/sales-return-orders` (note `custom/` namespace)
-- All other read endpoints: `GET /bc/*` (standard namespace)
-
-### Items — IndexedDB persistence
-- `_itemsMemory` (module-level JS var) is the in-session store — lost on tab refresh
-- `StorageService.setCachedItems()` fire-and-forgets an IDB write to `rgmc-cache` DB, `items` object store, key `'all'`
-- `StorageService.init()` reads from IDB → populates `_itemsMemory` — call this at startup
-- `StorageService.init()` is idempotent (stores a `_initPromise`, safe to call multiple times)
-- Called in: `App.vue` (root mount), `SplashPage.vue` (before cache check), `ScanningPage.vue` (before refreshCache)
-
-### Offline navigation flow
-- `main.ts` `router.beforeEach`: redirects unauthenticated users to `/splash`
-- `router.isReady().then(...)` loads auth + session from localStorage BEFORE `app.mount()`
-- `SplashPage.onMounted`: awaits `StorageService.init()`, then checks auth + cache:
-  - `authStore.isAuthenticated && customers.length > 0 && items.length > 0 && categories.length > 0` → skip network → `/app/home`
-  - Otherwise → calls `load()` (brands + contacts from network)
-- The SW handles the browser-level "can't reach server" case; the SplashPage cache check handles "server reachable but we want to skip the sync"
-
-### Draft save guard
-- `_saveDraft()` returns early if `currentSession.customer` is null (no ghost drafts)
-- `saveAsDraftAndExit()` with no customer → nulls session, no storage write
-- `LandingPage.visibleDrafts` filters as a safety net for any pre-existing customerless drafts
-
-### Barcode scanner — AudioContext / iOS
-- `AudioContext` created inside `openScanner()` BEFORE any `await` — required by iOS Safari
-- Closed in `stopCamera()`; `navigator.vibrate(60)` still fires on Android silent mode
-- `BarcodeDetector` not available in Safari/Firefox — falls back to manual text input
-
-### `_itemsMemory` — not reactive
-- Plain JS var invisible to Vue's reactivity tracker
-- `hasCache` in ScanningPage is a local computed depending on `cachedItems` ref
-- `refreshCache()` must be called explicitly after sync to update the component refs
-
-### Draft vs. History flow
-| Action | Method | Result |
-|---|---|---|
-| Save as Draft & Go Back (customer set) | `saveAsDraftAndExit()` | Stays in drafts, `status:'draft'`, → `/app/home` |
-| Save as Draft & Go Back (no customer) | `saveAsDraftAndExit()` | Session discarded, → `/app/home`, nothing saved |
-| After any failed submission | `markFailed(error)` | Moves to history, `status:'failed'` |
-| After all submitted | `markSubmitted(series?)` | Moves to history, `status:'submitted'`, nulls currentSession |
+- Sales return orders: `POST /bc/custom/sales-return-orders` (note `custom/` prefix — was wrong before `baac605`)
+- All read endpoints: `GET /bc/*`
 
 ### localStorage keys
 | Key | Contents |
 |---|---|
 | `rgmc_auth` | `{ brand, user }` |
+| `rgmc_theme` | `'dark'` or `'light'` |
 | `rgmc_cache_brands` | Brand[] |
 | `rgmc_cache_contacts` | Contact[] |
-| `rgmc_cache_customers` | Slim `{id,number,displayName,city}` |
+| `rgmc_cache_customers` | Slim `{id,number,displayName,city}[]` |
 | `rgmc_cache_item_categories` | ItemCategory[] |
 | `rgmc_sync_timestamps` | `{ customers, items, itemCategories: ISO }` |
 | `rgmc_sessions` | ScanSession[] `status:'submitted'\|'failed'` |
-| `rgmc_drafts` | ScanSession[] `status:'draft'` (customerless entries filtered on display) |
-| ~~`rgmc_cache_items`~~ | **Removed** — items in `_itemsMemory` + IndexedDB `rgmc-cache` |
+| `rgmc_drafts` | ScanSession[] `status:'draft'` |
+| ~~`rgmc_cache_items`~~ | **Removed** — items in `_itemsMemory` + IndexedDB |
 
-### `OrderLine` type gotcha
+### Items — IndexedDB persistence
+- `_itemsMemory` (module-level JS var) is the in-session store — lost on tab refresh
+- `StorageService.setCachedItems()` fire-and-forgets an IDB write to `rgmc-cache` DB, `items` object store, key `'all'`
+- `StorageService.init()` reads from IDB → populates `_itemsMemory`. Must be called at startup. Idempotent.
+- Called in: `App.vue` (root mount), `SplashPage.vue` (before cache check), `ScanningPage.vue` (before refreshCache)
+
+### Offline navigation flow
+- `main.ts` `router.beforeEach`: redirects unauthenticated users to `/splash`
+- `router.isReady().then(...)` loads auth + session from localStorage BEFORE `app.mount()`
+- `SplashPage.onMounted`: awaits `StorageService.init()`, checks auth + cache → skip network if both present
+
+### Draft save guard
+- `_saveDraft()` returns early if `currentSession.customer` is null (no ghost drafts)
+- `LandingPage.visibleDrafts` filters customerless drafts as a safety net
+
+### `OrderLine` type
 - Has `itemName` (not `itemDisplayName`) and NO `itemCategoryCode`
-- Check `src/types/index.ts` before adding code that references order line fields
+- Check `src/types/index.ts` before referencing order line fields
 
 ### `VITE_API_BASE_URL` baked at build time
 - Empty in `.env.production` — Axios makes relative `/bc/*` requests — nginx proxies to GCP API
 - Runtime env var has no effect
 
-### Auth guard ordering
-- `router.beforeEach` fires during initial navigation (before `loadFromStorage`)
-- `loadFromStorage()` is called inside `router.isReady().then(...)` BEFORE `app.mount()`
-- So by the time any page component's `onMounted` runs, auth is correctly hydrated
+### Version number
+- Defined in `package.json → version`
+- Injected at build time: `define: { __APP_VERSION__: JSON.stringify(version) }` in `vite.config.ts`
+- Declared as `const __APP_VERSION__: string` in `src/env.d.ts`
+- To bump: change `"version"` in `package.json` and push — no other code changes needed
+
+### `ion-content::part(scroll)` — desktop centering
+- In `variables.css`: `max-width: 720px; margin: auto` on the scroll part
+- Overridden to `max-width: 100%` for viewports `< 600px` (phones stay full-width)

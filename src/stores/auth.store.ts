@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import bcrypt from 'bcryptjs';
 import type { Brand, Contact } from '@/types';
 import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
@@ -36,14 +37,17 @@ export const useAuthStore = defineStore('auth', () => {
         StorageService.setCachedContacts(contacts);
       }
 
-      const trimmedUsername = username.trim().toUpperCase();
-      const trimmedPassword = password.trim();
+      const trimmedUsername = username.trim().toLowerCase();
 
-      const match = contacts.find(
-        (c) =>
-          c.displayName.trim().toUpperCase() === trimmedUsername &&
-          c.phoneNumber.trim() === trimmedPassword,
+      const candidate = contacts.find(
+        (c) => c.username?.trim().toLowerCase() === trimmedUsername,
       );
+
+      const passwordValid =
+        !!candidate?.passwordHash &&
+        (await bcrypt.compare(password, candidate.passwordHash));
+
+      const match = passwordValid ? candidate : undefined;
 
       if (!match) {
         error.value = 'Invalid username or password.';
@@ -59,6 +63,20 @@ export const useAuthStore = defineStore('auth', () => {
       return false;
     } finally {
       isLoading.value = false;
+    }
+  }
+
+  function updateUser(updates: Partial<Contact>): void {
+    if (!user.value) return;
+    user.value = { ...user.value, ...updates };
+    if (brand.value) {
+      StorageService.setAuth({ brand: brand.value, user: user.value });
+    }
+    const contacts = StorageService.getCachedContacts();
+    const idx = contacts.findIndex((c) => c.id === user.value!.id);
+    if (idx >= 0) {
+      contacts[idx] = user.value;
+      StorageService.setCachedContacts(contacts);
     }
   }
 
@@ -80,6 +98,7 @@ export const useAuthStore = defineStore('auth', () => {
     error,
     loadFromStorage,
     login,
+    updateUser,
     logout,
     clearError,
   };

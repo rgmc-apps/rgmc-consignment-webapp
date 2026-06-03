@@ -12,6 +12,7 @@
     "@ionic/vue": "^8.3.0",
     "@ionic/vue-router": "^8.3.0",
     "axios": "^1.7.2",
+    "bcryptjs": "^3.0.3",
     "ionicons": "^7.4.0",
     "pinia": "^2.1.7",
     "vue": "^3.4.21",
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^6.1.0",
+    "@types/bcryptjs": "^2.4.6",
     "@vitejs/plugin-vue": "^5.0.4",
     "playwright": "^1.60.0",
     "typescript": "^5.4.5",

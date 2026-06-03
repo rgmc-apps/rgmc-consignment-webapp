@@ -19,6 +19,8 @@ export interface Contact {
   mobilePhoneNumber: string;
   email: string;
   lastModifiedDateTime: string;
+  username?: string;
+  passwordHash?: string;
 }
 
 export interface Customer {
