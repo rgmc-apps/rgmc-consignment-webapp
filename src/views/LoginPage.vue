@@ -212,7 +212,7 @@ const networkNotice = computed<'offline' | 'slow' | null>(() => {
 });
 
 const canSubmit = computed(
-  () => selectedBrandId.value && username.value.trim() && password.value.trim(),
+  () => selectedBrandId.value && username.value.trim(),
 );
 
 onMounted(() => {

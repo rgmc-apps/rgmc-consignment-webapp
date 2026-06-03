@@ -52,31 +52,44 @@ export const useAuthStore = defineStore('auth', () => {
 
       const trimmedUsername = username.trim().toLowerCase();
 
-      const candidate = contacts.find(
-        (c) => c.username?.trim().toLowerCase() === trimmedUsername,
-      );
+      // Match by username first; fall back to displayName for contacts without a username field
+      const candidate =
+        contacts.find((c) => c.username?.trim().toLowerCase() === trimmedUsername) ??
+        contacts.find((c) => c.displayName?.trim().toLowerCase() === trimmedUsername);
 
-      // Contact found but has no valid bcrypt hash — needs first-time password setup
-      if (candidate && (!candidate.passwordHash || !isBcryptHash(candidate.passwordHash))) {
+      if (!candidate) {
+        error.value = 'Invalid username or password.';
+        return false;
+      }
+
+      // No password hash set — go straight to setup without verifying anything
+      if (!candidate.passwordHash) {
         pendingSetupData.value = { brand: selectedBrand, contact: candidate };
         forcePasswordSetup.value = true;
         return false;
       }
 
-      const passwordValid =
-        !!candidate?.passwordHash &&
-        (await bcrypt.compare(password, candidate.passwordHash));
+      // Plain-text (non-bcrypt) password — verify match, then force bcrypt upgrade
+      if (!isBcryptHash(candidate.passwordHash)) {
+        if (candidate.passwordHash !== password) {
+          error.value = 'Invalid username or password.';
+          return false;
+        }
+        pendingSetupData.value = { brand: selectedBrand, contact: candidate };
+        forcePasswordSetup.value = true;
+        return false;
+      }
 
-      const match = passwordValid ? candidate : undefined;
-
-      if (!match) {
+      // Bcrypt hash — normal comparison
+      const passwordValid = await bcrypt.compare(password, candidate.passwordHash);
+      if (!passwordValid) {
         error.value = 'Invalid username or password.';
         return false;
       }
 
       brand.value = selectedBrand;
-      user.value = match;
-      StorageService.setAuth({ brand: selectedBrand, user: match });
+      user.value = candidate;
+      StorageService.setAuth({ brand: selectedBrand, user: candidate });
       return true;
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Login failed. Please try again.';
