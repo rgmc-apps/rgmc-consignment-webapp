@@ -100,6 +100,31 @@ export const ApiService = {
     return res.data as Contact;
   },
 
+  async getContactPicture(id: string): Promise<string | null> {
+    try {
+      const res = await apiClient.get(`/bc/custom/contacts/${id}/picture`, {
+        responseType: 'blob',
+      });
+      if (!res.data || res.data.size === 0) return null;
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload  = () => resolve(reader.result as string);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(res.data);
+      });
+    } catch {
+      return null;
+    }
+  },
+
+  async updateContactPicture(id: string, file: File): Promise<void> {
+    const form = new FormData();
+    form.append('file', file);
+    await apiClient.patch(`/bc/custom/contacts/${id}/picture`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
   async getCustomers(): Promise<Customer[]> {
     const res = await apiClient.get('/bc/customers');
     return extractList<Customer>(res.data);

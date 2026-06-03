@@ -14,6 +14,7 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<Contact | null>(null);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
+  const photoUrl = ref<string | null>(StorageService.getAuthPhoto());
 
   /** Set when a matched contact has an empty or non-bcrypt passwordHash */
   const forcePasswordSetup = ref(false);
@@ -21,8 +22,20 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => !!brand.value && !!user.value);
 
+  function setPhotoUrl(url: string): void {
+    photoUrl.value = url;
+    StorageService.setAuthPhoto(url);
+  }
+
+  async function fetchAndCachePhoto(): Promise<void> {
+    if (!user.value) return;
+    const url = await ApiService.getContactPicture(user.value.id);
+    if (url) setPhotoUrl(url);
+  }
+
   function loadFromStorage(): void {
     const saved = StorageService.getAuth();
+    photoUrl.value = StorageService.getAuthPhoto();
     if (saved) {
       brand.value = saved.brand;
       user.value = saved.user;
@@ -105,6 +118,7 @@ export const useAuthStore = defineStore('auth', () => {
         user.value = upgraded;
         StorageService.setAuth({ brand: selectedBrand, user: upgraded });
         ApiService.updateContact(upgraded.id, { passwordHash: hash }).catch(() => {});
+        fetchAndCachePhoto();
         return true;
       }
 
@@ -128,6 +142,7 @@ export const useAuthStore = defineStore('auth', () => {
       brand.value = selectedBrand;
       user.value = candidate;
       StorageService.setAuth({ brand: selectedBrand, user: candidate });
+      fetchAndCachePhoto();
       return true;
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Login failed. Please try again.';
@@ -182,7 +197,9 @@ export const useAuthStore = defineStore('auth', () => {
   function logout(): void {
     brand.value = null;
     user.value = null;
+    photoUrl.value = null;
     StorageService.clearAuth();
+    StorageService.clearAuthPhoto();
   }
 
   function clearError(): void {
@@ -192,6 +209,7 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     brand,
     user,
+    photoUrl,
     isAuthenticated,
     isLoading,
     error,
@@ -202,6 +220,8 @@ export const useAuthStore = defineStore('auth', () => {
     completePasswordSetup,
     clearPasswordSetup,
     updateUser,
+    setPhotoUrl,
+    fetchAndCachePhoto,
     logout,
     clearError,
   };

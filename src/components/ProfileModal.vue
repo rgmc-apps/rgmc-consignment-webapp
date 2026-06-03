@@ -25,7 +25,18 @@
       <ion-content>
         <!-- ── Hero ── -->
         <div class="profile-hero">
-          <div class="hero-avatar">{{ userInitial }}</div>
+          <div class="hero-avatar-wrap" @click="triggerPhotoUpload">
+            <user-avatar
+              :src="authStore.photoUrl"
+              :name="form.displayName || authStore.user?.displayName || ''"
+              class="hero-avatar"
+            />
+            <div class="hero-avatar-badge">
+              <ion-spinner v-if="isUploadingPhoto" name="crescent" class="badge-spinner" />
+              <ion-icon v-else :icon="cameraOutline" />
+            </div>
+          </div>
+          <input ref="photoInput" type="file" accept="image/*" style="display:none" @change="onPhotoSelected" />
           <p class="hero-name">{{ form.displayName || authStore.user?.displayName }}</p>
           <span class="hero-brand">{{ authStore.brand?.displayName }}</span>
         </div>
@@ -190,9 +201,12 @@ import {
   lockClosedOutline,
   checkmarkCircleOutline,
   alertCircleOutline,
+  cameraOutline,
 } from 'ionicons/icons';
 import bcrypt from 'bcryptjs';
 import { useAuthStore } from '@/stores/auth.store';
+import { ApiService } from '@/services/api.service';
+import UserAvatar from '@/components/UserAvatar.vue';
 
 const props = defineProps<{ isOpen: boolean }>();
 const emit = defineEmits<{ close: [] }>();
@@ -222,10 +236,6 @@ function resetForm() {
 watch(() => props.isOpen, (open) => {
   if (open) resetForm();
 });
-
-const userInitial = computed(
-  () => (form.displayName || authStore.user?.displayName)?.charAt(0)?.toUpperCase() ?? '?',
-);
 
 const isDirty = computed(() => {
   const u = authStore.user;
@@ -262,6 +272,35 @@ async function save() {
   });
   toast.present();
   emit('close');
+}
+
+/* ── Photo upload ── */
+const photoInput = ref<HTMLInputElement | null>(null);
+const isUploadingPhoto = ref(false);
+
+function triggerPhotoUpload() {
+  photoInput.value?.click();
+}
+
+async function onPhotoSelected(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (!file || !authStore.user) return;
+  isUploadingPhoto.value = true;
+  // Optimistic local preview
+  const reader = new FileReader();
+  reader.onload = (e) => { authStore.setPhotoUrl(e.target?.result as string); };
+  reader.readAsDataURL(file);
+  try {
+    await ApiService.updateContactPicture(authStore.user.id, file);
+    const toast = await toastController.create({ message: 'Photo updated.', duration: 1800, color: 'success', position: 'bottom' });
+    toast.present();
+  } catch {
+    const toast = await toastController.create({ message: 'Failed to update photo.', duration: 2500, color: 'danger', position: 'bottom' });
+    toast.present();
+  } finally {
+    isUploadingPhoto.value = false;
+    if (photoInput.value) photoInput.value.value = '';
+  }
 }
 
 const newPassword = ref('');
@@ -324,6 +363,13 @@ async function savePassword() {
   background: linear-gradient(90deg, transparent, rgba(160, 115, 32, 0.4), transparent);
 }
 
+.hero-avatar-wrap {
+  position: relative;
+  cursor: pointer;
+  display: inline-flex;
+  margin-bottom: 4px;
+}
+
 .hero-avatar {
   width: 72px;
   height: 72px;
@@ -336,7 +382,30 @@ async function savePassword() {
   font-size: 28px;
   font-weight: 800;
   color: var(--app-gold);
-  margin-bottom: 4px;
+}
+
+/* Camera badge — always visible in bottom-right corner */
+.hero-avatar-badge {
+  position: absolute;
+  bottom: 1px;
+  right: 1px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--app-gold);
+  border: 2px solid var(--app-dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.badge-spinner {
+  width: 11px;
+  height: 11px;
+  color: #fff;
 }
 
 .hero-name {

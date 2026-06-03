@@ -1,6 +1,6 @@
 <template>
   <ion-button fill="clear" class="profile-trigger" @click="isOpen = true">
-    <div class="avatar-sm">{{ userInitial }}</div>
+    <user-avatar :src="authStore.photoUrl" :name="authStore.user?.displayName || ''" class="avatar-sm" />
   </ion-button>
 
   <ion-popover
@@ -14,7 +14,7 @@
     <ion-content class="pop-content">
       <!-- User info header -->
       <div class="pop-user">
-        <div class="pop-avatar">{{ userInitial }}</div>
+        <user-avatar :src="authStore.photoUrl" :name="authStore.user?.displayName || ''" class="pop-avatar" />
         <div class="pop-info">
           <span class="pop-name">{{ authStore.user?.displayName }}</span>
           <span v-if="authStore.user?.username" class="pop-username">@{{ authStore.user.username }}</span>
@@ -87,6 +87,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { useSync } from '@/composables/useSync';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import ProfileModal from '@/components/ProfileModal.vue';
+import UserAvatar from '@/components/UserAvatar.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -95,10 +96,6 @@ const { isOnline } = useNetworkStatus();
 
 const isOpen = ref(false);
 const profileOpen = ref(false);
-
-const userInitial = computed(
-  () => authStore.user?.displayName?.charAt(0)?.toUpperCase() ?? '?',
-);
 
 function openProfile() {
   isOpen.value = false;

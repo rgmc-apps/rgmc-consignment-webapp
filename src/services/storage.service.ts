@@ -11,6 +11,7 @@ import type {
 
 const KEYS = {
   AUTH: 'rgmc_auth',
+  AUTH_PHOTO: 'rgmc_auth_photo',
   CACHE_BRANDS: 'rgmc_cache_brands',
   CACHE_CONTACTS: 'rgmc_cache_contacts',
   CACHE_CUSTOMERS: 'rgmc_cache_customers',
@@ -75,6 +76,17 @@ export const StorageService = {
   },
   clearAuth(): void {
     remove(KEYS.AUTH);
+  },
+
+  /* ─── Auth photo (base64 data URL, cached for offline use) ─── */
+  getAuthPhoto(): string | null {
+    return localStorage.getItem(KEYS.AUTH_PHOTO) ?? null;
+  },
+  setAuthPhoto(dataUrl: string): void {
+    try { localStorage.setItem(KEYS.AUTH_PHOTO, dataUrl); } catch {}
+  },
+  clearAuthPhoto(): void {
+    localStorage.removeItem(KEYS.AUTH_PHOTO);
   },
 
   /* ─── Cached master data ─── */
@@ -244,8 +256,6 @@ export const StorageService = {
   clearAll(): void {
     _itemsMemory = [];
     Object.values(KEYS).forEach(remove);
-    /* Also evict any stale rgmc_cache_items key from localStorage
-       left over from before this in-memory migration */
     localStorage.removeItem('rgmc_cache_items');
   },
 };
