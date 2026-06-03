@@ -221,7 +221,7 @@
                     </span>
                   </p>
                 </ion-label>
-                <ion-note slot="end" color="dark" class="line-total">
+                <ion-note slot="end" class="line-total">
                   {{ formatCurrency(line.totalAmount) }}
                 </ion-note>
               </ion-item>
@@ -255,7 +255,7 @@
                     </span>
                   </p>
                 </ion-label>
-                <ion-note slot="end" color="dark" class="line-total">
+                <ion-note slot="end" class="line-total">
                   {{ formatCurrency(line.totalAmount) }}
                 </ion-note>
               </ion-item>

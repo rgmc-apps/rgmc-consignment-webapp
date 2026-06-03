@@ -305,19 +305,19 @@ async function handleLogin() {
 .login-card {
   width: 100%;
   max-width: 420px;
-  --background: #ffffff;
+  --background: var(--app-surface);
   border-radius: 16px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-  border: none;
+  border: 1px solid var(--app-border);
   animation: fade-slide-up 0.55s var(--ease-out-expo) 0.1s both;
 }
 
 .login-form-heading {
   font-size: 18px;
   font-weight: 700;
-  color: var(--app-dark);
+  color: var(--app-fg);
   margin: 0 0 16px;
-  text-align: left; /* form fields are left-aligned for readability */
+  text-align: left;
 }
 
 .login-field {
@@ -332,8 +332,8 @@ async function handleLogin() {
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  background: #fff0f0;
-  border: 1px solid var(--ion-color-danger);
+  background: var(--app-danger-bg);
+  border: 1px solid var(--app-error-border);
   border-radius: 8px;
   margin-top: 12px;
   color: var(--ion-color-danger);

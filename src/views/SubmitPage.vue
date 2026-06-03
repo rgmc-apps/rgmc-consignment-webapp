@@ -403,7 +403,7 @@ async function showToast(message: string, color: string) {
   font-size: 16px;
   font-weight: 700;
   margin: 0;
-  color: var(--app-dark);
+  color: var(--app-fg);
 }
 .cust-sub {
   font-size: 12px;
@@ -443,7 +443,7 @@ async function showToast(message: string, color: string) {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--app-dark);
+  color: var(--app-fg);
   margin: 0 0 2px;
 }
 .section-title ion-icon { font-size: 16px; }
@@ -469,7 +469,7 @@ async function showToast(message: string, color: string) {
 .subtotal-amount {
   font-size: 16px;
   font-weight: 700;
-  color: var(--app-dark);
+  color: var(--app-fg);
 }
 
 /* ── Submit action ── */
@@ -501,7 +501,7 @@ async function showToast(message: string, color: string) {
 .status-badge ion-icon { font-size: 22px; flex-shrink: 0; margin-top: 1px; }
 
 .status-badge--done {
-  background: #f0fff4;
+  background: rgba(var(--ion-color-success-rgb), 0.13);
   color: var(--ion-color-success);
   font-size: 14px;
   font-weight: 600;
@@ -509,7 +509,7 @@ async function showToast(message: string, color: string) {
 .status-badge--done ion-icon { color: var(--ion-color-success); }
 
 .status-badge--failed {
-  background: #fff0f0;
+  background: var(--app-danger-bg);
   color: var(--ion-color-danger);
   font-size: 14px;
 }
@@ -531,11 +531,11 @@ async function showToast(message: string, color: string) {
   align-items: flex-start;
   padding: 12px 16px;
   margin: 12px;
-  background: #fff8e1;
-  border: 1px solid #ffe082;
+  background: var(--app-warn-bg);
+  border: 1px solid rgba(var(--ion-color-warning-rgb), 0.35);
   border-radius: var(--app-radius-sm);
   font-size: 13px;
-  color: #555;
+  color: var(--app-warn-text);
 }
 .no-customer-warn ion-icon { font-size: 20px; flex-shrink: 0; }
 .no-customer-warn p { margin: 0; line-height: 1.5; }
