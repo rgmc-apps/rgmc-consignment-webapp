@@ -89,7 +89,17 @@ export const StorageService = {
     return get<Contact[]>(KEYS.CACHE_CONTACTS) ?? [];
   },
   setCachedContacts(contacts: Contact[]): void {
-    set(KEYS.CACHE_CONTACTS, contacts);
+    const existing = get<Contact[]>(KEYS.CACHE_CONTACTS) ?? [];
+    const merged = contacts.map((c) => {
+      const prev = existing.find((e) => e.id === c.id);
+      return {
+        ...c,
+        // Preserve locally-set fields the API doesn't return
+        username:     c.username     ?? prev?.username,
+        passwordHash: c.passwordHash ?? prev?.passwordHash,
+      };
+    });
+    set(KEYS.CACHE_CONTACTS, merged);
   },
 
   getCachedCustomers(): Customer[] {
