@@ -74,12 +74,12 @@ export const ApiService = {
   },
 
   async getContacts(): Promise<Contact[]> {
-    const res = await apiClient.get('/bc/contacts');
+    const res = await apiClient.get('/bc/custom/contacts');
     return extractList<Contact>(res.data);
   },
 
   async updateContact(id: string, data: ContactUpdatePayload): Promise<Contact> {
-    const res = await apiClient.patch(`/bc/contacts/${id}`, data);
+    const res = await apiClient.patch(`/bc/custom/contacts/${id}`, data);
     return res.data as Contact;
   },
 
