@@ -56,28 +56,29 @@ export const useAuthStore = defineStore('auth', () => {
       if (!contacts.length) {
         contacts = await ApiService.getContacts();
         StorageService.setCachedContacts(contacts);
-        // If an auth session already exists (e.g. returning user on fresh cache),
-        // restore their credentials into the just-fetched list so the login
-        // lookup finds the correct passwordHash.
-        const prior = StorageService.getAuth();
-        if (prior) {
-          const { id, username, passwordHash } = prior.user;
-          const patch: Partial<Contact> = {};
-          if (username)     patch.username     = username;
-          if (passwordHash) patch.passwordHash = passwordHash;
-          if (Object.keys(patch).length) {
-            StorageService.patchContact(id, patch);
-            contacts = StorageService.getCachedContacts();
-          }
-        }
+        contacts = StorageService.getCachedContacts();
       }
 
       const trimmedUsername = username.trim().toLowerCase();
 
-      // Match by username first; fall back to displayName for contacts without a username field
-      const candidate =
-        contacts.find((c) => c.username?.trim().toLowerCase() === trimmedUsername) ??
-        contacts.find((c) => c.displayName?.trim().toLowerCase() === trimmedUsername);
+      const findCandidate = (list: Contact[]) =>
+        list.find((c) => c.username?.trim().toLowerCase() === trimmedUsername) ??
+        list.find((c) => c.displayName?.trim().toLowerCase() === trimmedUsername);
+
+      let candidate = findCandidate(contacts);
+
+      // Candidate not found in cache — cache may be stale (e.g. pre-custom-endpoint data).
+      // Try a fresh fetch so the latest username/passwordHash fields are available.
+      if (!candidate) {
+        try {
+          const fresh = await ApiService.getContacts();
+          StorageService.setCachedContacts(fresh);
+          contacts = StorageService.getCachedContacts();
+          candidate = findCandidate(contacts);
+        } catch {
+          // Offline — proceed with cached result
+        }
+      }
 
       if (!candidate) {
         error.value = 'Invalid username or password.';

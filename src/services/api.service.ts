@@ -75,7 +75,13 @@ export const ApiService = {
 
   async getContacts(): Promise<Contact[]> {
     const res = await apiClient.get('/bc/custom/contacts');
-    return extractList<Contact>(res.data);
+    const raw = extractList<Record<string, unknown>>(res.data);
+    // Normalise field-name variations the BC API may return
+    return raw.map((c) => ({
+      ...c,
+      username:     c['username']     ?? c['userName']     ?? c['user_name']     ?? undefined,
+      passwordHash: c['passwordHash'] ?? c['passwordhash'] ?? c['password_hash'] ?? c['PasswordHash'] ?? undefined,
+    })) as unknown as Contact[];
   },
 
   async updateContact(id: string, data: ContactUpdatePayload): Promise<Contact> {
