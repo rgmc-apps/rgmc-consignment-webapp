@@ -116,7 +116,7 @@
           </ion-card-content>
         </ion-card>
 
-        <p class="login-footer">RGMC Group &copy; {{ currentYear }}</p>
+        <p class="login-footer">RGMC Group Inc. - IT/MIS &copy; {{ currentYear }}</p>
       </div>
     </ion-content>
   </ion-page>

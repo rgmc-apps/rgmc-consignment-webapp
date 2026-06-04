@@ -4,14 +4,8 @@
       <div class="splash-body">
 
         <!-- Logo -->
-        <div class="logo-ring" :class="{ 'logo-ring--done': allDone, 'logo-ring--error': hasError }">
-          <img src="/static/cons-logo.png" alt="RGMC Consignment" class="logo-img" />
-        </div>
-
-        <!-- App name -->
-        <div class="app-name">
-          <h1 class="app-name__title">RGMC Consignment</h1>
-          <p class="app-name__sub">Web App</p>
+        <div class="logo-wrap" :class="{ 'logo-wrap--done': allDone, 'logo-wrap--error': hasError }">
+          <img src="/static/cons-logo-splash.png" alt="RGMC Consignment" class="logo-img" />
         </div>
 
         <!-- Loading steps -->
@@ -190,48 +184,35 @@ onMounted(async () => {
   gap: 0;
 }
 
-/* ── Logo ring ── */
-.logo-ring {
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
-  border: 2px solid #333;
+/* ── Logo ── */
+.logo-wrap {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #242424;
-  box-shadow: 0 0 0 0 rgba(160, 115, 32, 0);
-  animation: logo-enter 0.65s var(--ease-out-expo) both,
-             ring-pulse 2.4s ease-in-out 0.65s infinite;
-  transition: border-color 0.4s, box-shadow 0.4s;
-  margin-bottom: 24px;
+  margin-bottom: 40px;
+  animation: logo-enter 0.65s var(--ease-out-expo) both;
+  filter: drop-shadow(0 0 0px rgba(160, 115, 32, 0));
+  transition: filter 0.5s ease;
 }
 
-.logo-ring--done {
-  border-color: #a07320;
-  box-shadow: 0 0 24px rgba(160, 115, 32, 0.35);
+.logo-wrap--done {
+  filter: drop-shadow(0 0 18px rgba(160, 115, 32, 0.45));
   animation: none;
 }
 
-.logo-ring--error {
-  border-color: var(--ion-color-danger);
+.logo-wrap--error {
+  filter: drop-shadow(0 0 12px rgba(var(--ion-color-danger-rgb), 0.5));
   animation: none;
 }
 
 .logo-img {
-  width: 82px;
-  height: 82px;
+  width: 220px;
+  height: 220px;
   object-fit: contain;
 }
 
-@keyframes ring-pulse {
-  0%   { border-color: #333; box-shadow: 0 0 0 0 rgba(160, 115, 32, 0); }
-  50%  { border-color: #a07320; box-shadow: 0 0 18px rgba(160, 115, 32, 0.4); }
-  100% { border-color: #333; box-shadow: 0 0 0 0 rgba(160, 115, 32, 0); }
-}
-
 @keyframes logo-enter {
-  from { opacity: 0; transform: scale(0.78); }
+  from { opacity: 0; transform: scale(0.82); }
   to   { opacity: 1; transform: scale(1);    }
 }
 
@@ -244,29 +225,6 @@ onMounted(async () => {
 .err-fade-leave-active { transition: opacity 0.16s ease; }
 .err-fade-enter-from   { opacity: 0; transform: translateY(10px); }
 .err-fade-leave-to     { opacity: 0; }
-
-/* ── App name ── */
-.app-name {
-  text-align: center;
-  margin-bottom: 40px;
-  animation: fade-slide-up 0.45s var(--ease-out-quart) 0.16s both;
-}
-
-.app-name__title {
-  font-size: 24px;
-  font-weight: 700;
-  color: #ffffff;
-  margin: 0 0 6px;
-  letter-spacing: 0.5px;
-}
-
-.app-name__sub {
-  font-size: 12px;
-  color: #a07320;
-  margin: 0;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-}
 
 /* ── Steps ── */
 .steps-wrap {

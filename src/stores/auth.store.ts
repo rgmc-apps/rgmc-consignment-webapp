@@ -154,7 +154,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function completePasswordSetup(newPassword: string): Promise<void> {
     if (!pendingSetupData.value) return;
-    const { brand: b, contact: c } = pendingSetupData.value;
+    const { contact: c } = pendingSetupData.value;
 
     const hash = await bcrypt.hash(newPassword, 10);
     const updated: Contact = { ...c, passwordHash: hash };
@@ -165,11 +165,9 @@ export const useAuthStore = defineStore('auth', () => {
     if (idx >= 0) contacts[idx] = updated;
     StorageService.setCachedContacts(contacts);
 
-    brand.value = b;
-    user.value = updated;
-    StorageService.setAuth({ brand: b, user: updated });
     ApiService.updateContact(updated.id, { passwordHash: hash }).catch(() => {});
 
+    // Don't auto-login — modal dismisses to reveal the login page underneath
     forcePasswordSetup.value = false;
     pendingSetupData.value = null;
   }

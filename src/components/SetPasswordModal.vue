@@ -83,7 +83,6 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { useRouter } from 'vue-router';
 import {
   IonModal,
   IonPage,
@@ -106,13 +105,10 @@ import {
   alertCircleOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
-import { useSync } from '@/composables/useSync';
 
 defineProps<{ isOpen: boolean }>();
 
-const router = useRouter();
 const authStore = useAuthStore();
-const { sync } = useSync();
 
 const newPassword = ref('');
 const confirmPassword = ref('');
@@ -142,8 +138,15 @@ async function submit() {
   isSaving.value = true;
   try {
     await authStore.completePasswordSetup(newPassword.value);
-    sync(); // fire-and-forget — don't block navigation
-    router.replace('/app/home');
+    // Modal closes automatically (forcePasswordSetup → false), revealing the login page.
+    // Show a toast so the user knows to sign in with the new password.
+    const t = await toastController.create({
+      message: 'Password set! Sign in with your new password.',
+      duration: 3000,
+      color: 'success',
+      position: 'bottom',
+    });
+    t.present();
   } catch {
     const t = await toastController.create({
       message: 'Failed to set password. Please try again.',
