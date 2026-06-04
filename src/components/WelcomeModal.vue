@@ -132,10 +132,11 @@ import {
   cloudUploadOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
-import landingImg  from '../../screenshots/03-landing.png';
-import scanImg     from '../../screenshots/04-scanning-form.png';
-import historyImg  from '../../screenshots/06-history.png';
-import submitImg   from '../../screenshots/08-submit.png';
+
+const landingImg  = '/static/screenshots/03-landing.png';
+const scanImg     = '/static/screenshots/04-scanning-form.png';
+const historyImg  = '/static/screenshots/06-history.png';
+const submitImg   = '/static/screenshots/08-submit.png';
 
 const props = defineProps<{ isOpen: boolean }>();
 const emit  = defineEmits<{ done: [] }>();
