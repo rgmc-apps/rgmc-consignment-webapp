@@ -57,6 +57,14 @@
               <ion-spinner v-if="brandsLoading" slot="end" name="crescent" />
             </ion-item>
 
+            <!-- Item family code for selected brand -->
+            <Transition name="family-fade">
+              <div v-if="selectedBrand?.itemFamilyCode" class="brand-family-tag">
+                <ion-icon :icon="pricetagOutline" />
+                <span>Item Family: <strong>{{ selectedBrand.itemFamilyCode }}</strong></span>
+              </div>
+            </Transition>
+
             <!-- Username -->
             <ion-item lines="full" class="login-field">
               <ion-label position="stacked">Username</ion-label>
@@ -139,7 +147,7 @@ import {
   IonIcon,
   IonSpinner,
 } from '@ionic/vue';
-import { eyeOutline, eyeOffOutline, alertCircleOutline, cloudOfflineOutline, warningOutline } from 'ionicons/icons';
+import { eyeOutline, eyeOffOutline, alertCircleOutline, cloudOfflineOutline, warningOutline, pricetagOutline } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
@@ -211,6 +219,8 @@ const networkNotice = computed<'offline' | 'slow' | null>(() => {
   return null;
 });
 
+const selectedBrand = computed(() => brands.value.find((b) => b.id === selectedBrandId.value) ?? null);
+
 const canSubmit = computed(
   () => selectedBrandId.value && username.value.trim(),
 );
@@ -240,10 +250,9 @@ function loadBrands() {
 async function handleLogin() {
   if (!canSubmit.value) return;
   authStore.clearError();
-  const selectedBrand = brands.value.find((b) => b.id === selectedBrandId.value);
-  if (!selectedBrand) return;
+  if (!selectedBrand.value) return;
 
-  const ok = await authStore.login(selectedBrand, username.value, password.value);
+  const ok = await authStore.login(selectedBrand.value, username.value, password.value);
   if (!ok) return;
 
   /* Full offline prep — fetch all master data so the app works without a
@@ -440,4 +449,33 @@ async function handleLogin() {
 .net-notice-fade-leave-active { transition: opacity 0.3s ease, transform 0.3s ease; }
 .net-notice-fade-enter-from,
 .net-notice-fade-leave-to    { opacity: 0; transform: translateY(-6px); }
+
+/* ── Item family tag ── */
+.brand-family-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 4px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(160, 115, 32, 0.1);
+  border: 1px solid rgba(160, 115, 32, 0.22);
+  font-size: 12px;
+  color: rgba(196, 151, 46, 0.9);
+}
+
+.brand-family-tag ion-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.brand-family-tag strong {
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.family-fade-enter-active { transition: opacity 0.22s ease, transform 0.22s var(--ease-out-quart); }
+.family-fade-leave-active { transition: opacity 0.15s ease; }
+.family-fade-enter-from   { opacity: 0; transform: translateY(-4px); }
+.family-fade-leave-to     { opacity: 0; }
 </style>

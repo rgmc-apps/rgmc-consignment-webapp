@@ -88,8 +88,9 @@ const authStore = useAuthStore();
 const year = new Date().getFullYear();
 
 const steps = ref<LoadStep[]>([
-  { key: 'brands', label: 'Loading company data', status: 'idle' },
-  { key: 'contacts', label: 'Loading user directory', status: 'idle' },
+  { key: 'brands',       label: 'Loading company data',    status: 'idle' },
+  { key: 'item-families', label: 'Matching item families', status: 'idle' },
+  { key: 'contacts',     label: 'Loading user directory',  status: 'idle' },
 ]);
 
 const errorText = ref('');
@@ -110,11 +111,11 @@ async function load() {
   steps.value.forEach((s) => (s.status = 'idle'));
   errorText.value = '';
 
-  /* Load brands */
+  /* Step 1: Load brands */
   setStep('brands', 'loading');
+  let rawBrands: Awaited<ReturnType<typeof ApiService.getBrands>> = [];
   try {
-    const brands = await ApiService.getBrands();
-    StorageService.setCachedBrands(brands);
+    rawBrands = await ApiService.getBrands();
     setStep('brands', 'done');
   } catch (err) {
     setStep('brands', 'error');
@@ -123,7 +124,24 @@ async function load() {
     return;
   }
 
-  /* Load contacts */
+  /* Step 2: Load item families and enrich brands (itemFamily.description === brand.displayName) */
+  setStep('item-families', 'loading');
+  try {
+    const families = await ApiService.getItemFamilies();
+    const enrichedBrands = rawBrands.map((b) => ({
+      ...b,
+      itemFamilyCode: families.find((f) => f.description === b.displayName)?.code,
+    }));
+    StorageService.setCachedBrands(enrichedBrands);
+    setStep('item-families', 'done');
+  } catch (err) {
+    setStep('item-families', 'error');
+    errorText.value =
+      err instanceof Error ? err.message : 'Failed to load item families.';
+    return;
+  }
+
+  /* Step 3: Load contacts */
   setStep('contacts', 'loading');
   try {
     const contacts = await ApiService.getContacts();

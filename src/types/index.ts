@@ -5,6 +5,13 @@ export interface Brand {
   displayName: string;
   consolidationCode: string;
   lastModifiedDateTime: string;
+  itemFamilyCode?: string;
+}
+
+export interface ItemFamily {
+  id: string;
+  code: string;
+  description: string;
 }
 
 export interface Contact {

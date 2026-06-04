@@ -6,6 +6,7 @@ import type {
   Customer,
   Item,
   ItemCategory,
+  ItemFamily,
   SalesOrderPayload,
   SalesReturnOrderPayload,
 } from '@/types';
@@ -130,8 +131,13 @@ export const ApiService = {
     return extractList<Customer>(res.data);
   },
 
+  async getItemFamilies(): Promise<ItemFamily[]> {
+    const res = await apiClient.get('/bc/custom/item-families');
+    return extractList<ItemFamily>(res.data);
+  },
+
   async getItems(): Promise<Item[]> {
-    const res = await apiClient.get('/bc/items');
+    const res = await apiClient.get('/bc/custom/items');
     return extractList<Item>(res.data);
   },
 

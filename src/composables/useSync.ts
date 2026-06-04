@@ -27,18 +27,24 @@ export function useSync() {
     syncError.value = null;
 
     try {
-      const [customers, items, categories, brands, contacts] = await Promise.all([
+      const [customers, items, categories, brands, families, contacts] = await Promise.all([
         ApiService.getCustomers(),
         ApiService.getItems(),
         ApiService.getItemCategories(),
         ApiService.getBrands(),
+        ApiService.getItemFamilies(),
         ApiService.getContacts(),
       ]);
 
+      const enrichedBrands = brands.map((b) => ({
+        ...b,
+        itemFamilyCode: families.find((f) => f.description === b.displayName)?.code,
+      }));
+
       StorageService.setCachedCustomers(customers);
-      StorageService.setCachedItems(items);       // writes IDB in background
+      StorageService.setCachedItems(items);
       StorageService.setCachedItemCategories(categories);
-      StorageService.setCachedBrands(brands);
+      StorageService.setCachedBrands(enrichedBrands);
       StorageService.setCachedContacts(contacts);
       // Re-apply credentials for the authenticated user in case the API
       // doesn't return username/passwordHash and the previous cache was empty.
