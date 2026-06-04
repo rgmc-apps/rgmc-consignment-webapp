@@ -18,12 +18,7 @@ let prevOnline = isOnline.value;
 watch(isOnline, async (online) => {
   if (prevOnline && !online) {
     const toast = await toastController.create({
-      message: `
-        <div class="offline-toast-body">
-          <strong>You're now offline</strong>
-          <span>The app will continue in offline mode. Submitting orders requires a connection.</span>
-        </div>
-      `,
+      message: "You're offline — the app continues in offline mode. Submitting orders requires a connection.",
       duration: 4500,
       position: 'top',
       cssClass: 'offline-toast',

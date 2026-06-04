@@ -113,7 +113,8 @@ Sales reps select a customer, scan or search items from the product catalog, set
 ### <span style="color:#2a9d8f">🔐 Authentication</span>
 
 - Brand selection from a dropdown populated at splash time
-- Credential matching against Business Central contacts (display name + phone number as password)
+- Credential matching against Business Central contacts — username (display name) + bcrypt-verified password
+- **First-login password setup** — contacts without a stored `passwordHash` are prompted via `SetPasswordModal` to create one before signing in; hash is saved locally and synced to BC
 - Auth session persisted in `localStorage` and rehydrated on page reload
 - Post-login pre-sync: customers, items, and item categories are fetched immediately after auth so ScanningPage is ready with zero manual interaction
 - **Cycling button labels** during sync (5-second rotation): "Loading data…" → "Fetching items…" → "Loading customers…" → "Preparing app…" → "Almost ready…"
@@ -129,6 +130,29 @@ Sales reps select a customer, scan or search items from the product catalog, set
 - Items added to **Sales Order** or **Return Order** independently within the same session
 - Swipe-to-delete on individual order lines
 - Customer selector modal with live search across all cached customers
+
+### <span style="color:#2a9d8f">🎉 First-Login Onboarding</span>
+
+- Full-screen `WelcomeModal` shown once after the very first successful login (gated by `rgmc_welcome_seen` in localStorage)
+- 5-slide feature tour: Intro → Home Dashboard → Scan & Record → Order History → Review & Submit
+- Auto-advances every 5 seconds; timer resets on any manual interaction
+- Gold progress bar, pill-shaped dot navigation, prev/next buttons, skip button (hidden on last slide)
+- Phone mockup frame displays actual app screenshots for each feature
+- "Get Started" CTA on the final slide; Skip on any earlier slide — both mark the tour as seen
+
+### <span style="color:#2a9d8f">👤 Profile & Account</span>
+
+- **Profile menu** (popover, top-right of every screen): user avatar, display name, username, brand; quick access to Sync and Sign Out
+- **Profile modal**: read-only contact fields (name, job title, phone, email, company, username, contact no.), in-place password change with live validation, photo upload
+- **Profile photo**: tapping the avatar in the Profile modal opens the device file picker; selected image is previewed immediately (base64 data URL) and POSTed to BC via the GCP API; photo is cached in `rgmc_auth_photo` (localStorage) for offline display
+- **Password change**: bcrypt-hashes the new password client-side (cost 10), saves hash to the local contacts cache, and PATCHes the BC contact record
+
+### <span style="color:#2a9d8f">🌗 Dark / Light Theme</span>
+
+- Moon / sun toggle in the top-right header on every app screen
+- Theme persisted in `rgmc_theme` localStorage key; restored instantly at module load to prevent flash-of-wrong-theme
+- Module-level singleton (`useTheme`) — all components share the same reactive `isDark` ref without re-reading localStorage
+- Applies via `data-theme="dark"|"light"` attribute on `<html>`, toggling the full CSS variable palette
 
 ### <span style="color:#2a9d8f">🔄 Sync & Caching</span>
 
@@ -188,7 +212,9 @@ Sales reps select a customer, scan or search items from the product catalog, set
 rgmc-consignment-webapp/
 ├── public/
 │   └── static/
-│       └── cons-logo.png              # App logo (header + splash)
+│       ├── cons-logo.png              # Header logo (32 px)
+│       ├── cons-logo-splash.png       # Full splash / welcome logo (220 px)
+│       └── screenshots/               # App screenshots used in WelcomeModal tour
 ├── src/
 │   ├── main.ts                        # Bootstrap: Pinia, router, auth guard, store rehydration
 │   ├── App.vue                        # Root component
@@ -202,33 +228,48 @@ rgmc-consignment-webapp/
 │   │                                  # OrderLine, ScanSession, payload types
 │   │
 │   ├── stores/
-│   │   ├── auth.store.ts              # brand, user, login(), logout(), loadFromStorage()
+│   │   ├── auth.store.ts              # brand, user, photoUrl, login(), logout(),
+│   │   │                              # completePasswordSetup(), loadFromStorage()
 │   │   └── session.store.ts           # currentSession, drafts, completedSessions,
 │   │                                  # addSalesOrder/Return(), markSubmitted(), etc.
 │   │
 │   ├── services/
 │   │   ├── api.service.ts             # Axios client — all /bc/* calls, 60s timeout
-│   │   └── storage.service.ts         # localStorage wrappers + _itemsMemory (in-memory items)
+│   │   └── storage.service.ts         # localStorage + IndexedDB wrappers;
+│   │                                  # _itemsMemory (in-memory); hasSeenWelcome()
 │   │
 │   ├── composables/
 │   │   ├── useSync.ts                 # isSyncing, sync(), lastSyncLabel, hasCache
 │   │   ├── useNetworkStatus.ts        # isOnline, isSlowConnection
+│   │   ├── useTheme.ts                # isDark, toggleTheme(); module-level singleton
+│   │   ├── useGoldAccent.ts           # Gold accent CSS helpers
 │   │   └── useCustomerFilter.ts       # Reactive customer filter by brand + search
 │   │
 │   ├── utils/
 │   │   └── format.ts                  # formatCurrency (₱), formatDate, formatDiscount
 │   │
+│   ├── components/
+│   │   ├── AppLogo.vue                # Brand logo switcher (cons-logo / logo)
+│   │   ├── ItemSelectorModal.vue      # Full-screen item search + category filter modal
+│   │   ├── UserAvatar.vue             # Circular avatar: photo or initials fallback
+│   │   ├── ProfileMenu.vue            # Header popover: user info, Sync, Sign Out
+│   │   ├── ProfileModal.vue           # Full profile sheet: contact details, photo upload,
+│   │   │                              # password change
+│   │   ├── SetPasswordModal.vue       # First-login forced password setup (can-dismiss:false)
+│   │   └── WelcomeModal.vue           # One-time onboarding tour (5 slides, auto-advance)
+│   │
 │   ├── views/
-│   │   ├── SplashPage.vue             # Animated loader; pre-fetches brands + contacts
+│   │   ├── SplashPage.vue             # Animated loader; IDB init; pre-fetches brands + contacts
 │   │   ├── LoginPage.vue              # Auth form; cycling sync labels; post-login sync
 │   │   ├── TabsPage.vue               # Ion-tabs shell with bottom tab bar
-│   │   ├── LandingPage.vue            # Home: drafts, customer preview, pull-to-refresh
+│   │   ├── LandingPage.vue            # Home: welcome hero, drafts, customer list, WelcomeModal
 │   │   ├── ScanningPage.vue           # Core scan screen; offline badge; cycling messages; PTR
 │   │   ├── HistoryPage.vue            # Session history; filters; detail modal; pull-to-refresh
 │   │   └── SubmitPage.vue             # Order review; offline guard on submit buttons
 │   │
 │   └── theme/
-│       └── variables.css              # Ionic CSS variable overrides; RGMC gold brand tokens
+│       └── variables.css              # Ionic CSS variable overrides; RGMC gold brand tokens;
+│                                      # dark-mode palette under [data-theme="dark"]
 │
 ├── Dockerfile                         # Multi-stage: Node 20 build → nginx:stable-alpine serve
 ├── nginx.conf                         # Template: ${PORT}, /bc/* proxy_pass, SPA fallback
@@ -333,11 +374,16 @@ gcloud run deploy rgmc-consignment-webapp `
 **Post-deploy verification**
 
 1. Open Cloud Run URL → Splash shows brands + contacts with green checkmarks
-2. Log in → button cycles through sync labels → navigates to Home
-3. Tap "Start New Session" → ScanningPage opens with items already loaded
-4. Select/scan an item → Confirm sheet: quantity stepper, discount toggle, gold grand total
-5. Navigate to SubmitPage while offline → Submit buttons disabled, amber notice shown
-6. Submit online → series numbers in done badges; session appears in History
+2. First-time user: enter credentials with no password set → `SetPasswordModal` appears → set password → dismissed to login
+3. Log in with password → button cycles through sync labels → navigates to Home
+4. First login: `WelcomeModal` tour appears (5 slides, auto-advance, skip button); dismissed on "Get Started"
+5. Tap profile avatar → popover shows user name, brand, Sync and Sign Out options
+6. Open Profile → tap avatar → upload photo → immediate preview, BC sync in background
+7. Toggle moon/sun icon in header → theme switches dark ↔ light; survives page reload
+8. Tap "Start New Session" → ScanningPage opens with items already loaded (from IndexedDB on reload)
+9. Select/scan an item → Confirm sheet: quantity stepper, discount toggle, gold grand total
+10. Navigate to SubmitPage while offline → Submit buttons disabled, amber notice shown
+11. Submit online → series numbers in done badges; session appears in History
 
 ---
 
@@ -411,23 +457,32 @@ All requests use the `/bc/` path prefix. Vite proxies them in dev; nginx proxies
 | Key | Type | Contents | When refreshed |
 |---|---|---|---|
 | `rgmc_auth` | `AuthSession` | `{ brand, user }` — full Brand + Contact | Login / cleared on logout |
+| `rgmc_auth_photo` | `string` | Base64 data URL of the user's profile photo | After successful photo upload |
 | `rgmc_cache_brands` | `Brand[]` | All brands | SplashPage load |
-| `rgmc_cache_contacts` | `Contact[]` | All contacts (auth only) | SplashPage load |
+| `rgmc_cache_contacts` | `Contact[]` | All contacts incl. `username` + `passwordHash` | SplashPage load / password setup |
 | `rgmc_cache_customers` | Slim `Customer[]` | `{ id, number, displayName, city }` | Sync |
 | `rgmc_cache_item_categories` | `ItemCategory[]` | All item categories | Sync |
 | `rgmc_sync_timestamps` | `SyncTimestamps` | ISO strings per entity | After each sync |
 | `rgmc_sessions` | `ScanSession[]` | Completed sessions (submitted + failed) | On submit / retry |
 | `rgmc_drafts` | `ScanSession[]` | In-progress sessions | Every order-line mutation |
+| `rgmc_welcome_seen` | `"1"` | Marks the onboarding tour as completed | After first Welcome modal close |
+| `rgmc_theme` | `"dark"` \| `"light"` | User's preferred colour scheme | On theme toggle |
+
+### <span style="color:#2a9d8f">IndexedDB (`rgmc-cache`)</span>
+
+| Store | Key | Contents | Why IndexedDB |
+|---|---|---|---|
+| `items` | `"all"` | Slim `Item[]` — `{ id, number, displayName, description≤120chars, itemCategoryCode, unitPrice }` | Full BC items catalog exceeds the 5 MB per-origin localStorage quota |
+
+Items are written to IndexedDB on every sync and restored into `_itemsMemory` at startup via `StorageService.init()` (called in `SplashPage.onMounted`). This means items **survive page reload** without a re-login or manual sync.
 
 ### <span style="color:#2a9d8f">In-memory only (tab lifetime)</span>
 
-| Variable | Contents | Why not localStorage |
+| Variable | Contents | Notes |
 |---|---|---|
-| `_itemsMemory` in `storage.service.ts` | Slim `Item[]` — `{ id, number, displayName, description≤120chars, itemCategoryCode, unitPrice }` | Full BC items catalog exceeds the 5 MB per-origin localStorage quota |
+| `_itemsMemory` in `storage.service.ts` | Same slim `Item[]` as IndexedDB | Module-level ref; populated from IndexedDB on startup, updated on every sync |
 
-> ⚠️ Items survive tab navigation within a single browser session but are **lost on page reload**. The login pre-sync and ScanningPage's `onMounted` auto-sync guard together ensure items are always restored without user action.
-
-> ⚠️ `rgmc_cache_items` is a legacy localStorage key from before the in-memory migration. `StorageService.clearAll()` explicitly removes it to clean up old tabs.
+> ⚠️ `rgmc_cache_items` is a legacy localStorage key from before the in-memory + IndexedDB migration. `StorageService.clearAll()` explicitly removes it to clean up old tabs.
 
 ---
 
@@ -435,32 +490,45 @@ All requests use the `/bc/` path prefix. Vite proxies them in dev; nginx proxies
 
 ```
 1. SplashPage mounts
-   → GET /bc/brands   → cached in rgmc_cache_brands
-   → GET /bc/contacts → cached in rgmc_cache_contacts
-   → Both done → green checkmarks → redirect /login
+   → StorageService.init() — restores items from IndexedDB into _itemsMemory
+   → If authenticated + full local cache → skip network, redirect /app/home immediately
+   → Otherwise: GET /bc/brands → rgmc_cache_brands
+                GET /bc/contacts → rgmc_cache_contacts (preserves local username/passwordHash)
+   → Both done → green checkmarks → redirect /login (or /app/home if already authed)
 
-2. User fills: Brand (dropdown) + Display Name + Phone Number
+2. User fills: Brand (dropdown) + Username + Password
    → authStore.login(brand, username, password)
    → Reads cached contacts (no extra network call)
-   → Matches: displayName.toUpperCase() === username.toUpperCase()
-              AND phoneNumber === password
+   → Lookup: contact.username.toUpperCase() === username.toUpperCase()
+             OR contact.displayName.toUpperCase() === username.toUpperCase()
+   → If contact has no passwordHash → forcePasswordSetup = true
+        → SetPasswordModal shown over LoginPage (can-dismiss: false)
+        → User creates password → bcrypt.hash(pw, 10) → stored in cache + PATCHed to BC
+        → Modal dismisses → user signs in with new password
+
+   → If contact has passwordHash → bcrypt.compare(password, hash)
    → Match → authStore.brand + authStore.user set
+           → authStore.photoUrl loaded from rgmc_auth_photo (if cached)
            → AuthSession written to rgmc_auth (localStorage)
 
 3. Post-login pre-sync (LoginPage.handleLogin)
    → isSyncing = true, button label cycles every 5s
    → Promise.all([getCustomers(), getItems(), getItemCategories()])
-   → customers → rgmc_cache_customers (localStorage, slim fields)
-   → items     → _itemsMemory (in-memory only)
+   → customers  → rgmc_cache_customers (localStorage, slim fields)
+   → items      → _itemsMemory + IndexedDB rgmc-cache/items store
    → categories → rgmc_cache_item_categories (localStorage)
-   → isSyncing = false
-   → router.replace('/app/home')
+   → isSyncing = false → router.replace('/app/home')
 
-4. On page reload / tab refresh
+4. First-time user → WelcomeModal shown on LandingPage
+   → !StorageService.hasSeenWelcome() → showWelcome = true
+   → 5-slide auto-advancing tour
+   → On Skip / Get Started → StorageService.markWelcomeSeen() → modal dismissed
+
+5. On page reload / tab refresh
    → router.beforeEach: isAuthenticated is false → redirect /splash
-   → SplashPage: detects rgmc_auth in localStorage
-   → router.isReady().then(): authStore.loadFromStorage() rehydrates brand + user
-   → Redirect /app/home; _itemsMemory is empty
+   → SplashPage: StorageService.init() restores items from IndexedDB
+   → If authenticated + full local cache → redirect /app/home immediately (no network)
+   → authStore.loadFromStorage() rehydrates brand + user + photoUrl
    → ScanningPage onMounted: cachedItems.length === 0 → auto-calls handleSync()
 ```
 

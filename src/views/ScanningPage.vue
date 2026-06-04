@@ -122,6 +122,8 @@
       </div>
 
       <template v-if="hasCache">
+        <div class="scan-panels">
+        <div class="scan-form-col">
         <!-- ══ Customer Card ══ -->
         <ion-card class="form-card">
           <ion-card-content>
@@ -266,6 +268,8 @@
           </ion-card-content>
         </ion-card>
 
+        </div><!-- /scan-form-col -->
+        <div class="scan-list-col">
         <!-- ══ Order Lists ══ -->
         <template v-if="sessionStore.hasLines">
           <ion-segment v-model="activeTab" class="order-segment">
@@ -341,6 +345,8 @@
           <ion-icon :icon="cartOutline" color="medium" />
           <p>No items added yet.<br />Select an item and tap Add to Sales or Add to Return.</p>
         </div>
+        </div><!-- /scan-list-col -->
+        </div><!-- /scan-panels -->
       </template>
     </ion-content>
 
@@ -1409,6 +1415,95 @@ async function toast(message: string, color: string) {
 .conf-btn {
   margin-bottom: 10px;
 }
+
+/* ─── Responsive layout ─────────────────────────────────────────────────── */
+
+/* Mobile default: single column, no extra wrapping */
+.scan-panels {
+  display: flex;
+  flex-direction: column;
+}
+
+.scan-form-col,
+.scan-list-col { min-width: 0; }
+
+/* Tablet ≥768 px: side-by-side columns */
+@media (min-width: 768px) {
+  .scan-panels {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 14px 16px;
+    max-width: 1120px;
+    margin: 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* Form column stays at a fixed width; list column fills the rest */
+  .scan-form-col {
+    flex: 0 0 340px;
+    /* Stick to the top of the scrollable area so the form stays in view
+       while a long order list scrolls past on the right */
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+  }
+
+  .scan-list-col { flex: 1; }
+
+  /* Cards inside the form column don't need horizontal gutter —
+     scan-panels padding handles it */
+  .form-card { margin: 0 0 12px; }
+
+  /* Segment tab bar sticks to the top of the list column */
+  .order-segment {
+    margin: 0;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--app-surface-alt);
+  }
+
+  /* State/empty cards shouldn't stretch across the full wide viewport */
+  .state-card,
+  .empty-orders {
+    max-width: 480px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
+/* Desktop ≥1024 px: wider panels, more breathing room */
+@media (min-width: 1024px) {
+  .scan-panels {
+    max-width: 1280px;
+    padding: 16px 32px;
+    gap: 24px;
+  }
+
+  .scan-form-col { flex: 0 0 400px; }
+}
+
+/* Landscape phone: trim vertical padding so the form fits without heavy scrolling */
+@media (max-width: 767px) and (orientation: landscape) {
+  .form-card { margin-top: 6px; }
+  .form-card ion-card-content { padding-top: 10px; padding-bottom: 10px; }
+  .field-label { margin-bottom: 6px; }
+  .order-date-section { margin-top: 10px; padding-top: 10px; }
+}
+
+/* ─── Safe-area inset for notched phones ─────────────────────────────────── */
+/* Ensures the sticky submit bar doesn't clip under the home indicator on iOS */
+.submit-bar {
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ─── Native date input: dark-mode color-scheme ──────────────────────────── */
+/* Without this the browser renders the date picker chrome (calendar icon,
+   spin buttons) in light mode even when the app is dark */
+.order-date-input { color-scheme: light; }
+[data-theme="dark"] .order-date-input { color-scheme: dark; }
 
 /* ── Order date ── */
 .order-date-section {

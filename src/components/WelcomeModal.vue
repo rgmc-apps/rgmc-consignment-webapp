@@ -1,5 +1,5 @@
 <template>
-  <ion-modal :is-open="isOpen" :can-dismiss="false" class="welcome-modal">
+  <ion-modal :is-open="isVisible" @did-dismiss="onDismissed" class="welcome-modal">
     <ion-page class="wm-page">
 
       <!-- Gold progress line -->
@@ -15,7 +15,7 @@
       </Transition>
 
       <!-- Slide viewport -->
-      <div class="wm-viewport">
+      <div class="wm-viewport" @touchstart.passive="onTouchStart" @touchend.passive="onTouchEnd">
         <div class="wm-track" :style="{ transform: `translateX(-${current * 100}%)` }">
 
           <!-- Slide 0: Intro -->
@@ -141,6 +141,8 @@ const submitImg   = '/static/screenshots/08-submit.png';
 const props = defineProps<{ isOpen: boolean }>();
 const emit  = defineEmits<{ done: [] }>();
 
+const isVisible = ref(props.isOpen);
+
 const authStore = useAuthStore();
 
 const firstName = computed(() => {
@@ -210,9 +212,28 @@ function stopTimer() {
 function next()      { if (current.value < slides.length - 1) current.value++; startTimer(); }
 function prev()      { if (current.value > 0) current.value--; startTimer(); }
 function goTo(i: number) { current.value = i; startTimer(); }
-function finish()    { stopTimer(); emit('done'); }
+function finish()    { stopTimer(); isVisible.value = false; }
+function onDismissed() { emit('done'); }
+
+let touchStartX = 0;
+
+function onTouchStart(e: TouchEvent) {
+  touchStartX = e.touches[0].clientX;
+  stopTimer();
+}
+
+function onTouchEnd(e: TouchEvent) {
+  const delta = e.changedTouches[0].clientX - touchStartX;
+  if (Math.abs(delta) > 50) {
+    if (delta < 0) next();
+    else prev();
+  } else {
+    startTimer();
+  }
+}
 
 watch(() => props.isOpen, (open) => {
+  isVisible.value = open;
   if (open) { current.value = 0; startTimer(); }
   else stopTimer();
 });
