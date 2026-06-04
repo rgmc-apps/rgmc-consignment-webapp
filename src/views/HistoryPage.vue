@@ -753,4 +753,10 @@ ion-list ion-item:nth-child(8) { animation: fade-slide-up 0.28s var(--ease-out-q
   margin: 8px 0 0;
   line-height: 1.5;
 }
+
+/* ── Detail modal content entrance ── */
+.info-card      { animation: fade-slide-up 0.32s var(--ease-out-quart) both; }
+.section-block  { animation: fade-slide-up 0.32s var(--ease-out-quart) 0.06s both; }
+.grand-total-row { animation: fade-slide-up 0.32s var(--ease-out-quart) 0.13s both; }
+.retry-wrap     { animation: fade-slide-up 0.32s var(--ease-out-quart) 0.17s both; }
 </style>

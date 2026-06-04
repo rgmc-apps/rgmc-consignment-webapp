@@ -1264,6 +1264,20 @@ async function toast(message: string, color: string) {
 /* ── State card fade ── */
 .state-card { animation: fade-in 0.3s ease both; }
 
+/* ── Scan column entrance ── */
+.scan-form-col .form-card:nth-child(1) { animation: fade-slide-up 0.32s var(--ease-out-quart) both; }
+.scan-form-col .form-card:nth-child(2) { animation: fade-slide-up 0.32s var(--ease-out-quart) 0.07s both; }
+.order-segment { animation: fade-in 0.28s ease 0.04s both; }
+.empty-orders  { animation: fade-in 0.28s ease both; }
+
+/* ── Order list stagger ── */
+.order-list ion-item-sliding:nth-child(1) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.02s both; }
+.order-list ion-item-sliding:nth-child(2) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.05s both; }
+.order-list ion-item-sliding:nth-child(3) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.08s both; }
+.order-list ion-item-sliding:nth-child(4) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.11s both; }
+.order-list ion-item-sliding:nth-child(5) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.14s both; }
+.order-list ion-item-sliding:nth-child(6) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.17s both; }
+
 /* ── Customer modal internals ── */
 .modal-empty {
   padding: 40px 24px;
