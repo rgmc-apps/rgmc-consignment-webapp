@@ -64,7 +64,7 @@
                 v-model="selectedBrandId"
                 placeholder="Select brand"
                 interface="action-sheet"
-                :disabled="isLoading || brandsLoading"
+                :disabled="isLoading || brandsLoading || !selectedCompanyId"
               >
                 <ion-select-option
                   v-for="b in brands"
@@ -93,7 +93,7 @@
                 type="text"
                 placeholder="Enter your name"
                 autocomplete="username"
-                :disabled="isLoading"
+                :disabled="isLoading || !selectedCompanyId"
                 @keyup.enter="handleLogin"
               />
             </ion-item>
@@ -106,7 +106,7 @@
                 :type="showPassword ? 'text' : 'password'"
                 placeholder="Enter your password"
                 autocomplete="current-password"
-                :disabled="isLoading"
+                :disabled="isLoading || !selectedCompanyId"
                 @keyup.enter="handleLogin"
               />
               <ion-button
@@ -169,7 +169,7 @@ import {
 } from '@ionic/vue';
 import { eyeOutline, eyeOffOutline, alertCircleOutline, cloudOfflineOutline, warningOutline, pricetagOutline } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
-import { ApiService } from '@/services/api.service';
+import { ApiService, setApiCompany } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 import { useSync } from '@/composables/useSync';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
@@ -252,7 +252,25 @@ const canSubmit = computed(
 
 onMounted(() => {
   loadCompanies();
+});
+
+watch(selectedCompanyId, (id) => {
+  /* Reset downstream selections so stale values from a previous company don't linger */
+  selectedBrandId.value = '';
+  username.value = '';
+  password.value = '';
+  brands.value = [];
+  authStore.clearError();
+
+  if (!id) return;
+
+  const company = companies.value.find((c) => c.id === id);
+  /* Point the API interceptor at the newly selected company so all /bc/ calls
+     below pick up the correct ?company= param */
+  setApiCompany(company?.name ?? null);
+
   loadBrands();
+  loadContacts();
 });
 
 function loadCompanies() {
@@ -264,21 +282,19 @@ function loadCompanies() {
 }
 
 function loadBrands() {
-  /* Splash already pre-loaded brands into cache — read synchronously */
-  const cached = StorageService.getCachedBrands();
-  if (cached.length) {
-    brands.value = cached;
-    return;
-  }
-  /* Fallback: splash was skipped somehow */
   brandsLoading.value = true;
   ApiService.getBrands()
-    .then((data) => {
-      StorageService.setCachedBrands(data);
-      brands.value = data;
-    })
+    .then((data) => { brands.value = data; })
     .catch(() => { brands.value = []; })
     .finally(() => { brandsLoading.value = false; });
+}
+
+function loadContacts() {
+  /* Pre-warm the contacts cache with company-scoped data so auth.store finds
+     the right users when the login form is submitted */
+  ApiService.getContacts()
+    .then((data) => { StorageService.setCachedContacts(data); })
+    .catch(() => {/* non-fatal — auth.store will retry on submit */});
 }
 
 async function handleLogin() {
