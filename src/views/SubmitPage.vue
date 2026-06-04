@@ -35,9 +35,9 @@
                 {{ session.brand.displayName }} &bull;
                 {{ formatDate(session.createdAt) }}
               </p>
-              <p v-if="session.orderDate" class="cust-order-date">
+              <p v-if="session.postingDate" class="cust-order-date">
                 <ion-icon :icon="calendarOutline" />
-                Order Date: <strong>{{ session.orderDate }}</strong>
+                Posting Date: <strong>{{ session.postingDate }}</strong>
               </p>
             </div>
           </div>
@@ -315,7 +315,7 @@ async function doSubmitSales(customerNumber: string) {
   salesStatus.value = 'submitting';
   const payload: SalesOrderPayload = {
     customerNumber,
-    ...(session.value?.orderDate ? { orderDate: session.value.orderDate } : {}),
+    ...(session.value?.postingDate ? { postingDate: session.value.postingDate } : {}),
     lines: sessionStore.salesOrders.map((l) => ({
       itemNumber: l.itemNumber,
       description: l.description,
@@ -343,7 +343,7 @@ async function doSubmitReturns(customerNumber: string) {
   returnsStatus.value = 'submitting';
   const payload: SalesReturnOrderPayload = {
     customerNumber,
-    ...(session.value?.orderDate ? { orderDate: session.value.orderDate } : {}),
+    ...(session.value?.postingDate ? { postingDate: session.value.postingDate } : {}),
     lines: sessionStore.returnOrders.map((l) => ({
       itemNumber: l.itemNumber,
       description: l.description,

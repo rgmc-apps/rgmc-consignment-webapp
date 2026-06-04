@@ -139,7 +139,7 @@
 
             <!-- Order date -->
             <div class="order-date-section">
-              <p class="field-label">ORDER DATE</p>
+              <p class="field-label">POSTING DATE</p>
               <div class="order-date-row">
                 <ion-icon :icon="calendarOutline" color="medium" class="order-date-icon" />
                 <input
@@ -733,8 +733,8 @@ const { filteredCustomers } = useCustomerFilter(brandRef, allCustomersRef, custo
 const selectedCustomer = computed(() => sessionStore.currentSession?.customer ?? null);
 
 const orderDateValue = computed({
-  get: () => sessionStore.currentSession?.orderDate ?? new Date().toISOString().split('T')[0],
-  set: (val: string) => sessionStore.setOrderDate(val),
+  get: () => sessionStore.currentSession?.postingDate ?? new Date().toISOString().split('T')[0],
+  set: (val: string) => sessionStore.setPostingDate(val),
 });
 
 function selectCustomer(c: Customer) {

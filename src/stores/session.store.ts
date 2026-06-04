@@ -27,7 +27,7 @@ function buildSession(brand: Brand, user: Contact): ScanSession {
     brand: { id: brand.id, code: brand.code, displayName: brand.displayName },
     user: { displayName: user.displayName },
     customer: null,
-    orderDate: todayISO(),
+    postingDate: todayISO(),
     salesOrders: [],
     returnOrders: [],
     createdAt: new Date().toISOString(),
@@ -83,9 +83,9 @@ export const useSessionStore = defineStore('session', () => {
     _saveDraft();
   }
 
-  function setOrderDate(date: string): void {
+  function setPostingDate(date: string): void {
     if (!currentSession.value) return;
-    currentSession.value.orderDate = date;
+    currentSession.value.postingDate = date;
     _touch();
     _saveDraft();
   }
@@ -213,7 +213,7 @@ export const useSessionStore = defineStore('session', () => {
     startNewSession,
     resumeDraft,
     setCustomer,
-    setOrderDate,
+    setPostingDate,
     addSalesOrder,
     addReturnOrder,
     removeSalesOrder,
