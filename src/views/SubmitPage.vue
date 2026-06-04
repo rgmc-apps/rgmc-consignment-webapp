@@ -200,6 +200,14 @@
       </div>
     </ion-content>
 
+    <!-- Remarks bottom sheet -->
+    <remarks-modal
+      :is-open="showRemarksModal"
+      :type="pendingSubmitType ?? 'sales'"
+      @confirm="onRemarksConfirm"
+      @cancel="onRemarksCancel"
+    />
+
     <!-- No session fallback -->
     <ion-content v-else class="ion-padding">
       <div class="empty-session">
@@ -233,7 +241,6 @@ import {
   IonNote,
   IonBadge,
   IonSpinner,
-  alertController,
   toastController,
 } from '@ionic/vue';
 import {
@@ -252,6 +259,7 @@ import { useGoldAccent } from '@/composables/useGoldAccent';
 import { ApiService } from '@/services/api.service';
 import { formatCurrency, formatDate, formatDiscount } from '@/utils/format';
 import type { SalesOrderPayload, SalesReturnOrderPayload } from '@/types';
+import RemarksModal from '@/components/RemarksModal.vue';
 
 const router = useRouter();
 const sessionStore = useSessionStore();
@@ -267,6 +275,9 @@ const salesSeriesNo = ref('');
 const returnsSeriesNo = ref('');
 const salesError = ref('');
 const returnsError = ref('');
+
+const showRemarksModal = ref(false);
+const pendingSubmitType = ref<'sales' | 'returns' | null>(null);
 
 const anyDone = computed(() => salesStatus.value === 'done' || returnsStatus.value === 'done');
 const anyFailed = computed(
@@ -285,37 +296,35 @@ const finalizeHint = computed(() => {
   return 'Session will be moved to History.';
 });
 
-async function confirmSubmit(type: 'sales' | 'returns') {
-  const s = session.value;
-  if (!s?.customer) return;
-
-  const lines = type === 'sales' ? sessionStore.salesOrders : sessionStore.returnOrders;
-  const label = type === 'sales' ? 'Sales Orders' : 'Return Orders';
-
-  const alert = await alertController.create({
-    header: `Submit ${label}`,
-    message: `Submit ${lines.length} line(s) for ${s.customer.displayName}?`,
-    buttons: [
-      { text: 'Cancel', role: 'cancel' },
-      { text: 'Submit', role: 'confirm' },
-    ],
-  });
-  await alert.present();
-  const { role } = await alert.onDidDismiss();
-  if (role !== 'confirm') return;
-
-  if (type === 'sales') {
-    await doSubmitSales(s.customer.number);
-  } else {
-    await doSubmitReturns(s.customer.number);
-  }
+function confirmSubmit(type: 'sales' | 'returns') {
+  if (!session.value?.customer) return;
+  pendingSubmitType.value = type;
+  showRemarksModal.value = true;
 }
 
-async function doSubmitSales(customerNumber: string) {
+function onRemarksConfirm(remarks: string) {
+  showRemarksModal.value = false;
+  const s = session.value;
+  if (!s?.customer || !pendingSubmitType.value) return;
+  if (pendingSubmitType.value === 'sales') {
+    doSubmitSales(s.customer.number, remarks);
+  } else {
+    doSubmitReturns(s.customer.number, remarks);
+  }
+  pendingSubmitType.value = null;
+}
+
+function onRemarksCancel() {
+  showRemarksModal.value = false;
+  pendingSubmitType.value = null;
+}
+
+async function doSubmitSales(customerNumber: string, remarks: string) {
   salesStatus.value = 'submitting';
   const payload: SalesOrderPayload = {
     customerNumber,
     ...(session.value?.postingDate ? { postingDate: session.value.postingDate } : {}),
+    ...(remarks ? { externalDocumentNumber: remarks } : {}),
     lines: sessionStore.salesOrders.map((l) => ({
       itemNumber: l.itemNumber,
       description: l.description,
@@ -339,11 +348,12 @@ async function doSubmitSales(customerNumber: string) {
   }
 }
 
-async function doSubmitReturns(customerNumber: string) {
+async function doSubmitReturns(customerNumber: string, remarks: string) {
   returnsStatus.value = 'submitting';
   const payload: SalesReturnOrderPayload = {
     customerNumber,
     ...(session.value?.postingDate ? { postingDate: session.value.postingDate } : {}),
+    ...(remarks ? { externalDocumentNo: remarks } : {}),
     lines: sessionStore.returnOrders.map((l) => ({
       itemNumber: l.itemNumber,
       description: l.description,
