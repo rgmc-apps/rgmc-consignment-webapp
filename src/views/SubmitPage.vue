@@ -200,14 +200,6 @@
       </div>
     </ion-content>
 
-    <!-- Remarks bottom sheet -->
-    <remarks-modal
-      :is-open="showRemarksModal"
-      :type="pendingSubmitType ?? 'sales'"
-      @confirm="onRemarksConfirm"
-      @cancel="onRemarksCancel"
-    />
-
     <!-- No session fallback -->
     <ion-content v-else class="ion-padding">
       <div class="empty-session">
@@ -216,6 +208,14 @@
         <ion-button router-link="/app/scan">Go to Scan</ion-button>
       </div>
     </ion-content>
+
+    <!-- Remarks bottom sheet — outside the v-if/v-else chain -->
+    <remarks-modal
+      :is-open="showRemarksModal"
+      :type="pendingSubmitType ?? 'sales'"
+      @confirm="onRemarksConfirm"
+      @cancel="onRemarksCancel"
+    />
   </ion-page>
 </template>
 
