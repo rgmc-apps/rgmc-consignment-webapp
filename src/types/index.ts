@@ -1,3 +1,9 @@
+export interface Company {
+  id: string;
+  name: string;
+  displayName: string;
+}
+
 export interface Brand {
   id: string;
   code: string;
@@ -120,6 +126,7 @@ export interface ContactUpdatePayload {
 export interface AuthSession {
   brand: Brand;
   user: Contact;
+  company?: Company;
 }
 
 export interface SyncTimestamps {

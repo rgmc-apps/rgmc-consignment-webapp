@@ -1,6 +1,7 @@
 import axios from 'axios';
 import type {
   Brand,
+  Company,
   Contact,
   ContactUpdatePayload,
   Customer,
@@ -21,6 +22,24 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+});
+
+/*
+ * Selected company name — set once at login and restored on startup.
+ * The request interceptor below injects it as `?company=<name>` on every
+ * /bc/ call so individual methods never need to handle it.
+ */
+let _companyName: string | null = null;
+
+export function setApiCompany(name: string | null): void {
+  _companyName = name;
+}
+
+apiClient.interceptors.request.use((config) => {
+  if (_companyName && config.url?.startsWith('/bc/')) {
+    config.params = { ...config.params, company: _companyName };
+  }
+  return config;
 });
 
 apiClient.interceptors.response.use(
@@ -69,6 +88,11 @@ function extractList<T>(body: unknown): T[] {
 }
 
 export const ApiService = {
+  async getCompanies(): Promise<Company[]> {
+    const res = await apiClient.get('/bc/companies');
+    return extractList<Company>(res.data);
+  },
+
   async getBrands(): Promise<Brand[]> {
     const res = await apiClient.get('/bc/brands');
     return extractList<Brand>(res.data);

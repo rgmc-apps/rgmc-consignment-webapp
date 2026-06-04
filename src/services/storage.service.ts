@@ -1,6 +1,7 @@
 import type {
   AuthSession,
   Brand,
+  Company,
   Contact,
   Customer,
   Item,
@@ -12,6 +13,7 @@ import type {
 const KEYS = {
   AUTH: 'rgmc_auth',
   AUTH_PHOTO: 'rgmc_auth_photo',
+  COMPANY: 'rgmc_company',
   CACHE_BRANDS: 'rgmc_cache_brands',
   CACHE_CONTACTS: 'rgmc_cache_contacts',
   CACHE_CUSTOMERS: 'rgmc_cache_customers',
@@ -77,6 +79,17 @@ export const StorageService = {
   },
   clearAuth(): void {
     remove(KEYS.AUTH);
+  },
+
+  /* ─── Selected company ─── */
+  getCompany(): Company | null {
+    return get<Company>(KEYS.COMPANY);
+  },
+  setCompany(company: Company): void {
+    set(KEYS.COMPANY, company);
+  },
+  clearCompany(): void {
+    remove(KEYS.COMPANY);
   },
 
   /* ─── Auth photo (base64 data URL, cached for offline use) ─── */

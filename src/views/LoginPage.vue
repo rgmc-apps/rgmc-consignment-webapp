@@ -37,6 +37,26 @@
           <ion-card-content>
             <p class="login-form-heading">Sign In</p>
 
+            <!-- Company dropdown -->
+            <ion-item lines="full" class="login-field">
+              <ion-label position="stacked">Company</ion-label>
+              <ion-select
+                v-model="selectedCompanyId"
+                placeholder="Select company"
+                interface="action-sheet"
+                :disabled="isLoading || companiesLoading"
+              >
+                <ion-select-option
+                  v-for="c in companies"
+                  :key="c.id"
+                  :value="c.id"
+                >
+                  {{ c.displayName }}
+                </ion-select-option>
+              </ion-select>
+              <ion-spinner v-if="companiesLoading" slot="end" name="crescent" />
+            </ion-item>
+
             <!-- Brand dropdown -->
             <ion-item lines="full" class="login-field">
               <ion-label position="stacked">Brand</ion-label>
@@ -154,10 +174,14 @@ import { StorageService } from '@/services/storage.service';
 import { useSync } from '@/composables/useSync';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import SetPasswordModal from '@/components/SetPasswordModal.vue';
-import type { Brand } from '@/types';
+import type { Brand, Company } from '@/types';
 
 const router = useRouter();
 const authStore = useAuthStore();
+
+const companies = ref<Company[]>([]);
+const companiesLoading = ref(false);
+const selectedCompanyId = ref<string>('');
 
 const brands = ref<Brand[]>([]);
 const brandsLoading = ref(false);
@@ -219,15 +243,25 @@ const networkNotice = computed<'offline' | 'slow' | null>(() => {
   return null;
 });
 
+const selectedCompany = computed(() => companies.value.find((c) => c.id === selectedCompanyId.value) ?? null);
 const selectedBrand = computed(() => brands.value.find((b) => b.id === selectedBrandId.value) ?? null);
 
 const canSubmit = computed(
-  () => selectedBrandId.value && username.value.trim(),
+  () => selectedCompanyId.value && selectedBrandId.value && username.value.trim(),
 );
 
 onMounted(() => {
+  loadCompanies();
   loadBrands();
 });
+
+function loadCompanies() {
+  companiesLoading.value = true;
+  ApiService.getCompanies()
+    .then((data) => { companies.value = data; })
+    .catch(() => { companies.value = []; })
+    .finally(() => { companiesLoading.value = false; });
+}
 
 function loadBrands() {
   /* Splash already pre-loaded brands into cache — read synchronously */
@@ -250,9 +284,9 @@ function loadBrands() {
 async function handleLogin() {
   if (!canSubmit.value) return;
   authStore.clearError();
-  if (!selectedBrand.value) return;
+  if (!selectedCompany.value || !selectedBrand.value) return;
 
-  const ok = await authStore.login(selectedBrand.value, username.value, password.value);
+  const ok = await authStore.login(selectedCompany.value, selectedBrand.value, username.value, password.value);
   if (!ok) return;
 
   /* Full offline prep — fetch all master data so the app works without a

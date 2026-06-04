@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import bcrypt from 'bcryptjs';
-import type { Brand, Contact } from '@/types';
-import { ApiService } from '@/services/api.service';
+import type { Brand, Company, Contact } from '@/types';
+import { ApiService, setApiCompany } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 
 function isBcryptHash(value: string): boolean {
@@ -10,11 +10,15 @@ function isBcryptHash(value: string): boolean {
 }
 
 export const useAuthStore = defineStore('auth', () => {
+  const company = ref<Company | null>(StorageService.getCompany());
   const brand = ref<Brand | null>(null);
   const user = ref<Contact | null>(null);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
   const photoUrl = ref<string | null>(StorageService.getAuthPhoto());
+
+  // Restore the API interceptor if a company was already persisted (e.g. page refresh)
+  if (company.value) setApiCompany(company.value.name);
 
   /** Set when a matched contact has an empty or non-bcrypt passwordHash */
   const forcePasswordSetup = ref(false);
@@ -36,6 +40,11 @@ export const useAuthStore = defineStore('auth', () => {
   function loadFromStorage(): void {
     const saved = StorageService.getAuth();
     photoUrl.value = StorageService.getAuthPhoto();
+    const savedCompany = StorageService.getCompany();
+    if (savedCompany) {
+      company.value = savedCompany;
+      setApiCompany(savedCompany.name);
+    }
     if (saved) {
       brand.value = saved.brand;
       user.value = saved.user;
@@ -51,6 +60,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function login(
+    selectedCompany: Company,
     selectedBrand: Brand,
     username: string,
     password: string,
@@ -114,9 +124,12 @@ export const useAuthStore = defineStore('auth', () => {
         const idx = all.findIndex((x) => x.id === upgraded.id);
         if (idx >= 0) all[idx] = upgraded;
         StorageService.setCachedContacts(all);
+        company.value = selectedCompany;
         brand.value = selectedBrand;
         user.value = upgraded;
-        StorageService.setAuth({ brand: selectedBrand, user: upgraded });
+        setApiCompany(selectedCompany.name);
+        StorageService.setCompany(selectedCompany);
+        StorageService.setAuth({ brand: selectedBrand, user: upgraded, company: selectedCompany });
         ApiService.updateContact(upgraded.id, { passwordHash: hash }).catch(() => {});
         fetchAndCachePhoto();
         return true;
@@ -139,9 +152,12 @@ export const useAuthStore = defineStore('auth', () => {
         return false;
       }
 
+      company.value = selectedCompany;
       brand.value = selectedBrand;
       user.value = candidate;
-      StorageService.setAuth({ brand: selectedBrand, user: candidate });
+      setApiCompany(selectedCompany.name);
+      StorageService.setCompany(selectedCompany);
+      StorageService.setAuth({ brand: selectedBrand, user: candidate, company: selectedCompany });
       fetchAndCachePhoto();
       return true;
     } catch (err) {
@@ -193,11 +209,14 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function logout(): void {
+    company.value = null;
     brand.value = null;
     user.value = null;
     photoUrl.value = null;
+    setApiCompany(null);
     StorageService.clearAuth();
     StorageService.clearAuthPhoto();
+    StorageService.clearCompany();
   }
 
   function clearError(): void {
@@ -205,6 +224,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
+    company,
     brand,
     user,
     photoUrl,
