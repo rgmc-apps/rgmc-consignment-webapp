@@ -19,6 +19,7 @@ const KEYS = {
   SYNC_TIMESTAMPS: 'rgmc_sync_timestamps',
   SESSIONS: 'rgmc_sessions',
   DRAFTS: 'rgmc_drafts',
+  WELCOME_SEEN: 'rgmc_welcome_seen',
 } as const;
 
 function get<T>(key: string): T | null {
@@ -250,6 +251,14 @@ export const StorageService = {
   },
   clearAllDrafts(): void {
     remove(KEYS.DRAFTS);
+  },
+
+  /* ─── Welcome tour ─── */
+  hasSeenWelcome(): boolean {
+    return localStorage.getItem(KEYS.WELCOME_SEEN) === '1';
+  },
+  markWelcomeSeen(): void {
+    localStorage.setItem(KEYS.WELCOME_SEEN, '1');
   },
 
   /* ─── Utility ─── */

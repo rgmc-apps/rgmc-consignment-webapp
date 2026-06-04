@@ -1,5 +1,9 @@
 <template>
   <ion-page>
+
+    <!-- First-login welcome tour (shown once, stored in localStorage) -->
+    <welcome-modal :is-open="showWelcome" @done="onWelcomeDone" />
+
     <ion-header>
       <ion-toolbar>
         <ion-title>
@@ -157,6 +161,7 @@ import {
   sunnyOutline,
 } from 'ionicons/icons';
 import ProfileMenu from '@/components/ProfileMenu.vue';
+import WelcomeModal from '@/components/WelcomeModal.vue';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
 import { StorageService } from '@/services/storage.service';
@@ -168,6 +173,13 @@ const router = useRouter();
 const authStore = useAuthStore();
 const sessionStore = useSessionStore();
 const { isDark, toggleTheme } = useTheme();
+
+const showWelcome = ref(!StorageService.hasSeenWelcome());
+
+function onWelcomeDone() {
+  StorageService.markWelcomeSeen();
+  showWelcome.value = false;
+}
 
 const visibleDrafts = computed(() => sessionStore.drafts.filter((d) => d.customer !== null));
 
