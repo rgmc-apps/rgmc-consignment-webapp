@@ -4,7 +4,7 @@ dist
 .gitignore
 
 # Dev-only files
-screenshots/
+/screenshots/
 screenshot-tour.js
 handoff.md
 README.md
