@@ -24,6 +24,6 @@ desktop.ini
 handoff.md
 
 # Dev-only scripts
-screenshots/
+/screenshots/
 screenshot-tour.js
 handoff.py
