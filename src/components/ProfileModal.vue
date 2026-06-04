@@ -276,11 +276,11 @@ async function savePassword() {
 /* ── Hero ── */
 .profile-hero {
   background: var(--app-dark);
-  padding: 28px 20px 24px;
+  padding: 36px 24px 28px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   position: relative;
   overflow: hidden;
 }
@@ -297,19 +297,19 @@ async function savePassword() {
   position: relative;
   cursor: pointer;
   display: inline-flex;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .hero-avatar {
-  width: 72px;
-  height: 72px;
+  width: 92px;
+  height: 92px;
   border-radius: 50%;
   background: rgba(160, 115, 32, 0.15);
-  border: 2px solid rgba(160, 115, 32, 0.45);
+  border: 2.5px solid rgba(160, 115, 32, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 28px;
+  font-size: 36px;
   font-weight: 800;
   color: var(--app-gold);
 }
@@ -317,29 +317,29 @@ async function savePassword() {
 /* Camera badge — always visible in bottom-right corner */
 .hero-avatar-badge {
   position: absolute;
-  bottom: 1px;
-  right: 1px;
-  width: 22px;
-  height: 22px;
+  bottom: 2px;
+  right: 2px;
+  width: 27px;
+  height: 27px;
   border-radius: 50%;
   background: var(--app-gold);
-  border: 2px solid var(--app-dark);
+  border: 2.5px solid var(--app-dark);
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
-  font-size: 11px;
+  font-size: 13px;
   pointer-events: none;
 }
 
 .badge-spinner {
-  width: 11px;
-  height: 11px;
+  width: 13px;
+  height: 13px;
   color: #fff;
 }
 
 .hero-name {
-  font-size: var(--text-lg);
+  font-size: 22px;
   font-weight: 800;
   color: #ffffff;
   margin: 0;
@@ -348,7 +348,7 @@ async function savePassword() {
 }
 
 .hero-brand {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -358,12 +358,12 @@ async function savePassword() {
 
 /* ── Section labels ── */
 .section-label {
-  font-size: var(--text-2xs);
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: var(--tracking-wider);
   text-transform: uppercase;
   color: var(--app-gold);
-  margin: 20px 16px 6px;
+  margin: 24px 18px 8px;
 }
 
 /* ── Field list ── */
@@ -375,9 +375,9 @@ async function savePassword() {
 
 .field-item {
   --background: var(--app-surface);
-  --padding-start: 16px;
-  --inner-padding-end: 16px;
-  --min-height: 60px;
+  --padding-start: 18px;
+  --inner-padding-end: 18px;
+  --min-height: 68px;
 }
 
 .field-item--readonly {
@@ -385,20 +385,20 @@ async function savePassword() {
 }
 
 .field-label {
-  font-size: 11px !important;
+  font-size: 12px !important;
   font-weight: 700 !important;
   letter-spacing: 0.5px !important;
   text-transform: uppercase !important;
   color: var(--app-text-muted) !important;
-  margin-bottom: 2px !important;
+  margin-bottom: 3px !important;
 }
 
 .field-input {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 500;
   color: var(--app-fg);
   --padding-top: 2px;
-  --padding-bottom: 6px;
+  --padding-bottom: 8px;
 }
 
 .field-input--readonly {
@@ -410,11 +410,11 @@ async function savePassword() {
 .pw-hint {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 8px 16px 0;
-  padding: 8px 12px;
-  border-radius: 8px;
-  font-size: 13px;
+  gap: 7px;
+  margin: 10px 18px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 14px;
   font-weight: 500;
   background: var(--app-danger-bg);
   border: 1px solid var(--app-error-border);
@@ -434,16 +434,16 @@ async function savePassword() {
 
 /* ── Password action button ── */
 .pw-action {
-  padding: 16px 16px 0;
+  padding: 18px 18px 0;
 }
 
 .pw-save-btn {
   --background: var(--app-surface-alt, rgba(160, 115, 32, 0.12));
   --background-activated: rgba(160, 115, 32, 0.2);
-  --border-radius: 12px;
+  --border-radius: 14px;
   --color: var(--app-gold);
-  height: 50px;
-  font-size: 15px;
+  height: 54px;
+  font-size: 16px;
   font-weight: 700;
   border: 1px solid rgba(160, 115, 32, 0.35);
 }
