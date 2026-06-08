@@ -379,7 +379,7 @@ async function doSubmitSales(customerNumber: string, remarks: string) {
     customerNumber,
     ...(session.value?.postingDate ? { postingDate: session.value.postingDate } : {}),
     ...(remarks ? { externalDocumentNumber: remarks } : {}),
-    ...(session.value?.user?.displayName ? { yourReference: session.value.user.displayName } : {}),
+    ...(session.value?.user?.displayName ? { submittedBy: session.value.user.displayName } : {}),
     lines: sessionStore.salesOrders.map((l) => ({
       itemNumber: l.itemNumber,
       description: l.description,
@@ -409,7 +409,7 @@ async function doSubmitReturns(customerNumber: string, remarks: string) {
     customerNumber,
     ...(session.value?.postingDate ? { postingDate: session.value.postingDate } : {}),
     ...(remarks ? { externalDocumentNo: remarks } : {}),
-    ...(session.value?.user?.displayName ? { yourReference: session.value.user.displayName } : {}),
+    ...(session.value?.user?.displayName ? { submittedBy: session.value.user.displayName } : {}),
     lines: sessionStore.returnOrders.map((l) => ({
       itemNumber: l.itemNumber,
       description: l.description,

@@ -148,7 +148,7 @@ export interface SalesOrderPayload {
   customerNumber: string;
   postingDate?: string;
   externalDocumentNumber?: string;
-  yourReference?: string;
+  submittedBy?: string;
   lines: SalesOrderLine[];
 }
 
@@ -157,6 +157,7 @@ export interface SalesReturnOrderPayload {
   postingDate?: string;
   externalDocumentNo?: string;
   yourReference?: string;
+  submittedBy?: string;
   lines: SalesOrderLine[];
 }
 

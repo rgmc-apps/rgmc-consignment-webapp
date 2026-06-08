@@ -4,99 +4,115 @@
 
 Ship the RGMC Consignment Web App to production on Cloud Run. The app is a mobile-first Ionic/Vue 3 PWA for sales agents to log consignment sales/return orders, submit to Business Central via GCP API, and track history. Core loop: login → scan → submit.
 
-The current push is to polish and harden the existing feature set: fix all known UX bugs, ensure images work in production, tighten animations, and get the GCP API fully deployed with the latest fixes.
+This session focused on several feature additions and bug fixes: item search crash fix, editable discounts on review/submit, company name in header, brand-tag-based login authorization, active item price lookup by posting date, and "Your Reference" auto-fill with user display name.
 
 ---
 
 ## Current State
 
-**Frontend (rgmc-consignment-webapp) — all clean, all committed, ready to deploy:**
-- `master` branch is fully up to date with origin, no uncommitted changes
-- Latest commits this session:
-  - `922cafa` — animations added to ScanningPage + HistoryPage detail modal
-  - `e5c5511` — "back online" toast + Sync Now button; offline toast HTML fix
-  - `fd09823` — screenshots committed to git (`.gitignore` root-anchored to `/screenshots/`)
-  - `12031df` — `public/static/` screenshot images added
+**Frontend (`C:\claude\rgmc-consignment-webapp`) — all changes STAGED, NOT YET COMMITTED:**
+- `master` branch, 7 files staged, 0 uncommitted working tree changes
+- All TypeScript type checks pass (`vue-tsc --noEmit` exits clean)
+- NOT deployed — production Cloud Run still runs commit `74b2373` ("added load company first policy")
 
-**WelcomeModal (`src/components/WelcomeModal.vue`) — fixed this session:**
-- Navigation (Get Started / Skip) now works: `can-dismiss="false"` removed, local `isVisible` ref, `finish()` sets `isVisible.value = false`, `@did-dismiss` emits `done`
-- Swipe gestures added: `@touchstart.passive` / `@touchend.passive` on `.wm-viewport`, 50px threshold
-- Images (`/static/screenshots/*.png`): NOW committed to git; `.gitignore` was `screenshots/` (any depth) → fixed to `/screenshots/` (root only). After next deployment these will appear.
+**GCP API (`C:\RGMC\Source\git\rgmc-gcp-api`) — committed locally, NOT pushed, NOT deployed:**
+- `main` branch, 1 commit ahead of `origin/main`
+- Unpushed commit `01e5b7c` "added new bc endpoints" includes: brand tag endpoints, item price endpoints, and `yourReference` on both order models
+- Production Cloud Run still runs commit `a78c920` ("updated readme")
 
-**GCP API (`C:\RGMC\Source\git\rgmc-gcp-api`) — fixed locally, NOT yet deployed:**
-- `src/routers/bc_routes/rgmc_contact_routes.py`: BC photo sync is non-blocking, always returns `{"ok": True}` regardless of BC 400 errors (BC Page 50204 not yet created)
-- `src/routers/bc_routes/sales_order_routes.py`: `model_dump(mode='json', exclude_none=True)` — fixes "Object of type date is not JSON serializable" on POST/PATCH sales orders
-
-**Known pending (not started):**
-- BC Page 50204 (`contactPictures`) AL page has never been created — photo sync to BC is currently skipped (GCP API logs warning, returns success)
-- GCP API needs a new Cloud Run deployment to pick up the two Python fixes above
+**What is working (code complete, just needs deploy):**
+- Item search no longer crashes when `displayName` or `number` is null/undefined
+- Discount fields are editable in the Review & Submit screen for both Sales and Return sections; disabled once submitted
+- Company name shows in the ScanningPage header below the brand name
+- Login now checks brand tags: user must have the selected brand's code in their `contactBrandTags` (fails-open if offline)
+- Item selection fetches active price from `/bc/custom/item-prices/active` based on posting date; spinner shown while loading
+- Posting date change refreshes prices for all existing lines in parallel
+- `yourReference` is populated with the logged-in user's `displayName` on both sales order and return order POST payloads
+- GCP API Pydantic models for both order types now accept `yourReference`
 
 ---
 
 ## Files Actively Being Edited
 
-All files were left in a clean, working state. Nothing is mid-edit.
+All in clean state — no mid-edit files. Everything is staged and ready to commit.
 
-- `src/components/WelcomeModal.vue` — 3 bugs fixed: navigation, swipe, images. Uses `isVisible` ref + `@did-dismiss` instead of `can-dismiss="false"`. Touch handlers on `.wm-viewport`.
-- `src/App.vue` — Offline toast message changed from HTML string to plain text. "Back online" toast added with Sync Now button that calls `useSync().sync()` and shows a follow-up result toast.
-- `.gitignore` — Changed `screenshots/` to `/screenshots/` so `public/static/screenshots/` is no longer excluded from git.
-- `.dockerignore` — Changed `screenshots/` to `/screenshots/` (done in previous session, already committed as `4b410a8`).
-- `public/static/screenshots/` — 4 PNG files now committed: `03-landing.png`, `04-scanning-form.png`, `06-history.png`, `08-submit.png`
-- `src/views/ScanningPage.vue` — Entrance animations added: form column card stagger, order list item stagger (6 nth-child), order segment + empty-orders fade-in
-- `src/views/HistoryPage.vue` — Detail modal content entrance added: info-card → section-block → grand-total-row → retry-wrap cascade (0 / 60 / 130 / 170ms)
-- `C:\RGMC\Source\git\rgmc-gcp-api\src\routers\bc_routes\rgmc_contact_routes.py` — Non-blocking BC photo sync (local only, not deployed)
-- `C:\RGMC\Source\git\rgmc-gcp-api\src\routers\bc_routes\sales_order_routes.py` — `mode='json'` on model_dump (local only, not deployed)
+**Frontend (staged, not committed):**
+- `src/components/ItemSelectorModal.vue` — null guard added: `i.displayName` and `i.number` now use `?? ''` in `filteredItems` computed (line ~244); was causing TypeError on search
+- `src/services/api.service.ts` — added `getContactBrandTags(contactId)` (returns `string[]` of brand codes) and `getActiveItemPrice(productNo, onDate)` (returns `number | null`, swallows 404)
+- `src/stores/auth.store.ts` — added `checkBrandAccess(contactId, brand)` helper (fetches tags, fail-open); called in both login success paths (plain-text upgrade ~line 121, bcrypt valid ~line 155) before committing session
+- `src/stores/session.store.ts` — added `updateLineSrp(lineId, orderType, srp)` and `updateLineDiscount(lineId, orderType, discountType, discountValue)`; both recompute `totalAmount` and persist draft; both exported in return object
+- `src/types/index.ts` — `yourReference?: string` added to both `SalesOrderPayload` and `SalesReturnOrderPayload`
+- `src/views/ScanningPage.vue` — header now shows company below brand (`.header-text` stack); `ApiService` imported; `confirmedSrp` ref + `fetchingPrice` ref added; `fetchActivePrice()` async function; `confirmTotal` now uses `confirmedSrp` instead of `confirmItem.unitPrice`; `onItemSelected` seeds `confirmedSrp` and fires `fetchActivePrice`; `doConfirm` uses `confirmedSrp` as srp; `watch(orderDateValue)` re-fetches price for current item and all existing lines on date change; spinner shown in SRP fields (confirm modal + inline form)
+- `src/views/SubmitPage.vue` — editable discount controls (type toggle buttons + number input) for each line in both Sales and Return sections; disabled when status is `'done'` or `'submitting'`; local `updateDiscount()` function calls `sessionStore.updateLineDiscount()`; `yourReference: session.value.user.displayName` added to both `SalesOrderPayload` and `SalesReturnOrderPayload` constructions; `formatDiscount` import removed (no longer used)
+
+**GCP API (committed in `01e5b7c`, not pushed):**
+- `src/models/bc_models/sales_order_models.py` — `yourReference: Optional[str] = None` added to `SalesOrderCreate` (line ~30)
+- `src/models/bc_models/sales_return_order_models.py` — `yourReference: Optional[str] = None` added to `SalesReturnOrderCreate` (line ~10)
+- `src/routers/bc_routes/rgmc_contact_routes.py` — brand tag CRUD endpoints (GET/POST/DELETE) added (pre-existing in this commit)
+- `src/routers/bc_routes/rgmc_item_price_routes.py` — item price list + `/active` endpoints added (pre-existing in this commit)
+- `src/services/bc_functions.py` — `rgmc_list_contact_brand_tags`, `rgmc_add_contact_brand_tag`, `rgmc_delete_contact_brand_tag`, `rgmc_list_item_prices` functions added (pre-existing in this commit)
 
 ---
 
 ## Failed Attempts
 
-- **What was tried**: Using `can-dismiss="false"` on `<ion-modal>` while controlling visibility via `:is-open` prop — **Why it failed**: Ionic 8 `can-dismiss="false"` blocks ALL modal dismissal including programmatic. When parent set `:is-open="false"`, modal refused to close. Fix: remove `can-dismiss`, use local `isVisible` ref.
-
-- **What was tried**: Importing screenshot images as Vite module imports (`import landingImg from '../../screenshots/03-landing.png'`) — **Why it failed**: Vite can't resolve paths outside `src/` or `public/`; screenshots were in root `screenshots/` folder. Fix: move to `public/static/screenshots/` and use string URL constants.
-
-- **What was tried**: Fixing `.dockerignore` to `/screenshots/` to include `public/static/screenshots/` in Docker build context — **Why it failed**: `.gitignore` also had `screenshots/` (unanchored), so the files were never committed to git. Cloud Run deployments pull from git, not local disk. Fix: also fix `.gitignore` and `git add` the PNG files.
-
-- **What was tried**: `toastController.create({ message: '<div class="..."><strong>...' })` for styled offline toast — **Why it failed**: Ionic's toast `message` field renders plain text, not HTML. Tags showed as raw text. Fix: use a plain text string.
+- **What was tried**: No failed attempts this session — all changes implemented cleanly on first pass.
 
 ---
 
 ## Next Step
 
-**Deploy the GCP API to Cloud Run.** The two Python fixes are local-only and the production API still has the old code:
+**Commit the frontend and deploy both repos to Cloud Run.**
 
-1. Navigate to `C:\RGMC\Source\git\rgmc-gcp-api`
-2. Commit the two changed files:
-   ```
-   git add src/routers/bc_routes/rgmc_contact_routes.py src/routers/bc_routes/sales_order_routes.py
-   git commit -m "make BC photo sync non-blocking; fix date JSON serialization in sales orders"
-   ```
-3. Deploy to Cloud Run (use whatever CI/CD or `gcloud run deploy` command the project uses)
-4. Verify: POST a sales order with an `orderDate` field — should no longer 500 with "Object of type date is not JSON serializable"
-5. Verify: update a contact photo — should return `{"ok": True}` even if BC 400s
+### 1. Commit the frontend:
+```
+cd C:\claude\rgmc-consignment-webapp
+git commit -m "item search fix; editable discounts; brand tag login; active item pricing; yourReference field; company in header"
+```
 
-**After GCP deploy:** redeploy the frontend to Cloud Run to pick up all frontend commits from this session (WelcomeModal fixes, animations, images, toasts).
+### 2. Push the GCP API and deploy:
+```
+cd C:\RGMC\Source\git\rgmc-gcp-api
+git push origin main
+gcloud builds submit --tag asia-southeast1-docker.pkg.dev/durable-woods-465907-n1/cloud-run-source-deploy/rgmc-gcp-api/rgmc-gcp-api --region asia-southeast1
+gcloud run deploy rgmc-gcp-api --image asia-southeast1-docker.pkg.dev/durable-woods-465907-n1/cloud-run-source-deploy/rgmc-gcp-api/rgmc-gcp-api --region asia-southeast1
+```
+*(Or use whatever deploy method was used before — check gcloud run services describe rgmc-gcp-api for the current image tag pattern to confirm the artifact registry path.)*
+
+### 3. Deploy the frontend:
+```
+cd C:\claude\rgmc-consignment-webapp
+gcloud builds submit --tag asia-southeast1-docker.pkg.dev/durable-woods-465907-n1/cloud-run-source-deploy/rgmc-consignment-webapp/rgmc-consignment-webapp --region asia-southeast1
+gcloud run deploy rgmc-consignment-webapp --image ... --region asia-southeast1
+```
+
+### 4. After deploy — verify:
+- Log in and try selecting a brand the user is NOT tagged for → should be blocked with "You are not authorized to access [brand]."
+- Select an item → SRP field should briefly show spinner then update to the active price
+- Change posting date → all existing order lines should reprice
+- Submit a sales order → check BC that "Your Reference" field is populated with the agent's display name
+- Check the same on a return order (note: `yourReference` on the custom Pag50201 return order page may not be exposed — if BC returns a 400 on return order submit, remove `yourReference` from `SalesReturnOrderCreate` in the GCP API model and redeploy)
 
 ---
 
 ## Context & Gotchas
 
-- **Two separate repos**: frontend at `C:\claude\rgmc-consignment-webapp`, GCP API at `C:\RGMC\Source\git\rgmc-gcp-api`. The frontend proxies `/bc/*` to the GCP API via nginx (`nginx.conf` proxy_pass). They deploy independently to Cloud Run.
+- **Two separate repos**: frontend at `C:\claude\rgmc-consignment-webapp`, GCP API at `C:\RGMC\Source\git\rgmc-gcp-api`. Deploy independently. Frontend proxies `/bc/*` to GCP API via nginx.
 
-- **Cloud Run URLs**: frontend is `https://rgmc-consignment-webapp-935246372408.asia-southeast1.run.app`, GCP API is `https://rgmc-gcp-api-935246372408.asia-southeast1.run.app`
+- **Cloud Run project**: `durable-woods-465907-n1`, region `asia-southeast1`. Service names: `rgmc-consignment-webapp` and `rgmc-gcp-api`.
 
-- **Screenshot URL pattern**: `/static/screenshots/03-landing.png` — served by nginx from `dist/static/screenshots/` which Vite copies from `public/static/screenshots/` during build. NOT a hashed asset, served via `location /` → `try_files`.
+- **Brand tag check fails-open**: If `GET /bc/custom/contacts/{id}/brand-tags` throws (network error, 500, offline), the user is allowed to log in. This is intentional — don't change it to fail-closed without careful testing, since it would lock out agents during API outages. The check only blocks when tags are explicitly present and the selected brand code is NOT in the list.
 
-- **Photo sync (BC)**: BC Page 50204 (`contactPictures`) OData endpoint does not exist yet. The GCP API's `update_contact_picture` will return HTTP 400 "Cannot convert literal to Edm.Guid" from BC. The fix makes this non-fatal: GCP API logs a warning and returns `{"ok": True}`. Photos are stored client-side via IndexedDB only until the AL page is created.
+- **`yourReference` on return orders is unverified**: BC standard `salesOrders` (v2.0 API) definitely supports `yourReference`. The custom return order page Pag50201 is RGMC's AL extension — it likely exposes this field but it hasn't been tested against BC. If `POST /bc/custom/sales-return-orders` starts returning 400 after deploy, `yourReference` is the likely culprit. Fix: remove it from `SalesReturnOrderCreate` in the GCP API model.
 
-- **`useSync` is a module-level singleton**: All components that call `useSync()` share the same `isSyncing` / `lastSyncDate` reactive state. The "Sync Now" button in App.vue toast and the ScanningPage sync button share state — tapping it while already syncing is a no-op.
+- **Active price fallback**: `getActiveItemPrice` returns `null` on 404 (no price record for that date) and swallows all errors. The frontend's `fetchActivePrice` falls back to `confirmItem.value?.unitPrice` (the cached BC item's `unitPrice`) when `null` is returned. Lines that don't get a price match keep their existing `srp` unchanged.
 
-- **Dark mode**: Toggled via `data-theme="dark"` on `<html>`. CSS variables in `src/theme/variables.css` flip automatically. Native date inputs need `color-scheme: light/dark` per-element (already handled in ScanningPage).
+- **`confirmedSrp` vs `confirmItem.unitPrice`**: `confirmTotal` and `doConfirm` now use `confirmedSrp` (the live-fetched price), not `confirmItem.unitPrice` (catalog price). This is intentional. The old `confirmTotal` used `confirmItem.value?.unitPrice ?? 0` — that's been replaced.
 
-- **Auth flow**: bcryptjs client-side hash comparison. `SetPasswordModal` shown on first login if no bcrypt hash stored. `WelcomeModal` shown once per contact (gated by `StorageService.hasSeenWelcome()`). Both are overlaid on `LandingPage`.
+- **Posting date watcher**: `watch(orderDateValue)` fires on every change including programmatic ones (e.g., `sessionStore.setPostingDate`). On first mount it does NOT fire (watcher is not `immediate`). All line price refreshes are `Promise.all` — they run in parallel but are not debounced. If the user types in the date field rapidly, multiple parallel fetches may fire. Not a problem in practice since dates fire on `@change` (commit), not `@input`.
 
-- **Ionic 8 gotcha**: `ion-modal` with `can-dismiss` has a breaking behavior change vs Ionic 7. Never use `can-dismiss="false"` if you need programmatic close. Use a local ref + `@did-dismiss`.
+- **Discount edit disabled states**: In `SubmitPage.vue`, discount controls are disabled when `salesStatus === 'done' || salesStatus === 'submitting'` (for sales) and `returnsStatus === 'done' || returnsStatus === 'submitting'` (for returns). They remain editable during `'failed'` state so agents can fix a discount before retrying.
 
-- **`.dockerignore` / `.gitignore` glob depth**: Both tools treat `screenshots/` as matching at any depth. `/screenshots/` is root-anchored. Both files now use `/screenshots/` — this was a three-layer bug (wrong import type → wrong location → wrong ignore pattern) that caused WelcomeModal images to not appear on deployed version.
+- **Store `updateLineDiscount` and `updateLineSrp`**: Both mutate the `currentSession.value.salesOrders` / `returnOrders` array by replacing the element at the found index with a spread copy. This triggers Vue reactivity. Both call `_saveDraft()` which requires `currentSession.value.customer` to be set — if no customer is selected, the draft is not persisted (same behavior as `addSalesOrder`).
 
-- **Animation tokens in `src/theme/variables.css`**: `--ease-out-quart`, `--ease-out-expo`, keyframes `fade-slide-up`, `fade-in`, `icon-pop`, `theme-icon-swap` are all global. All per-screen animations use these globals so behavior is consistent. `prefers-reduced-motion` guard at bottom of variables.css kills all animation/transition durations globally.
+- **GCP API `yourReference` field name**: BC's OData v2.0 API uses camelCase `yourReference` for the sales order header field. This matches what was added to the Pydantic model. The field passes through `bc_create_record` with no remapping needed (unlike `customerNumber` → `sellToCustomerNo` on return orders).
