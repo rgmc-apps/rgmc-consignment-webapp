@@ -6,7 +6,10 @@
         <ion-title>
           <div class="header-title">
             <img src="/static/cons-logo.png" alt="logo" class="header-logo" />
-            <span>{{ authStore.brand?.displayName ?? 'Scan' }}</span>
+            <div class="header-text">
+              <span class="header-brand">{{ authStore.brand?.displayName ?? 'Scan' }}</span>
+              <span v-if="authStore.company" class="header-company">{{ authStore.company.displayName }}</span>
+            </div>
           </div>
         </ion-title>
         <ion-buttons slot="end">
@@ -199,7 +202,8 @@
               <ion-item lines="inset" class="form-row form-row--readonly">
                 <ion-label>SRP</ion-label>
                 <ion-note slot="end" class="readonly-val readonly-val--gold">
-                  {{ formatCurrency(form.srp) }}
+                  <ion-spinner v-if="fetchingPrice" name="dots" style="width:16px;height:16px;vertical-align:middle" />
+                  <template v-else>{{ formatCurrency(form.srp) }}</template>
                 </ion-note>
               </ion-item>
 
@@ -445,7 +449,15 @@
                 · {{ confirmItem.itemCategoryCode }}
               </span>
             </div>
-            <p class="conf-item-srp">{{ formatCurrency(confirmItem.unitPrice) }} <span class="conf-srp-label">SRP</span></p>
+            <p class="conf-item-srp">
+              <template v-if="fetchingPrice">
+                <ion-spinner name="dots" class="srp-spinner" />
+                <span class="conf-srp-label">Fetching price…</span>
+              </template>
+              <template v-else>
+                {{ formatCurrency(confirmedSrp) }} <span class="conf-srp-label">SRP</span>
+              </template>
+            </p>
           </div>
 
           <!-- No customer warning -->
@@ -614,6 +626,7 @@ import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import { useTheme } from '@/composables/useTheme';
 import { useGoldAccent } from '@/composables/useGoldAccent';
 import { StorageService } from '@/services/storage.service';
+import { ApiService } from '@/services/api.service';
 import { formatCurrency, formatDiscount } from '@/utils/format';
 import ItemSelectorModal from '@/components/ItemSelectorModal.vue';
 import ProfileMenu from '@/components/ProfileMenu.vue';
@@ -797,14 +810,48 @@ const confirmQty = ref(1);
 const confirmDiscountType = ref<DiscountType>('percent');
 const confirmDiscountValue = ref(0);
 
+const confirmedSrp = ref(0);
+const fetchingPrice = ref(false);
+
 const confirmTotal = computed(() =>
   computeTotal(
-    confirmItem.value?.unitPrice ?? 0,
+    confirmedSrp.value,
     confirmQty.value || 1,
     confirmDiscountType.value,
     confirmDiscountValue.value || 0,
   ),
 );
+
+async function fetchActivePrice(itemNumber: string, onDate: string): Promise<void> {
+  fetchingPrice.value = true;
+  try {
+    const price = await ApiService.getActiveItemPrice(itemNumber, onDate);
+    const resolved = price ?? confirmItem.value?.unitPrice ?? 0;
+    confirmedSrp.value = resolved;
+    form.srp = resolved;
+  } finally {
+    fetchingPrice.value = false;
+  }
+}
+
+watch(orderDateValue, async (newDate) => {
+  if (!newDate) return;
+  if (form.itemId) {
+    fetchActivePrice(form.itemNumber, newDate);
+  }
+  const allLines = [
+    ...sessionStore.salesOrders.map((l) => ({ line: l, type: 'sales' as const })),
+    ...sessionStore.returnOrders.map((l) => ({ line: l, type: 'returns' as const })),
+  ];
+  if (allLines.length) {
+    await Promise.all(
+      allLines.map(async ({ line, type }) => {
+        const price = await ApiService.getActiveItemPrice(line.itemNumber, newDate);
+        if (price !== null) sessionStore.updateLineSrp(line.id, type, price);
+      }),
+    );
+  }
+});
 
 function onItemSelected(item: Item) {
   form.itemId = item.id;
@@ -818,10 +865,12 @@ function onItemSelected(item: Item) {
   form.discountValue = 0;
   showItemModal.value = false;
   confirmItem.value = item;
+  confirmedSrp.value = item.unitPrice;
   confirmQty.value = 1;
   confirmDiscountType.value = 'percent';
   confirmDiscountValue.value = 0;
   showConfirmModal.value = true;
+  fetchActivePrice(item.number, orderDateValue.value);
 }
 
 function cancelConfirm() {
@@ -836,7 +885,7 @@ async function doConfirm(orderType: 'sales' | 'returns') {
     itemNumber: item.number,
     itemName: item.displayName,
     description: item.description || item.displayName,
-    srp: item.unitPrice,
+    srp: confirmedSrp.value,
     quantity: Math.max(1, confirmQty.value || 1),
     discountType: confirmDiscountType.value,
     discountValue: Math.max(0, confirmDiscountValue.value || 0),
@@ -931,6 +980,9 @@ async function toast(message: string, color: string) {
   gap: 8px;
 }
 .header-logo { width: 28px; height: 28px; object-fit: contain; }
+.header-text { display: flex; flex-direction: column; line-height: 1.2; }
+.header-brand { font-size: inherit; font-weight: 700; }
+.header-company { font-size: 10px; color: var(--app-text-muted); font-weight: 400; }
 
 /* ── Sync sub-bar ── */
 .sync-bar {

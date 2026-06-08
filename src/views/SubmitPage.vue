@@ -59,7 +59,32 @@
             <ion-label>
               <h3>{{ line.itemName }}</h3>
               <p>{{ line.itemNumber }} &bull; Qty {{ line.quantity }} × {{ formatCurrency(line.srp) }}</p>
-              <p>Discount: {{ formatDiscount(line.discountType, line.discountValue) }}</p>
+              <div class="discount-row">
+                <span class="disc-label">Discount</span>
+                <div class="disc-controls">
+                  <button
+                    class="disc-type-btn"
+                    :class="{ 'disc-type-btn--active': line.discountType === 'percent' }"
+                    :disabled="salesStatus === 'done' || salesStatus === 'submitting'"
+                    @click="updateDiscount(line, 'sales', 'percent', line.discountValue)"
+                  >%</button>
+                  <button
+                    class="disc-type-btn"
+                    :class="{ 'disc-type-btn--active': line.discountType === 'amount' }"
+                    :disabled="salesStatus === 'done' || salesStatus === 'submitting'"
+                    @click="updateDiscount(line, 'sales', 'amount', line.discountValue)"
+                  >₱</button>
+                  <input
+                    type="number"
+                    :value="line.discountValue"
+                    @change="updateDiscount(line, 'sales', line.discountType, +($event.target as HTMLInputElement).value)"
+                    :disabled="salesStatus === 'done' || salesStatus === 'submitting'"
+                    class="disc-value-input"
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+              </div>
             </ion-label>
             <ion-note slot="end" color="primary" class="line-total">
               {{ formatCurrency(line.totalAmount) }}
@@ -127,7 +152,32 @@
             <ion-label>
               <h3>{{ line.itemName }}</h3>
               <p>{{ line.itemNumber }} &bull; Qty {{ line.quantity }} × {{ formatCurrency(line.srp) }}</p>
-              <p>Discount: {{ formatDiscount(line.discountType, line.discountValue) }}</p>
+              <div class="discount-row">
+                <span class="disc-label">Discount</span>
+                <div class="disc-controls">
+                  <button
+                    class="disc-type-btn"
+                    :class="{ 'disc-type-btn--active': line.discountType === 'percent' }"
+                    :disabled="returnsStatus === 'done' || returnsStatus === 'submitting'"
+                    @click="updateDiscount(line, 'returns', 'percent', line.discountValue)"
+                  >%</button>
+                  <button
+                    class="disc-type-btn"
+                    :class="{ 'disc-type-btn--active': line.discountType === 'amount' }"
+                    :disabled="returnsStatus === 'done' || returnsStatus === 'submitting'"
+                    @click="updateDiscount(line, 'returns', 'amount', line.discountValue)"
+                  >₱</button>
+                  <input
+                    type="number"
+                    :value="line.discountValue"
+                    @change="updateDiscount(line, 'returns', line.discountType, +($event.target as HTMLInputElement).value)"
+                    :disabled="returnsStatus === 'done' || returnsStatus === 'submitting'"
+                    class="disc-value-input"
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+              </div>
             </ion-label>
             <ion-note slot="end" color="danger" class="line-total">
               {{ formatCurrency(line.totalAmount) }}
@@ -257,8 +307,8 @@ import {
 import { useSessionStore } from '@/stores/session.store';
 import { useGoldAccent } from '@/composables/useGoldAccent';
 import { ApiService } from '@/services/api.service';
-import { formatCurrency, formatDate, formatDiscount } from '@/utils/format';
-import type { SalesOrderPayload, SalesReturnOrderPayload } from '@/types';
+import { formatCurrency, formatDate } from '@/utils/format';
+import type { SalesOrderPayload, SalesReturnOrderPayload, OrderLine, DiscountType } from '@/types';
 import RemarksModal from '@/components/RemarksModal.vue';
 
 const router = useRouter();
@@ -296,6 +346,10 @@ const finalizeHint = computed(() => {
   return 'Session will be moved to History.';
 });
 
+function updateDiscount(line: OrderLine, orderType: 'sales' | 'returns', discountType: DiscountType, discountValue: number) {
+  sessionStore.updateLineDiscount(line.id, orderType, discountType, Math.max(0, discountValue));
+}
+
 function confirmSubmit(type: 'sales' | 'returns') {
   if (!session.value?.customer) return;
   pendingSubmitType.value = type;
@@ -325,6 +379,7 @@ async function doSubmitSales(customerNumber: string, remarks: string) {
     customerNumber,
     ...(session.value?.postingDate ? { postingDate: session.value.postingDate } : {}),
     ...(remarks ? { externalDocumentNumber: remarks } : {}),
+    ...(session.value?.user?.displayName ? { yourReference: session.value.user.displayName } : {}),
     lines: sessionStore.salesOrders.map((l) => ({
       itemNumber: l.itemNumber,
       description: l.description,
@@ -354,6 +409,7 @@ async function doSubmitReturns(customerNumber: string, remarks: string) {
     customerNumber,
     ...(session.value?.postingDate ? { postingDate: session.value.postingDate } : {}),
     ...(remarks ? { externalDocumentNo: remarks } : {}),
+    ...(session.value?.user?.displayName ? { yourReference: session.value.user.displayName } : {}),
     lines: sessionStore.returnOrders.map((l) => ({
       itemNumber: l.itemNumber,
       description: l.description,
@@ -465,6 +521,77 @@ async function showToast(message: string, color: string) {
 }
 
 .order-table { margin: 0; }
+
+.discount-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.disc-label {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  flex-shrink: 0;
+}
+
+.disc-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.disc-type-btn {
+  height: 24px;
+  min-width: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--app-border);
+  border-radius: 5px;
+  background: var(--app-surface-alt);
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  line-height: 1;
+}
+
+.disc-type-btn--active {
+  background: var(--ion-color-primary);
+  color: #fff;
+  border-color: var(--ion-color-primary);
+}
+
+.disc-type-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.disc-value-input {
+  height: 24px;
+  width: 72px;
+  padding: 0 6px;
+  border: 1px solid var(--app-border);
+  border-radius: 5px;
+  background: var(--app-surface-alt);
+  color: var(--app-fg);
+  font-size: 12px;
+  font-family: inherit;
+  text-align: right;
+  outline: none;
+  -moz-appearance: textfield;
+}
+.disc-value-input::-webkit-inner-spin-button,
+.disc-value-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+.disc-value-input:focus {
+  border-color: var(--ion-color-primary);
+  box-shadow: 0 0 0 2px rgba(var(--ion-color-primary-rgb), 0.18);
+}
+.disc-value-input:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 
 .line-total {
   font-size: 14px;

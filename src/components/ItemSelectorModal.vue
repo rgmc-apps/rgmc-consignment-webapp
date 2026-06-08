@@ -241,8 +241,8 @@ const filteredItems = computed(() => {
   if (q) {
     src = src.filter(
       (i) =>
-        i.displayName.toUpperCase().includes(q) ||
-        i.number.toUpperCase().includes(q) ||
+        (i.displayName ?? '').toUpperCase().includes(q) ||
+        (i.number ?? '').toUpperCase().includes(q) ||
         (i.description ?? '').toUpperCase().includes(q),
     );
   }

@@ -59,6 +59,20 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function checkBrandAccess(contactId: string, brand: Brand): Promise<boolean> {
+    try {
+      const tags = await ApiService.getContactBrandTags(contactId);
+      if (tags.length === 0) return true; // no tags configured — allow all brands
+      if (!tags.includes(brand.code)) {
+        error.value = `You are not authorized to access ${brand.displayName}.`;
+        return false;
+      }
+      return true;
+    } catch {
+      return true; // fail-open if offline or endpoint unavailable
+    }
+  }
+
   async function login(
     selectedCompany: Company,
     selectedBrand: Brand,
@@ -118,6 +132,7 @@ export const useAuthStore = defineStore('auth', () => {
           error.value = 'Invalid username or password.';
           return false;
         }
+        if (!await checkBrandAccess(candidate.id, selectedBrand)) return false;
         const hash = await bcrypt.hash(typedPlain, 10);
         const upgraded = { ...candidate, passwordHash: hash };
         const all = StorageService.getCachedContacts();
@@ -151,6 +166,8 @@ export const useAuthStore = defineStore('auth', () => {
         forcePasswordSetup.value = true;
         return false;
       }
+
+      if (!await checkBrandAccess(candidate.id, selectedBrand)) return false;
 
       company.value = selectedCompany;
       brand.value = selectedBrand;

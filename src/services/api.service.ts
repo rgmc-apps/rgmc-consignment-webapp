@@ -170,6 +170,25 @@ export const ApiService = {
     return extractList<ItemCategory>(res.data);
   },
 
+  async getContactBrandTags(contactId: string): Promise<string[]> {
+    const res = await apiClient.get(`/bc/custom/contacts/${contactId}/brand-tags`);
+    const items = extractList<Record<string, unknown>>(res.data);
+    return items.map((t) => t.brandCode as string).filter(Boolean);
+  },
+
+  async getActiveItemPrice(productNo: string, onDate: string): Promise<number | null> {
+    try {
+      const res = await apiClient.get('/bc/custom/item-prices/active', {
+        params: { product_no: productNo, on_date: onDate },
+      });
+      const d = res.data as Record<string, unknown>;
+      const price = d?.unitPrice ?? d?.unit_price ?? d?.price;
+      return typeof price === 'number' ? price : null;
+    } catch {
+      return null;
+    }
+  },
+
   async submitSalesOrder(payload: SalesOrderPayload): Promise<unknown> {
     const res = await apiClient.post('/bc/sales-orders', payload);
     return res.data;

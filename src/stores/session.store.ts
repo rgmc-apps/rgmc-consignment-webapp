@@ -115,6 +115,28 @@ export const useSessionStore = defineStore('session', () => {
     _saveDraft();
   }
 
+  function updateLineSrp(lineId: string, orderType: 'sales' | 'returns', srp: number): void {
+    if (!currentSession.value) return;
+    const arr = orderType === 'sales' ? currentSession.value.salesOrders : currentSession.value.returnOrders;
+    const idx = arr.findIndex((l) => l.id === lineId);
+    if (idx === -1) return;
+    const line = arr[idx];
+    arr[idx] = { ...line, srp, totalAmount: computeTotal(srp, line.quantity, line.discountType, line.discountValue) };
+    _touch();
+    _saveDraft();
+  }
+
+  function updateLineDiscount(lineId: string, orderType: 'sales' | 'returns', discountType: DiscountType, discountValue: number): void {
+    if (!currentSession.value) return;
+    const arr = orderType === 'sales' ? currentSession.value.salesOrders : currentSession.value.returnOrders;
+    const idx = arr.findIndex((l) => l.id === lineId);
+    if (idx === -1) return;
+    const line = arr[idx];
+    arr[idx] = { ...line, discountType, discountValue, totalAmount: computeTotal(line.srp, line.quantity, discountType, discountValue) };
+    _touch();
+    _saveDraft();
+  }
+
   function removeReturnOrder(lineId: string): void {
     if (!currentSession.value) return;
     currentSession.value.returnOrders = currentSession.value.returnOrders.filter(
@@ -222,6 +244,8 @@ export const useSessionStore = defineStore('session', () => {
     markSubmitted,
     markFailed,
     retryFailedSession,
+    updateLineSrp,
+    updateLineDiscount,
     deleteDraft,
     clearCurrentSession,
     computeTotal,
