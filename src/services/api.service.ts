@@ -162,7 +162,11 @@ export const ApiService = {
 
   async getItems(): Promise<Item[]> {
     const res = await apiClient.get('/bc/custom/items');
-    return extractList<Item>(res.data);
+    const raw = extractList<Record<string, unknown>>(res.data);
+    return raw.map((i) => ({
+      ...i,
+      displayName: (i['displayName'] ?? i['description'] ?? i['number'] ?? '') as string,
+    })) as Item[];
   },
 
   async getItemCategories(): Promise<ItemCategory[]> {
