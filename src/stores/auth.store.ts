@@ -63,7 +63,8 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const tags = await ApiService.getContactBrandTags(contactId);
       if (tags.length === 0) return true; // no tags configured — allow all brands
-      if (!tags.includes(brand.code)) {
+      const brandKey = brand.itemFamilyCode ?? brand.code;
+    if (!tags.includes(brandKey)) {
         error.value = `You are not authorized to access ${brand.displayName}.`;
         return false;
       }

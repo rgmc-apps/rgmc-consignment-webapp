@@ -283,8 +283,13 @@ function loadCompanies() {
 
 function loadBrands() {
   brandsLoading.value = true;
-  ApiService.getBrands()
-    .then((data) => { brands.value = data; })
+  Promise.all([ApiService.getBrands(), ApiService.getItemFamilies()])
+    .then(([rawBrands, families]) => {
+      brands.value = rawBrands.map((b) => ({
+        ...b,
+        itemFamilyCode: families.find((f) => f.description === b.displayName)?.code,
+      }));
+    })
     .catch(() => { brands.value = []; })
     .finally(() => { brandsLoading.value = false; });
 }
