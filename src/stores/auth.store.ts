@@ -62,7 +62,10 @@ export const useAuthStore = defineStore('auth', () => {
   async function checkBrandAccess(contactId: string, brand: Brand): Promise<boolean> {
     try {
       const tags = await ApiService.getContactBrandTags(contactId);
-      if (tags.length === 0) return true; // no tags configured — allow all brands
+      if (tags.length === 0) {
+        error.value = 'No brand access has been configured for your account. Please contact head office for configuration.';
+        return false;
+      }
       const brandKey = brand.itemFamilyCode ?? brand.code;
     if (!tags.includes(brandKey)) {
         error.value = `You are not authorized to access ${brand.displayName}.`;
