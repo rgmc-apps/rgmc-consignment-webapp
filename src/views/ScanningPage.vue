@@ -206,6 +206,10 @@
                   <template v-else>{{ formatCurrency(form.srp) }}</template>
                 </ion-note>
               </ion-item>
+              <p class="srp-date-hint">
+                <ion-icon :icon="informationCircleOutline" />
+                Prices are based on today's date. Update the posting date if necessary.
+              </p>
 
               <!-- Quantity -->
               <ion-item lines="inset" class="form-row">
@@ -618,6 +622,7 @@ import {
   saveOutline,
   moonOutline,
   sunnyOutline,
+  informationCircleOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore, computeTotal } from '@/stores/session.store';
@@ -1238,6 +1243,17 @@ async function toast(message: string, color: string) {
   word-break: break-word;
 }
 .readonly-val--gold { color: var(--app-gold); font-weight: 700; }
+
+.srp-date-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--app-text-muted);
+  margin: 3px 0 0 2px;
+  line-height: 1.4;
+}
+.srp-date-hint ion-icon { font-size: 12px; flex-shrink: 0; margin-top: 1px; }
 
 .num-input {
   max-width: 80px;
