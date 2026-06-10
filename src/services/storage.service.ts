@@ -18,6 +18,7 @@ const KEYS = {
   CACHE_CONTACTS: 'rgmc_cache_contacts',
   CACHE_CUSTOMERS: 'rgmc_cache_customers',
   CACHE_ITEM_CATEGORIES: 'rgmc_cache_item_categories',
+  CACHE_ITEM_PRICES: 'rgmc_cache_item_prices',
   SYNC_TIMESTAMPS: 'rgmc_sync_timestamps',
   SESSIONS: 'rgmc_sessions',
   DRAFTS: 'rgmc_drafts',
@@ -203,6 +204,13 @@ export const StorageService = {
   },
   setCachedItemCategories(categories: ItemCategory[]): void {
     set(KEYS.CACHE_ITEM_CATEGORIES, categories);
+  },
+
+  getCachedItemPrices(): { date: string; prices: Record<string, number> } | null {
+    return get<{ date: string; prices: Record<string, number> }>(KEYS.CACHE_ITEM_PRICES);
+  },
+  setCachedItemPrices(date: string, prices: Record<string, number>): void {
+    set(KEYS.CACHE_ITEM_PRICES, { date, prices });
   },
 
   /* ─── Sync timestamps ─── */

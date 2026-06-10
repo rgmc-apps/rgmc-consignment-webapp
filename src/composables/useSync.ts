@@ -60,6 +60,16 @@ export function useSync() {
       StorageService.setSyncTimestamp('items');
       StorageService.setSyncTimestamp('itemCategories');
 
+      // Pre-load all item prices for today so scanning works offline.
+      // Non-critical: a failure here does not abort the rest of the sync.
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const priceMap = await ApiService.getAllItemPricesForDate(today);
+        StorageService.setCachedItemPrices(today, priceMap);
+      } catch {
+        // ignored — prices fall back to item.unitPrice when offline
+      }
+
       lastSyncDate.value = new Date();
     } catch (err) {
       syncError.value = err instanceof Error ? err.message : 'Sync failed. Check your connection.';

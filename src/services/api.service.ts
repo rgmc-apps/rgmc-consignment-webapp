@@ -193,6 +193,22 @@ export const ApiService = {
     }
   },
 
+  async getAllItemPricesForDate(onDate: string): Promise<Record<string, number>> {
+    const res = await apiClient.get('/bc/custom/item-prices', {
+      params: { on_date: onDate },
+    });
+    const rows = extractList<Record<string, unknown>>(res.data);
+    const map: Record<string, number> = {};
+    for (const row of rows) {
+      const no = row['productNo'] as string | undefined;
+      const price = (row['unitPrice'] ?? row['unit_price']) as number | undefined;
+      if (no && typeof price === 'number' && !(no in map)) {
+        map[no] = price;
+      }
+    }
+    return map;
+  },
+
   async submitSalesOrder(payload: SalesOrderPayload): Promise<unknown> {
     const res = await apiClient.post('/bc/sales-orders', payload);
     return res.data;

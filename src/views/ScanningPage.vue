@@ -592,6 +592,7 @@ import {
   IonRefresher,
   IonRefresherContent,
   toastController,
+  alertController,
 } from '@ionic/vue';
 import {
   syncOutline,
@@ -822,10 +823,19 @@ const confirmTotal = computed(() =>
   ),
 );
 
+// Returns price from API when online; falls back to the cached price-map when offline.
+async function lookupPrice(itemNumber: string, onDate: string): Promise<number | null> {
+  if (isOnline.value) {
+    return ApiService.getActiveItemPrice(itemNumber, onDate);
+  }
+  const cached = StorageService.getCachedItemPrices();
+  return cached?.prices[itemNumber] ?? null;
+}
+
 async function fetchActivePrice(itemNumber: string, onDate: string): Promise<void> {
   fetchingPrice.value = true;
   try {
-    const price = await ApiService.getActiveItemPrice(itemNumber, onDate);
+    const price = await lookupPrice(itemNumber, onDate);
     const resolved = price ?? confirmItem.value?.unitPrice ?? 0;
     confirmedSrp.value = resolved;
     form.srp = resolved;
@@ -846,11 +856,42 @@ watch(orderDateValue, async (newDate) => {
   if (allLines.length) {
     await Promise.all(
       allLines.map(async ({ line, type }) => {
-        const price = await ApiService.getActiveItemPrice(line.itemNumber, newDate);
+        const price = await lookupPrice(line.itemNumber, newDate);
         if (price !== null) sessionStore.updateLineSrp(line.id, type, price);
       }),
     );
   }
+});
+
+watch(isOnline, async (online, wasOnline) => {
+  if (!online || wasOnline) return; // only fires on offline → online transition
+  const allLines = [
+    ...sessionStore.salesOrders.map((l) => ({ line: l, type: 'sales' as const })),
+    ...sessionStore.returnOrders.map((l) => ({ line: l, type: 'returns' as const })),
+  ];
+  if (!allLines.length && !form.itemId) return;
+  const alert = await alertController.create({
+    header: 'Connection Restored',
+    message: 'Update item prices to their current rates?',
+    buttons: [
+      { text: 'Skip', role: 'cancel' },
+      {
+        text: 'Update Prices',
+        handler: async () => {
+          if (form.itemId) fetchActivePrice(form.itemNumber, orderDateValue.value);
+          if (allLines.length) {
+            await Promise.all(
+              allLines.map(async ({ line, type }) => {
+                const price = await ApiService.getActiveItemPrice(line.itemNumber, orderDateValue.value);
+                if (price !== null) sessionStore.updateLineSrp(line.id, type, price);
+              }),
+            );
+          }
+        },
+      },
+    ],
+  });
+  await alert.present();
 });
 
 function onItemSelected(item: Item) {
