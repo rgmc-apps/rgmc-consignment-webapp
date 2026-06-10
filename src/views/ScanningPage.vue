@@ -567,7 +567,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, onBeforeRouteLeave } from 'vue-router';
 import {
   IonPage,
   IonHeader,
@@ -687,6 +687,10 @@ function saveDraftAndGoHome() {
   sessionStore.saveAsDraftAndExit();
   router.replace('/app/home');
 }
+
+onBeforeRouteLeave(() => {
+  sessionStore.autoSaveDraft();
+});
 
 async function onPullRefresh(ev: CustomEvent) {
   if (isOnline.value) {

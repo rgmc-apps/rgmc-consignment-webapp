@@ -46,7 +46,7 @@
 
       <!-- Start new session CTA -->
       <div class="ion-padding-horizontal ion-padding-top">
-        <ion-button expand="block" size="large" class="start-btn" router-link="/app/scan">
+        <ion-button expand="block" size="large" class="start-btn" @click="startNewSession">
           <ion-icon :icon="scanOutline" slot="start" />
           Start New Session
         </ion-button>
@@ -217,6 +217,11 @@ function formatDate(iso: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function startNewSession() {
+  sessionStore.clearCurrentSession();
+  router.push('/app/scan');
 }
 
 function resumeDraft(draft: ScanSession) {

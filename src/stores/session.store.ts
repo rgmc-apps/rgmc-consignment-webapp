@@ -146,6 +146,15 @@ export const useSessionStore = defineStore('session', () => {
     _saveDraft();
   }
 
+  /** Auto-save on navigation away — persists to drafts but keeps session active. */
+  function autoSaveDraft(): void {
+    if (!currentSession.value || !currentSession.value.customer) return;
+    currentSession.value.status = 'draft';
+    _touch();
+    StorageService.saveDraft({ ...currentSession.value });
+    drafts.value = StorageService.getDrafts();
+  }
+
   /** Called by "Save as Draft & Go Back" — keeps the session in drafts,
    *  does NOT move it to history, and clears it as the active session. */
   function saveAsDraftAndExit(): void {
@@ -240,6 +249,7 @@ export const useSessionStore = defineStore('session', () => {
     addReturnOrder,
     removeSalesOrder,
     removeReturnOrder,
+    autoSaveDraft,
     saveAsDraftAndExit,
     markSubmitted,
     markFailed,
