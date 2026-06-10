@@ -86,9 +86,16 @@
                 </div>
               </div>
             </ion-label>
-            <ion-note slot="end" color="primary" class="line-total">
-              {{ formatCurrency(line.totalAmount) }}
-            </ion-note>
+            <div slot="end" class="item-end">
+              <ion-note color="primary" class="line-total">{{ formatCurrency(line.totalAmount) }}</ion-note>
+              <button
+                v-if="salesStatus !== 'done' && salesStatus !== 'submitting'"
+                class="remove-btn"
+                @click="removeLine(line, 'sales')"
+              >
+                <ion-icon :icon="trashOutline" />
+              </button>
+            </div>
           </ion-item>
           <ion-item lines="none" class="subtotal-item">
             <ion-label><strong>Subtotal</strong></ion-label>
@@ -179,9 +186,16 @@
                 </div>
               </div>
             </ion-label>
-            <ion-note slot="end" color="danger" class="line-total">
-              {{ formatCurrency(line.totalAmount) }}
-            </ion-note>
+            <div slot="end" class="item-end">
+              <ion-note color="danger" class="line-total">{{ formatCurrency(line.totalAmount) }}</ion-note>
+              <button
+                v-if="returnsStatus !== 'done' && returnsStatus !== 'submitting'"
+                class="remove-btn"
+                @click="removeLine(line, 'returns')"
+              >
+                <ion-icon :icon="trashOutline" />
+              </button>
+            </div>
           </ion-item>
           <ion-item lines="none" class="subtotal-item">
             <ion-label><strong>Subtotal</strong></ion-label>
@@ -303,6 +317,7 @@ import {
   checkmarkDoneOutline,
   cloudOfflineOutline,
   calendarOutline,
+  trashOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
 import { useGoldAccent } from '@/composables/useGoldAccent';
@@ -348,6 +363,14 @@ const finalizeHint = computed(() => {
 
 function updateDiscount(line: OrderLine, orderType: 'sales' | 'returns', discountType: DiscountType, discountValue: number) {
   sessionStore.updateLineDiscount(line.id, orderType, discountType, Math.max(0, discountValue));
+}
+
+function removeLine(line: OrderLine, orderType: 'sales' | 'returns') {
+  if (orderType === 'sales') {
+    sessionStore.removeSalesOrder(line.id);
+  } else {
+    sessionStore.removeReturnOrder(line.id);
+  }
 }
 
 function confirmSubmit(type: 'sales' | 'returns') {
@@ -593,10 +616,36 @@ async function showToast(message: string, color: string) {
   cursor: default;
 }
 
+.item-end {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
 .line-total {
   font-size: 14px;
   font-weight: 700;
 }
+
+.remove-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(var(--ion-color-danger-rgb), 0.35);
+  border-radius: 6px;
+  background: rgba(var(--ion-color-danger-rgb), 0.08);
+  color: var(--ion-color-danger);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.remove-btn:active {
+  background: rgba(var(--ion-color-danger-rgb), 0.18);
+}
+.remove-btn ion-icon { font-size: 14px; }
 
 .subtotal-item {
   --background: var(--app-surface-alt);
