@@ -23,6 +23,7 @@ export function useSync() {
 
   async function sync(): Promise<void> {
     if (isSyncing.value) return;
+    if (!navigator.onLine) return;
     isSyncing.value = true;
     syncError.value = null;
 

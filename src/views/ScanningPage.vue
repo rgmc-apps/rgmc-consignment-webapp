@@ -670,7 +670,7 @@ onMounted(async () => {
   if (!sessionStore.currentSession && authStore.brand && authStore.user) {
     sessionStore.startNewSession(authStore.brand, authStore.user);
   }
-  if (cachedItems.value.length === 0) {
+  if (cachedItems.value.length === 0 && isOnline.value) {
     await sync();
   }
 });
