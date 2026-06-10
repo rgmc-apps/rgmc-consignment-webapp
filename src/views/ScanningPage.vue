@@ -430,6 +430,8 @@
       :items="cachedItems"
       :categories="categories"
       :initial-category-code="form.categoryCode"
+      :is-online="isOnline"
+      :on-date="orderDateValue"
       @select="onItemSelected"
       @close="showItemModal = false"
     />

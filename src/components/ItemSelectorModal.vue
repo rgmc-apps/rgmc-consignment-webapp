@@ -86,7 +86,7 @@
                 </p>
               </ion-label>
               <ion-note slot="end" color="dark" class="item-price">
-                {{ formatCurrency(item.unitPrice) }}
+                {{ formatCurrency(livePrices[item.number] ?? item.unitPrice) }}
               </ion-note>
             </ion-item>
           </ion-list>
@@ -182,7 +182,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import {
   IonModal,
   IonPage,
@@ -210,6 +210,8 @@ import {
   refreshOutline,
   checkmarkCircleOutline,
 } from 'ionicons/icons';
+import { ApiService } from '@/services/api.service';
+import { StorageService } from '@/services/storage.service';
 import { formatCurrency } from '@/utils/format';
 import type { Item, ItemCategory } from '@/types';
 
@@ -219,6 +221,8 @@ const props = defineProps<{
   items: Item[];
   categories: ItemCategory[];
   initialCategoryCode?: string;
+  isOnline?: boolean;
+  onDate?: string;
 }>();
 
 const emit = defineEmits<{
@@ -250,6 +254,38 @@ const filteredItems = computed(() => {
 });
 
 const displayItems = computed(() => filteredItems.value.slice(0, DISPLAY_LIMIT));
+
+/* ─── Live prices ─── */
+// Keyed by item.number; seeded from the sync price-map, then filled on-demand.
+const livePrices = ref<Record<string, number>>({});
+
+const lookupDate = computed(() => props.onDate ?? new Date().toISOString().split('T')[0]);
+
+onMounted(() => {
+  const today = new Date().toISOString().split('T')[0];
+  const cached = StorageService.getCachedItemPrices();
+  if (cached?.date === today) livePrices.value = { ...cached.prices };
+});
+
+let priceTimer: ReturnType<typeof setTimeout> | null = null;
+
+watch(displayItems, (items) => {
+  if (!props.isOnline) return;
+  if (priceTimer) clearTimeout(priceTimer);
+  priceTimer = setTimeout(async () => {
+    const missing = items.filter((i) => livePrices.value[i.number] === undefined);
+    if (!missing.length) return;
+    await Promise.all(
+      missing.map(async (item) => {
+        const price = await ApiService.getActiveItemPrice(item.number, lookupDate.value);
+        if (price !== null) {
+          livePrices.value[item.number] = price;
+          StorageService.patchCachedItemPrice(item.number, price);
+        }
+      }),
+    );
+  }, 300);
+});
 
 watch(
   () => props.initialCategoryCode,
@@ -451,7 +487,10 @@ function resolveBarcode(code: string) {
   viewMode.value = 'list';
 }
 
-onUnmounted(() => stopCamera());
+onUnmounted(() => {
+  stopCamera();
+  if (priceTimer) clearTimeout(priceTimer);
+});
 </script>
 
 <style scoped>
