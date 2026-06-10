@@ -955,11 +955,21 @@ function onItemSelected(item: Item) {
   fetchActivePrice(item.number, orderDateValue.value);
 }
 
+// Set before programmatically closing the confirm modal so the @did-dismiss
+// handler can tell it apart from a user-initiated swipe-to-dismiss.
+let _closingFromCode = false;
+
 function cancelConfirm() {
+  if (_closingFromCode) {
+    // This @did-dismiss was triggered by our own close — ignore it so it
+    // doesn't stomp on a modal that was already re-opened for the next item.
+    _closingFromCode = false;
+    return;
+  }
   showConfirmModal.value = false;
 }
 
-async function doConfirm(orderType: 'sales' | 'returns') {
+function doConfirm(orderType: 'sales' | 'returns') {
   if (!confirmItem.value || !selectedCustomer.value) return;
   const item = confirmItem.value;
   const line = {
@@ -975,15 +985,19 @@ async function doConfirm(orderType: 'sales' | 'returns') {
   if (orderType === 'sales') {
     sessionStore.addSalesOrder(line);
     activeTab.value = 'sales';
-    await toast(`${item.displayName} added to Sales`, 'success');
   } else {
     sessionStore.addReturnOrder(line);
     activeTab.value = 'returns';
-    await toast(`${item.displayName} added to Returns`, 'success');
   }
+  // Close and reset synchronously — before any await — so a rapid second item
+  // selection cannot race with a delayed showConfirmModal = false.
+  _closingFromCode = true;
   showConfirmModal.value = false;
   resetItemForm();
   triggerSubmitFlash();
+  // Fire toast after close; do not await — avoids async gap where a new item
+  // selection could be undone by this function resuming.
+  toast(`${item.displayName} added to ${orderType === 'sales' ? 'Sales' : 'Returns'}`, 'success');
 }
 
 /* ─── Add lines ─── */
