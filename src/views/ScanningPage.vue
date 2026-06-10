@@ -717,6 +717,26 @@ watch(isSyncing, (active) => {
     syncMsgIndex.value  = 0;
     isSyncingSlow.value = false;
     refreshCache();
+    // Apply fresh prices to any open session lines — uses the price map already
+    // written by sync, so no extra API calls are needed.
+    const priceCache = StorageService.getCachedItemPrices();
+    if (priceCache) {
+      const allLines = [
+        ...sessionStore.salesOrders.map((l) => ({ line: l, type: 'sales' as const })),
+        ...sessionStore.returnOrders.map((l) => ({ line: l, type: 'returns' as const })),
+      ];
+      for (const { line, type } of allLines) {
+        const price = priceCache.prices[line.itemNumber];
+        if (price !== undefined && price !== line.srp) {
+          sessionStore.updateLineSrp(line.id, type, price);
+        }
+      }
+      if (form.itemId && priceCache.prices[form.itemNumber] !== undefined) {
+        const price = priceCache.prices[form.itemNumber];
+        form.srp = price;
+        confirmedSrp.value = price;
+      }
+    }
   }
 });
 
