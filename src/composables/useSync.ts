@@ -67,6 +67,7 @@ export function useSync() {
         const today = new Date().toISOString().split('T')[0];
         const priceMap = await ApiService.getAllItemPricesForDate(today);
         StorageService.setCachedItemPrices(today, priceMap);
+        StorageService.applyPriceMapToItems(priceMap);
       } catch {
         // ignored — prices fall back to item.unitPrice when offline
       }

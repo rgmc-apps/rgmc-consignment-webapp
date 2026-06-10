@@ -193,6 +193,12 @@ export const ApiService = {
     }
   },
 
+  async updateCachedItemPrice(productNo: string, unitPrice: number, onDate?: string): Promise<void> {
+    const params: Record<string, string> = { product_no: productNo };
+    if (onDate) params['on_date'] = onDate;
+    await apiClient.patch('/bc/custom/item-prices/cache', { unitPrice }, { params });
+  },
+
   async getAllItemPricesForDate(onDate: string): Promise<Record<string, number>> {
     const res = await apiClient.get('/bc/custom/item-prices', {
       params: { on_date: onDate },

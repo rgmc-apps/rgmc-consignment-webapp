@@ -839,6 +839,10 @@ async function fetchActivePrice(itemNumber: string, onDate: string): Promise<voi
     const resolved = price ?? confirmItem.value?.unitPrice ?? 0;
     confirmedSrp.value = resolved;
     form.srp = resolved;
+    if (price !== null && isOnline.value) {
+      StorageService.patchCachedItemPrice(itemNumber, price);
+      ApiService.updateCachedItemPrice(itemNumber, price, onDate).catch(() => {});
+    }
   } finally {
     fetchingPrice.value = false;
   }
@@ -857,7 +861,13 @@ watch(orderDateValue, async (newDate) => {
     await Promise.all(
       allLines.map(async ({ line, type }) => {
         const price = await lookupPrice(line.itemNumber, newDate);
-        if (price !== null) sessionStore.updateLineSrp(line.id, type, price);
+        if (price !== null) {
+          sessionStore.updateLineSrp(line.id, type, price);
+          if (isOnline.value) {
+            StorageService.patchCachedItemPrice(line.itemNumber, price);
+            ApiService.updateCachedItemPrice(line.itemNumber, price, newDate).catch(() => {});
+          }
+        }
       }),
     );
   }
@@ -883,7 +893,11 @@ watch(isOnline, async (online, wasOnline) => {
             await Promise.all(
               allLines.map(async ({ line, type }) => {
                 const price = await ApiService.getActiveItemPrice(line.itemNumber, orderDateValue.value);
-                if (price !== null) sessionStore.updateLineSrp(line.id, type, price);
+                if (price !== null) {
+                  sessionStore.updateLineSrp(line.id, type, price);
+                  StorageService.patchCachedItemPrice(line.itemNumber, price);
+                  ApiService.updateCachedItemPrice(line.itemNumber, price, orderDateValue.value).catch(() => {});
+                }
               }),
             );
           }

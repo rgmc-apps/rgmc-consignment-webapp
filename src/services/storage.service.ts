@@ -173,6 +173,36 @@ export const StorageService = {
     }).catch(() => {});
   },
 
+  patchCachedItemPrice(itemNumber: string, unitPrice: number): void {
+    const item = _itemsMemory.find((i) => i.number === itemNumber);
+    if (!item) return;
+    item.unitPrice = unitPrice;
+    openItemsIDB().then((db) => {
+      const tx = db.transaction(IDB_ITEMS_STORE, 'readwrite');
+      tx.objectStore(IDB_ITEMS_STORE).put(_itemsMemory, 'all');
+      tx.oncomplete = () => db.close();
+      tx.onerror   = () => db.close();
+    }).catch(() => {});
+  },
+
+  applyPriceMapToItems(prices: Record<string, number>): void {
+    let changed = false;
+    for (const item of _itemsMemory) {
+      const price = prices[item.number];
+      if (price !== undefined && item.unitPrice !== price) {
+        item.unitPrice = price;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    openItemsIDB().then((db) => {
+      const tx = db.transaction(IDB_ITEMS_STORE, 'readwrite');
+      tx.objectStore(IDB_ITEMS_STORE).put(_itemsMemory, 'all');
+      tx.oncomplete = () => db.close();
+      tx.onerror   = () => db.close();
+    }).catch(() => {});
+  },
+
   /* Restore items from IndexedDB into _itemsMemory on startup */
   async loadCachedItemsAsync(): Promise<Item[]> {
     try {
