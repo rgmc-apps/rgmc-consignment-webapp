@@ -28,14 +28,25 @@ export function useSync() {
     syncError.value = null;
 
     try {
-      const [customers, items, categories, brands, families, contacts] = await Promise.all([
+      // Critical fetches — if any of these fail, the sync is aborted.
+      const [customers, items, categories, brands] = await Promise.all([
         ApiService.getCustomers(),
         ApiService.getItems(),
         ApiService.getItemCategories(),
         ApiService.getBrands(),
+      ]);
+
+      // Non-critical fetches — custom RGMC extension endpoints that may be unavailable
+      // (e.g. extension not yet deployed to an environment). Falls back to the previous
+      // cached value so core data is never blocked by these endpoints.
+      const [familiesResult, contactsResult] = await Promise.allSettled([
         ApiService.getItemFamilies(),
         ApiService.getContacts(),
       ]);
+      const families = familiesResult.status === 'fulfilled' ? familiesResult.value : [];
+      const contacts = contactsResult.status === 'fulfilled'
+        ? contactsResult.value
+        : StorageService.getCachedContacts();
 
       const enrichedBrands = brands.map((b) => ({
         ...b,
@@ -61,11 +72,10 @@ export function useSync() {
       StorageService.setSyncTimestamp('items');
       StorageService.setSyncTimestamp('itemCategories');
 
-      // Pre-load item prices for today scoped to the user's item family.
-      // Sends only the family's product numbers so BC returns the minimum rows.
-      // Explicitly builds the final price map: price-list price if found, else
-      // the item's base BC price — so items with no price entry are not left
-      // at a stale value from a previous sync.
+      // Price lookup scoped to the user's item family.
+      // Builds an explicit map: price-list price if found, else the item's base BC
+      // price — so items with no price entry revert to their original price rather
+      // than keeping a stale value from a previous sync.
       // Non-critical: a failure here does not abort the rest of the sync.
       try {
         const today = new Date().toISOString().split('T')[0];
@@ -73,8 +83,7 @@ export function useSync() {
         const familyItems = familyCode
           ? items.filter((i) => i.familyCode === familyCode)
           : items;
-        const productNos = familyItems.map((i) => i.number);
-        const priceMap = await ApiService.getAllItemPricesForDate(today, productNos);
+        const priceMap = await ApiService.getAllItemPricesForDate(today);
         const finalPriceMap: Record<string, number> = {};
         for (const item of familyItems) {
           finalPriceMap[item.number] = priceMap[item.number] ?? item.unitPrice;
