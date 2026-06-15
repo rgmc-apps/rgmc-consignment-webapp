@@ -61,13 +61,27 @@ export function useSync() {
       StorageService.setSyncTimestamp('items');
       StorageService.setSyncTimestamp('itemCategories');
 
-      // Pre-load all item prices for today so scanning works offline.
+      // Pre-load item prices for today so scanning works offline.
+      // Scoped to the logged-in user's item family when available.
       // Non-critical: a failure here does not abort the rest of the sync.
       try {
         const today = new Date().toISOString().split('T')[0];
         const priceMap = await ApiService.getAllItemPricesForDate(today);
-        StorageService.setCachedItemPrices(today, priceMap);
-        StorageService.applyPriceMapToItems(priceMap);
+        const familyCode = StorageService.getAuth()?.brand?.itemFamilyCode;
+        if (familyCode) {
+          const familyNos = new Set(
+            items.filter((i) => i.familyCode === familyCode).map((i) => i.number)
+          );
+          const filtered: Record<string, number> = {};
+          for (const [no, price] of Object.entries(priceMap)) {
+            if (familyNos.has(no)) filtered[no] = price;
+          }
+          StorageService.setCachedItemPrices(today, filtered);
+          StorageService.applyPriceMapToItems(filtered);
+        } else {
+          StorageService.setCachedItemPrices(today, priceMap);
+          StorageService.applyPriceMapToItems(priceMap);
+        }
       } catch {
         // ignored — prices fall back to item.unitPrice when offline
       }

@@ -67,6 +67,7 @@ export interface Item {
   type: string;
   itemCategoryId: string;
   itemCategoryCode: string;
+  familyCode?: string;
   baseUnitOfMeasure: string;
   unitPrice: number;
   lastModifiedDateTime: string;

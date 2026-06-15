@@ -1,59 +1,78 @@
 # Handoff
 
 ## Goal
-Build and maintain the RGMC Consignment Web App — an Ionic/Vue PWA used by sales agents to scan items and submit sales orders and return orders to Business Central via a FastAPI GCP backend. The app handles item scanning, customer selection, order review/submission, and session history.
+RGMC Consignment Web App — Ionic/Vue PWA for sales reps to scan items and submit Sales Orders / Sales Return Orders to Business Central via a GCP FastAPI proxy. The app must work offline (using IndexedDB + localStorage caches), sync data on demand, and correctly submit all scanned item lines to BC.
 
-Current completed features:
-- `submittedBy` field on every sales/return order (frontend → GCP API → BC via custom Pag50216/50217)
-- Brand tag access control at login: contacts are checked against `bc/custom/contacts/<id>/brand-tags` before being allowed in
+Two bugs were fixed this session. The primary remaining concern is verifying that the GCP API line-creation fix actually surfaces the real BC error so the root cause can be eliminated at the BC/AL level (see Next Step).
+
+---
 
 ## Current State
 
-### Frontend (`C:\claude\rgmc-consignment-webapp`) — ⚠️ ONE UNCOMMITTED CHANGE
-- Latest committed: `6978a03` "added brand tag checking" — includes:
-  - `LoginPage.vue`: `loadBrands()` now fetches brands + item families in parallel and enriches each brand with `itemFamilyCode` (matches by `family.description === brand.displayName`)
-  - `auth.store.ts`: `checkBrandAccess` uses `brand.itemFamilyCode ?? brand.code` instead of `brand.code` alone
-- **UNCOMMITTED**: `src/stores/auth.store.ts` has one pending change — empty brand tags now blocks login with: `"No brand access has been configured for your account. Please contact head office for configuration."` (previously returned `true` = fail-open)
+All TypeScript checks pass (`npx vue-tsc --noEmit` — clean).
 
-### GCP API (`C:\RGMC\Source\git\rgmc-gcp-api`) — ✅ CLEAN
-- Latest commit: `2b955f6` "added sales order routes" — includes `rgmc_sales_order_models.py` (previously untracked)
-- All brand tag endpoints exist: `GET/POST/DELETE /bc/custom/contacts/{id}/brand-tags`
-- GCP API has **NOT been redeployed to Cloud Run** — several commits behind last deploy
+### What is working
+- **Draft auto-save on navigation**: When the user navigates away from ScanningPage (to profile, home, history, etc.), the current session is automatically saved as a draft if a customer is set.
+- **"Start New Session" always creates a blank session**: The button now calls `sessionStore.clearCurrentSession()` before navigating to `/app/scan`, so `ScanningPage.onMounted` always sees no active session and calls `startNewSession()` fresh.
+- **Error surfacing on multi-line order submission**: If BC rejects any line during order creation, the GCP API now rolls back (deletes the header) and returns a descriptive HTTP 502 to the frontend.
+- **Safe JSON parsing in GCP API**: `rgmc_create_record` in `bc_functions.py` now uses `_safe_json()` so HTML/empty BC error bodies don't cause cryptic Python tracebacks.
+- All previously implemented features (price sync, offline price fallback, reconnect price prompt, item remove button on SubmitPage, etc.) remain intact.
 
-### AL Project (`C:\RGMC\AL\RGMC_AL_v2`) — ✅ CLEAN, deployment status unknown
-- Latest relevant commit: `b3b72a9` "added fix for the brand tag list" — includes a built `.app` file (`RGMC Publisher_RGMC Glenn Eregia_1.0.1.10.app`)
-- Pag50209 (`RGMC Contact Brand Tag API`) is implemented and exposes `id`, `contactNo`, `brandCode`, `description`
-- `"Submitted By"` field on Sales Header (tableextension 50211) and custom API pages (Pag50216, Pag50217) are committed
-- Unknown if the `.app` has been published/deployed to Business Central
+### What is unresolved / partially fixed
+- **Root cause of single-line BC bug is still UNKNOWN**: The GCP API fix makes the error visible (returns 502 with BC's error message) but does not fix the underlying BC-side issue. The actual reason BC was rejecting lines 2+ has NOT been identified because we can't see live BC API responses. The fix will surface the real error on the next test submission.
+- **`rgmc_sales_order_routes.py`** (at `/bc/custom/sales-orders`) was NOT modified — only `/bc/sales-orders` (`sales_order_routes.py`) was fixed, because that is what the frontend calls.
+
+---
 
 ## Files Actively Being Edited
 
-- `src/stores/auth.store.ts` — **UNCOMMITTED**: empty brand tags prompt (lines 62-73, `checkBrandAccess`). Change: replaced `if (tags.length === 0) return true;` with a block that sets `error.value` and returns `false`.
+### Frontend — `C:\claude\rgmc-consignment-webapp`
+
+- `src/stores/session.store.ts` — Added `autoSaveDraft()` public method (saves draft without clearing `currentSession`). Added it to the return object. This is distinct from `saveAsDraftAndExit()` which also nulls out `currentSession`.
+
+- `src/views/ScanningPage.vue` — Added `onBeforeRouteLeave` import from `vue-router`. Added `onBeforeRouteLeave(() => { sessionStore.autoSaveDraft(); })` guard immediately after `saveDraftAndGoHome()` function (~line 691).
+
+- `src/views/LandingPage.vue` — Changed "Start New Session" button from `router-link="/app/scan"` to `@click="startNewSession"`. Added `startNewSession()` function that calls `sessionStore.clearCurrentSession()` then `router.push('/app/scan')`.
+
+### GCP API — `C:\RGMC\Source\git\rgmc-gcp-api`
+
+- `src/routers/bc_routes/sales_order_routes.py` — Replaced silent `logger.error` on line-creation failure with a per-line try/except that: (1) raises `ValueError` on non-200/201 BC response, (2) calls `rgmc_delete_record` to roll back the order header, (3) raises `HTTPException(502)` with the BC error detail. Loop variable changed from `for line` to `for i, line in enumerate(lines, start=1)`.
+
+- `src/routers/bc_routes/sales_return_order_routes.py` — Same change as above, matching pattern for return orders.
+
+- `src/services/bc_functions.py` — Changed `rgmc_create_record` return from `response.json()` to `_safe_json(response)` (function already existed in the file at line ~187). This prevents `JSONDecodeError` when BC returns HTML/empty error bodies.
+
+---
 
 ## Failed Attempts
-- **What was tried**: Using `brand.code` (dimension value code) in `checkBrandAccess` to match against brand tags — **Why it failed**: Brand tags store LSC Item Family codes (Pag50209 `"Brand Code"` field has `TableRelation = "LSC Item Family".Code`), not dimension value codes. User confirmed the codes match in their BC setup but switched to `itemFamilyCode` anyway for correctness.
-- **What was tried**: `brand.itemFamilyCode` was available at login without enrichment — **Why it failed**: LoginPage's `loadBrands()` called only `ApiService.getBrands()` (raw dimension values, no `itemFamilyCode`). Fixed by fetching item families in parallel and enriching in `loadBrands()`.
+
+- **Identifying the exact BC-side root cause of the single-line bug**: Could not determine whether the issue was (a) BC auto-creating a blank line that conflicts with the first POST, (b) BC's custom page requiring explicit `lineNo` per line, (c) a validation error on specific fields (e.g., `postingDate` format, unknown fields), or (d) a JSON decode error mid-loop causing a silent partial failure. Could not see live BC API responses. The fix was to surface whatever error BC returns rather than guess-and-patch at the API level.
+
+- **Adding explicit `lineNo` values (10000, 20000, …) to each line payload**: Considered but not implemented because (a) `lineNo` is not in any of the Pydantic models, suggesting BC's custom page may not expose it, and (b) sending unknown fields to BC's strict OData API can itself cause 400 errors, potentially making things worse. Deferred until the actual BC error is visible via the new surfacing code.
+
+---
 
 ## Next Step
-**Commit the pending auth.store.ts change:**
 
-```
-cd C:\claude\rgmc-consignment-webapp
-git add src/stores/auth.store.ts
-git commit -m "block login when contact has no brand tags configured"
-git push
-```
+**Test a multi-item submission against the live BC environment** to see the real HTTP 502 error body that the GCP API now surfaces.
 
-Then decide on deployment order:
-1. **GCP API → Cloud Run** (project `durable-woods-465907-n1`, region `asia-southeast1`) — needed for brand tag checking to hit real BC data
-2. **AL extension → Business Central** — if not yet deployed, `submittedBy` and Pag50216/50217/50209 don't exist in BC
+Deploy the updated GCP API (the three changed Python files in `rgmc-gcp-api`) and submit an order with 2+ items. The frontend will now show an error toast/message rather than silently succeeding. The `detail` field of the 502 response will contain BC's actual rejection reason for the failing line (e.g., `"Line 2 creation failed: BC returned 400: {'error': {'code': 'Unknown', 'message': 'You cannot insert a Sales Line...'}}"`.
+
+Once the BC error message is known, fix the underlying cause:
+- If it's a **field mapping issue** (unknown field sent to BC): remove or rename the offending field in `_map_line_payload()` in `sales_order_routes.py` / `sales_return_order_routes.py`.
+- If it's a **`lineNo` conflict** (BC auto-creates a blank line when header is created): add `"lineNo": i * 10000` to each `line_payload` dict in the loop, and expose `lineNo` as an optional field in the Pydantic models.
+- If it's a **`postingDate` issue** in the header: check if Pydantic's `date` → JSON serialization (`"2026-06-10"`) matches what BC's custom page field expects, or whether `postingDate` should be excluded from the header payload entirely.
+
+---
 
 ## Context & Gotchas
-- **`checkBrandAccess` fail-open on network error** (`catch → return true`): If the brand tags endpoint is unreachable (offline, BC down), the login succeeds. This is intentional.
-- **`itemFamilyCode` enrichment at login**: `loadBrands()` in `LoginPage.vue` now calls both `getBrands()` and `getItemFamilies()` in parallel. If item families fail to load, `brands.value = []` and the brand dropdown will be empty — user can't log in until brands load successfully.
-- **Brand tag comparison**: `brand.itemFamilyCode ?? brand.code` — falls back to dimension value code only if item family enrichment missed the brand (no matching description). User confirmed codes are the same in their BC setup so either works, but `itemFamilyCode` is the canonical source.
-- **AL `Submitted By` field**: Not in BC until the AL extension is deployed. Until then, write operations with `submittedBy` may silently fail or be ignored by BC.
-- **AL ID range**: 50100–50217 used. Next available: 50218.
-- **Sales Return Orders list page** (pageextension 50215) is intentionally empty — `Control1` sources `Sales Line`, not `Sales Header`, so `"Submitted By"` can't be added there. The field is visible on the card (50214) instead.
-- **GCP API Cloud Run**: 5 commits have been pushed since last deploy (`2b955f6`, `f77ecca`, `054f489`, `8e50a2e`, `01e5b7c`). Must redeploy before brand tag checking and `submittedBy` work in production.
-- **`displayName` on items**: Pag50205 returns `description` for the item name. `getItems()` in `api.service.ts` maps `description → displayName` as fallback.
+
+- **Frontend calls `/bc/sales-orders`** (standard `sales_order_router`), NOT `/bc/custom/sales-orders` (`rgmc_sales_order_router`). Verify this if BC behavior seems to differ from what the code expects.
+- **Return orders use `/bc/custom/sales-return-orders`** (the `sales_return_order_router` in `sales_return_order_routes.py`).
+- **`onBeforeRouteLeave` only saves if `currentSession.value.customer` is set** — sessions without a customer are not persisted to drafts. The `visibleDrafts` filter in LandingPage also enforces `d.customer !== null`, so this is consistent.
+- **Ionic's `ion-router-outlet` keeps pages alive** — `onMounted` in ScanningPage only fires once, not on every navigation. The `onBeforeRouteLeave` guard fires on every route change away from the page.
+- **`_saveDraft()` (private) vs `autoSaveDraft()` (public)**: `_saveDraft` is called internally on every mutation (addSalesOrder, setCustomer, etc.). `autoSaveDraft` is the new public variant for the route-leave guard — same logic, but without clearing `currentSession`.
+- **GCP API rollback behavior**: If line creation fails AND the rollback delete also fails (e.g., network issue), the error is logged and the HTTPException is still raised. The frontend gets a 502 either way, but BC may be left with a partial order. This is an edge case.
+- **`SalesOrderCreate.postingDate` is type `date` in Pydantic** (not `str`). `model_dump(mode='json')` serializes it as `"YYYY-MM-DD"`. `SalesReturnOrderCreate.postingDate` is already `str`. This inconsistency exists but hasn't caused a confirmed bug.
+- **TypeScript version**: `npx vue-tsc --noEmit` must pass before any commit. It was clean at the end of this session.
+- **Working directory**: Frontend is at `C:\claude\rgmc-consignment-webapp`. GCP API is at `C:\RGMC\Source\git\rgmc-gcp-api`. They are separate git repos.
