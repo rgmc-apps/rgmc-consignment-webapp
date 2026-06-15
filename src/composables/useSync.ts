@@ -61,27 +61,26 @@ export function useSync() {
       StorageService.setSyncTimestamp('items');
       StorageService.setSyncTimestamp('itemCategories');
 
-      // Pre-load item prices for today so scanning works offline.
-      // Scoped to the logged-in user's item family when available.
+      // Pre-load item prices for today scoped to the user's item family.
+      // Sends only the family's product numbers so BC returns the minimum rows.
+      // Explicitly builds the final price map: price-list price if found, else
+      // the item's base BC price — so items with no price entry are not left
+      // at a stale value from a previous sync.
       // Non-critical: a failure here does not abort the rest of the sync.
       try {
         const today = new Date().toISOString().split('T')[0];
-        const priceMap = await ApiService.getAllItemPricesForDate(today);
         const familyCode = StorageService.getAuth()?.brand?.itemFamilyCode;
-        if (familyCode) {
-          const familyNos = new Set(
-            items.filter((i) => i.familyCode === familyCode).map((i) => i.number)
-          );
-          const filtered: Record<string, number> = {};
-          for (const [no, price] of Object.entries(priceMap)) {
-            if (familyNos.has(no)) filtered[no] = price;
-          }
-          StorageService.setCachedItemPrices(today, filtered);
-          StorageService.applyPriceMapToItems(filtered);
-        } else {
-          StorageService.setCachedItemPrices(today, priceMap);
-          StorageService.applyPriceMapToItems(priceMap);
+        const familyItems = familyCode
+          ? items.filter((i) => i.familyCode === familyCode)
+          : items;
+        const productNos = familyItems.map((i) => i.number);
+        const priceMap = await ApiService.getAllItemPricesForDate(today, productNos);
+        const finalPriceMap: Record<string, number> = {};
+        for (const item of familyItems) {
+          finalPriceMap[item.number] = priceMap[item.number] ?? item.unitPrice;
         }
+        StorageService.setCachedItemPrices(today, finalPriceMap);
+        StorageService.applyPriceMapToItems(finalPriceMap);
       } catch {
         // ignored — prices fall back to item.unitPrice when offline
       }

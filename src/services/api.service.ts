@@ -199,10 +199,10 @@ export const ApiService = {
     await apiClient.patch('/bc/custom/item-prices/cache', { unitPrice }, { params });
   },
 
-  async getAllItemPricesForDate(onDate: string): Promise<Record<string, number>> {
-    const res = await apiClient.get('/bc/custom/item-prices', {
-      params: { on_date: onDate },
-    });
+  async getAllItemPricesForDate(onDate: string, productNos?: string[]): Promise<Record<string, number>> {
+    const params: Record<string, string> = { on_date: onDate };
+    if (productNos?.length) params['product_nos'] = productNos.join(',');
+    const res = await apiClient.get('/bc/custom/item-prices', { params });
     const rows = extractList<Record<string, unknown>>(res.data);
     const map: Record<string, number> = {};
     for (const row of rows) {

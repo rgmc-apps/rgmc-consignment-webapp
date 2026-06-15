@@ -161,6 +161,7 @@ export const StorageService = {
       displayName: i.displayName,
       description: i.description ? i.description.slice(0, 120) : '',
       itemCategoryCode: i.itemCategoryCode,
+      familyCode: i.familyCode,
       unitPrice: i.unitPrice,
     })) as Item[];
     _itemsMemory = slim;
