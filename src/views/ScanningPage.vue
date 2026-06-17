@@ -5,7 +5,7 @@
       <ion-toolbar>
         <ion-title>
           <div class="header-title">
-            <img src="/static/cons-logo.png" alt="logo" class="header-logo" />
+            <img :src="headerLogoSrc" alt="logo" class="header-logo" />
             <div class="header-text">
               <span class="header-brand">{{ authStore.brand?.displayName ?? 'Scan' }}</span>
               <span v-if="authStore.company" class="header-company">{{ authStore.company.displayName }}</span>
@@ -20,9 +20,6 @@
             @click="saveDraftAndGoHome"
           >
             <ion-icon :icon="saveOutline" slot="icon-only" />
-          </ion-button>
-          <ion-button fill="clear" @click="toggleTheme">
-            <ion-icon :key="isDark ? 'dk' : 'lt'" :icon="isDark ? sunnyOutline : moonOutline" slot="icon-only" class="theme-toggle-icon" />
           </ion-button>
           <profile-menu />
         </ion-buttons>
@@ -622,8 +619,6 @@ import {
   closeOutline,
   arrowForwardOutline,
   saveOutline,
-  moonOutline,
-  sunnyOutline,
   informationCircleOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
@@ -646,7 +641,10 @@ const authStore = useAuthStore();
 const sessionStore = useSessionStore();
 const { isSyncing, syncError, lastSyncDate, lastSyncLabel, sync } = useSync();
 const { isOnline, isSlowConnection } = useNetworkStatus();
-const { isDark, toggleTheme } = useTheme();
+const { theme } = useTheme();
+const headerLogoSrc = computed(() =>
+  theme.value === 'minimalist' ? '/static/logo-bnw.png' : '/static/cons-logo.png',
+);
 const { headerPulseActive, submitFlashActive, triggerSubmitFlash } = useGoldAccent();
 
 /* ─── Cached data ─── */

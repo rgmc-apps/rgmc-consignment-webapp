@@ -53,6 +53,39 @@
 
       <div class="pop-divider" />
 
+      <!-- Theme selector -->
+      <div class="theme-section">
+        <span class="theme-section__label">Appearance</span>
+        <div class="theme-pills">
+          <button
+            class="theme-pill"
+            :class="{ 'theme-pill--active': theme === 'minimalist' }"
+            @click="setTheme('minimalist')"
+          >
+            <ion-icon :icon="removeOutline" class="theme-pill__icon" />
+            <span>Minimal</span>
+          </button>
+          <button
+            class="theme-pill"
+            :class="{ 'theme-pill--active': theme === 'light' }"
+            @click="setTheme('light')"
+          >
+            <ion-icon :icon="sunnyOutline" class="theme-pill__icon" />
+            <span>Light</span>
+          </button>
+          <button
+            class="theme-pill"
+            :class="{ 'theme-pill--active': theme === 'dark' }"
+            @click="setTheme('dark')"
+          >
+            <ion-icon :icon="moonOutline" class="theme-pill__icon" />
+            <span>Dark</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="pop-divider" />
+
       <!-- Sign out -->
       <button class="pop-item pop-item--danger" @click="onLogout">
         <ion-icon :icon="logOutOutline" class="pop-icon" />
@@ -82,10 +115,14 @@ import {
   logOutOutline,
   personOutline,
   chevronForwardOutline,
+  sunnyOutline,
+  moonOutline,
+  removeOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSync } from '@/composables/useSync';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
+import { useTheme } from '@/composables/useTheme';
 import ProfileModal from '@/components/ProfileModal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 
@@ -93,6 +130,7 @@ const router = useRouter();
 const authStore = useAuthStore();
 const { isSyncing, lastSyncLabel, sync } = useSync();
 const { isOnline } = useNetworkStatus();
+const { theme, setTheme } = useTheme();
 
 const isOpen = ref(false);
 const profileOpen = ref(false);
@@ -141,8 +179,8 @@ async function onLogout() {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: rgba(160, 115, 32, 0.15);
-  border: 1.5px solid rgba(160, 115, 32, 0.45);
+  background: color-mix(in srgb, var(--app-gold) 15%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--app-gold) 45%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -177,8 +215,8 @@ async function onLogout() {
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: rgba(160, 115, 32, 0.15);
-  border: 2px solid rgba(160, 115, 32, 0.4);
+  background: color-mix(in srgb, var(--app-gold) 15%, transparent);
+  border: 2px solid color-mix(in srgb, var(--app-gold) 40%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -299,5 +337,54 @@ async function onLogout() {
   width: 16px;
   height: 16px;
   color: var(--app-gold);
+}
+
+/* ── Theme selector ── */
+.theme-section {
+  padding: 12px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.theme-section__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: var(--app-text-muted);
+}
+
+.theme-pills {
+  display: flex;
+  gap: 6px;
+}
+
+.theme-pill {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  background: var(--app-surface-alt);
+  border: 1.5px solid var(--app-border);
+  border-radius: 10px;
+  cursor: pointer;
+  color: var(--app-text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.theme-pill--active {
+  background: color-mix(in srgb, var(--app-gold) 12%, transparent);
+  border-color: var(--app-gold);
+  color: var(--app-gold);
+}
+
+.theme-pill__icon {
+  font-size: 16px;
 }
 </style>

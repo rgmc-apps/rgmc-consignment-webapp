@@ -1,27 +1,37 @@
 import { ref } from 'vue';
 
-const STORAGE_KEY = 'rgmc_theme';
+export type Theme = 'minimalist' | 'light' | 'dark';
 
-function getStored(): boolean {
-  try { return localStorage.getItem(STORAGE_KEY) === 'dark'; }
-  catch { return false; }
+const STORAGE_KEY = 'rgmc_theme_v2';
+
+function getStored(): Theme {
+  try {
+    const val = localStorage.getItem(STORAGE_KEY);
+    if (val === 'light' || val === 'dark' || val === 'minimalist') return val;
+  } catch { /* storage unavailable */ }
+  return 'minimalist';
+}
+
+function applyTheme(t: Theme) {
+  if (typeof document === 'undefined') return;
+  document.documentElement.setAttribute('data-theme', t);
+  const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+  if (favicon) {
+    favicon.href = t === 'minimalist' ? '/static/logo-bnw.png' : '/static/cons-logo.png';
+  }
 }
 
 // Module-level singleton — shared across all components
-const isDark = ref(getStored());
-
-// Apply immediately at module load to prevent flash-of-wrong-theme
-if (typeof document !== 'undefined') {
-  document.documentElement.setAttribute('data-theme', isDark.value ? 'dark' : 'light');
-}
+const theme = ref<Theme>(getStored());
+applyTheme(theme.value);
 
 export function useTheme() {
-  function toggleTheme() {
-    isDark.value = !isDark.value;
-    try { localStorage.setItem(STORAGE_KEY, isDark.value ? 'dark' : 'light'); }
+  function setTheme(t: Theme) {
+    theme.value = t;
+    try { localStorage.setItem(STORAGE_KEY, t); }
     catch { /* storage unavailable */ }
-    document.documentElement.setAttribute('data-theme', isDark.value ? 'dark' : 'light');
+    applyTheme(t);
   }
 
-  return { isDark, toggleTheme };
+  return { theme, setTheme };
 }

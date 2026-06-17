@@ -8,14 +8,11 @@
       <ion-toolbar>
         <ion-title>
           <div class="header-title">
-            <img src="/static/cons-logo.png" alt="logo" class="header-logo" />
+            <img :src="headerLogoSrc" alt="logo" class="header-logo" />
             <span>{{ authStore.brand?.displayName ?? 'RGMC' }}</span>
           </div>
         </ion-title>
         <ion-buttons slot="end">
-          <ion-button fill="clear" @click="toggleTheme">
-            <ion-icon :key="isDark ? 'dk' : 'lt'" :icon="isDark ? sunnyOutline : moonOutline" slot="icon-only" class="theme-toggle-icon" />
-          </ion-button>
           <profile-menu />
         </ion-buttons>
       </ion-toolbar>
@@ -157,8 +154,6 @@ import {
   storefrontOutline,
   sendOutline,
   chevronDownCircleOutline,
-  moonOutline,
-  sunnyOutline,
 } from 'ionicons/icons';
 import ProfileMenu from '@/components/ProfileMenu.vue';
 import WelcomeModal from '@/components/WelcomeModal.vue';
@@ -172,7 +167,10 @@ import type { Customer, ScanSession } from '@/types';
 const router = useRouter();
 const authStore = useAuthStore();
 const sessionStore = useSessionStore();
-const { isDark, toggleTheme } = useTheme();
+const { theme } = useTheme();
+const headerLogoSrc = computed(() =>
+  theme.value === 'minimalist' ? '/static/logo-bnw.png' : '/static/cons-logo.png',
+);
 
 const showWelcome = ref(!StorageService.hasSeenWelcome());
 

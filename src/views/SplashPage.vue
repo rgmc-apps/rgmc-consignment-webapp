@@ -12,7 +12,7 @@
             'logo-wrap--error': hasError,
           }"
         >
-          <img src="/static/cons-logo-splash.png" alt="RGMC Consignment" class="logo-img" />
+          <img :src="logoSrc" alt="RGMC Consignment" class="logo-img" />
         </div>
 
         <!-- Phase: loading companies -->
@@ -109,7 +109,13 @@ import {
 import { ApiService, setApiCompany } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 import { useAuthStore } from '@/stores/auth.store';
+import { useTheme } from '@/composables/useTheme';
 import type { Company } from '@/types';
+
+const { theme } = useTheme();
+const logoSrc = computed(() =>
+  theme.value === 'minimalist' ? '/static/logo-bnw.png' : '/static/cons-logo-splash.png',
+);
 
 type StepStatus = 'idle' | 'loading' | 'done' | 'error';
 type LoadPhase = 'companies' | 'selecting' | 'data';

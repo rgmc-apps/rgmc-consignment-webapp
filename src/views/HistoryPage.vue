@@ -5,14 +5,11 @@
       <ion-toolbar>
         <ion-title>
           <div class="header-title">
-            <img src="/static/cons-logo.png" alt="logo" class="header-logo" />
+            <img :src="headerLogoSrc" alt="logo" class="header-logo" />
             <span>History</span>
           </div>
         </ion-title>
         <ion-buttons slot="end">
-          <ion-button fill="clear" @click="toggleTheme">
-            <ion-icon :key="isDark ? 'dk' : 'lt'" :icon="isDark ? sunnyOutline : moonOutline" slot="icon-only" class="theme-toggle-icon" />
-          </ion-button>
           <ion-button
             v-if="filteredSessions.length"
             fill="clear"
@@ -325,8 +322,6 @@ import {
   returnUpBackOutline,
   refreshOutline,
   chevronDownCircleOutline,
-  moonOutline,
-  sunnyOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
 import { useTheme } from '@/composables/useTheme';
@@ -335,7 +330,10 @@ import type { ScanSession } from '@/types';
 
 const router = useRouter();
 const sessionStore = useSessionStore();
-const { isDark, toggleTheme } = useTheme();
+const { theme } = useTheme();
+const headerLogoSrc = computed(() =>
+  theme.value === 'minimalist' ? '/static/logo-bnw.png' : '/static/cons-logo.png',
+);
 
 function onPullRefresh(ev: CustomEvent) {
   sessionStore.loadFromStorage();

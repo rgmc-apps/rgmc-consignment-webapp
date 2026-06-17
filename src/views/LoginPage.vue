@@ -8,7 +8,7 @@
       <div class="login-container">
         <!-- Logo block -->
         <div class="login-logo-block">
-          <img src="/static/cons-logo.png" alt="RGMC Consignment" class="login-logo" />
+          <img :src="logoSrc" alt="RGMC Consignment" class="login-logo" />
           <h1 class="login-title">RGMC Consignment</h1>
           <p class="login-subtitle">Web App</p>
         </div>
@@ -182,7 +182,13 @@ import { StorageService } from '@/services/storage.service';
 import { useSync } from '@/composables/useSync';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import SetPasswordModal from '@/components/SetPasswordModal.vue';
+import { useTheme } from '@/composables/useTheme';
 import type { Brand, Company } from '@/types';
+
+const { theme } = useTheme();
+const logoSrc = computed(() =>
+  theme.value === 'minimalist' ? '/static/logo-bnw.png' : '/static/cons-logo.png',
+);
 
 const router = useRouter();
 const authStore = useAuthStore();
