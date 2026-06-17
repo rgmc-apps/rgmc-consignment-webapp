@@ -8,29 +8,57 @@
           <img src="/static/cons-logo-splash.png" alt="RGMC Consignment" class="logo-img" />
         </div>
 
-        <!-- Loading steps -->
-        <div v-if="!hasError" class="steps-wrap">
+        <!-- Phase: loading companies -->
+        <Transition name="fade-slide">
+        <div v-if="loadPhase === 'companies' && !hasError" class="phase-wrap">
+          <div class="step step--loading">
+            <span class="step__icon"><ion-spinner name="crescent" /></span>
+            <span class="step__label">Loading companies…</span>
+          </div>
+        </div>
+        </Transition>
+
+        <!-- Phase: company selection -->
+        <Transition name="fade-slide">
+        <div v-if="loadPhase === 'selecting' && !hasError" class="phase-wrap company-phase">
+          <p class="select-prompt">Select a company to continue</p>
+          <div class="company-select-box">
+            <ion-select
+              v-model="selectedCompanyId"
+              placeholder="Choose company"
+              interface="action-sheet"
+              class="company-select"
+            >
+              <ion-select-option
+                v-for="c in companies"
+                :key="c.id"
+                :value="c.id"
+              >
+                {{ c.displayName }}
+              </ion-select-option>
+            </ion-select>
+          </div>
+        </div>
+        </Transition>
+
+        <!-- Phase: loading data steps -->
+        <Transition name="fade-slide">
+        <div v-if="loadPhase === 'data' && !hasError" class="steps-wrap">
           <div
             v-for="step in steps"
             :key="step.key"
             class="step"
             :class="{
               'step--loading': step.status === 'loading',
-              'step--done': step.status === 'done',
-              'step--error': step.status === 'error',
-              'step--idle': step.status === 'idle',
+              'step--done':    step.status === 'done',
+              'step--error':   step.status === 'error',
+              'step--idle':    step.status === 'idle',
             }"
           >
             <span class="step__icon">
               <ion-spinner v-if="step.status === 'loading'" name="crescent" />
-              <ion-icon
-                v-else-if="step.status === 'done'"
-                :icon="checkmarkCircleOutline"
-              />
-              <ion-icon
-                v-else-if="step.status === 'error'"
-                :icon="closeCircleOutline"
-              />
+              <ion-icon v-else-if="step.status === 'done'"  :icon="checkmarkCircleOutline" />
+              <ion-icon v-else-if="step.status === 'error'" :icon="closeCircleOutline" />
               <span v-else class="step__dot" />
             </span>
             <span class="step__label">{{ step.label }}</span>
@@ -41,6 +69,7 @@
             <div class="progress-fill" :style="{ width: `${progressPct}%` }" />
           </div>
         </div>
+        </Transition>
 
         <!-- Error block -->
         <Transition name="err-fade">
@@ -62,20 +91,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { IonPage, IonContent, IonIcon, IonSpinner, IonButton } from '@ionic/vue';
+import { IonPage, IonContent, IonIcon, IonSpinner, IonButton, IonSelect, IonSelectOption } from '@ionic/vue';
 import {
   checkmarkCircleOutline,
   closeCircleOutline,
   wifiOutline,
   refreshOutline,
 } from 'ionicons/icons';
-import { ApiService } from '@/services/api.service';
+import { ApiService, setApiCompany } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 import { useAuthStore } from '@/stores/auth.store';
+import type { Company } from '@/types';
 
 type StepStatus = 'idle' | 'loading' | 'done' | 'error';
+type LoadPhase = 'companies' | 'selecting' | 'data';
 
 interface LoadStep {
   key: string;
@@ -83,20 +114,24 @@ interface LoadStep {
   status: StepStatus;
 }
 
-const router = useRouter();
+const router   = useRouter();
 const authStore = useAuthStore();
-const year = new Date().getFullYear();
+const year     = new Date().getFullYear();
+
+const loadPhase         = ref<LoadPhase>('companies');
+const companies         = ref<Company[]>([]);
+const selectedCompanyId = ref('');
 
 const steps = ref<LoadStep[]>([
-  { key: 'brands',       label: 'Loading company data',    status: 'idle' },
+  { key: 'brands',        label: 'Loading company data',   status: 'idle' },
   { key: 'item-families', label: 'Matching item families', status: 'idle' },
-  { key: 'contacts',     label: 'Loading user directory',  status: 'idle' },
+  { key: 'contacts',      label: 'Loading user directory', status: 'idle' },
 ]);
 
 const errorText = ref('');
 
-const hasError = computed(() => steps.value.some((s) => s.status === 'error'));
-const allDone = computed(() => steps.value.every((s) => s.status === 'done'));
+const hasError   = computed(() => !!errorText.value);
+const allDone    = computed(() => steps.value.every((s) => s.status === 'done'));
 const progressPct = computed(() => {
   const done = steps.value.filter((s) => s.status === 'done').length;
   return Math.round((done / steps.value.length) * 100);
@@ -107,11 +142,37 @@ function setStep(key: string, status: StepStatus) {
   if (s) s.status = status;
 }
 
-async function load() {
-  steps.value.forEach((s) => (s.status = 'idle'));
-  errorText.value = '';
+/* Triggered automatically once the user picks a company */
+watch(selectedCompanyId, async (id) => {
+  if (!id || loadPhase.value !== 'selecting') return;
+  const company = companies.value.find((c) => c.id === id);
+  if (!company) return;
 
-  /* Step 1: Load brands */
+  setApiCompany(company.name);
+  StorageService.setCompany(company);
+  await loadData();
+});
+
+async function load() {
+  errorText.value = '';
+  loadPhase.value = 'companies';
+  selectedCompanyId.value = '';
+  companies.value = [];
+  steps.value.forEach((s) => (s.status = 'idle'));
+
+  try {
+    companies.value = await ApiService.getCompanies();
+    loadPhase.value = 'selecting';
+  } catch (err) {
+    errorText.value =
+      err instanceof Error ? err.message : 'Failed to reach the RGMC API. Check your connection.';
+  }
+}
+
+async function loadData() {
+  loadPhase.value = 'data';
+
+  /* Load brands */
   setStep('brands', 'loading');
   let rawBrands: Awaited<ReturnType<typeof ApiService.getBrands>> = [];
   try {
@@ -120,19 +181,19 @@ async function load() {
   } catch (err) {
     setStep('brands', 'error');
     errorText.value =
-      err instanceof Error ? err.message : 'Failed to reach the RGMC API. Check your connection.';
+      err instanceof Error ? err.message : 'Failed to load brand data.';
     return;
   }
 
-  /* Step 2: Load item families and enrich brands (itemFamily.description === brand.displayName) */
+  /* Load item families and enrich brands */
   setStep('item-families', 'loading');
   try {
     const families = await ApiService.getItemFamilies();
-    const enrichedBrands = rawBrands.map((b) => ({
+    const enriched = rawBrands.map((b) => ({
       ...b,
       itemFamilyCode: families.find((f) => f.description === b.displayName)?.code,
     }));
-    StorageService.setCachedBrands(enrichedBrands);
+    StorageService.setCachedBrands(enriched);
     setStep('item-families', 'done');
   } catch (err) {
     setStep('item-families', 'error');
@@ -141,7 +202,7 @@ async function load() {
     return;
   }
 
-  /* Step 3: Load contacts */
+  /* Load contacts */
   setStep('contacts', 'loading');
   try {
     const contacts = await ApiService.getContacts();
@@ -154,7 +215,6 @@ async function load() {
     return;
   }
 
-  /* Brief "ready" pause, then redirect */
   await new Promise((r) => setTimeout(r, 600));
 
   if (authStore.isAuthenticated) {
@@ -165,7 +225,6 @@ async function load() {
 }
 
 onMounted(async () => {
-  // Restore IDB items so getCachedItems() is accurate before the cache check
   await StorageService.init();
 
   const hasLocalCache =
@@ -173,7 +232,6 @@ onMounted(async () => {
     StorageService.getCachedItems().length > 0 &&
     StorageService.getCachedItemCategories().length > 0;
 
-  // Already logged in + full local cache → skip network, go straight to app
   if (authStore.isAuthenticated && hasLocalCache) {
     router.replace('/app/home');
     return;
@@ -234,24 +292,56 @@ onMounted(async () => {
   to   { opacity: 1; transform: scale(1);    }
 }
 
-.step--done .step__icon ion-icon {
-  animation: icon-pop 0.22s var(--ease-out-quart) both;
+/* ── Phase wrapper ── */
+.phase-wrap {
+  width: 100%;
+  max-width: 280px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
 }
 
-/* Error block Transition */
-.err-fade-enter-active { transition: opacity 0.24s ease, transform 0.24s var(--ease-out-quart); }
-.err-fade-leave-active { transition: opacity 0.16s ease; }
-.err-fade-enter-from   { opacity: 0; transform: translateY(10px); }
-.err-fade-leave-to     { opacity: 0; }
+/* ── Company selection phase ── */
+.company-phase {
+  gap: 16px;
+}
 
-/* ── Steps ── */
+.select-prompt {
+  font-size: 14px;
+  color: #aaa;
+  margin: 0;
+  text-align: center;
+  font-weight: 500;
+}
+
+.company-select-box {
+  width: 100%;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.company-select {
+  width: 100%;
+  --color: #ffffff;
+  --placeholder-color: #888;
+  --placeholder-opacity: 1;
+  --padding-start: 14px;
+  --padding-end: 14px;
+  --padding-top: 14px;
+  --padding-bottom: 14px;
+  font-size: 15px;
+}
+
+/* ── Steps (data loading phase) ── */
 .steps-wrap {
   width: 100%;
   max-width: 280px;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  animation: fade-slide-up 0.45s var(--ease-out-quart) 0.28s both;
 }
 
 .step {
@@ -261,21 +351,10 @@ onMounted(async () => {
   transition: opacity 0.3s;
 }
 
-.step--idle {
-  opacity: 0.35;
-}
-
-.step--loading {
-  opacity: 1;
-}
-
-.step--done {
-  opacity: 1;
-}
-
-.step--error {
-  opacity: 1;
-}
+.step--idle    { opacity: 0.35; }
+.step--loading { opacity: 1; }
+.step--done    { opacity: 1; }
+.step--error   { opacity: 1; }
 
 .step__icon {
   width: 22px;
@@ -296,12 +375,11 @@ onMounted(async () => {
   font-size: 20px;
 }
 
-.step--done .step__icon ion-icon {
-  color: var(--ion-color-success);
-}
+.step--done  .step__icon ion-icon { color: var(--ion-color-success); }
+.step--error .step__icon ion-icon { color: var(--ion-color-danger); }
 
-.step--error .step__icon ion-icon {
-  color: var(--ion-color-danger);
+.step--done .step__icon ion-icon {
+  animation: icon-pop 0.22s var(--ease-out-quart) both;
 }
 
 .step__dot {
@@ -319,9 +397,7 @@ onMounted(async () => {
   font-weight: 500;
 }
 
-.step--done .step__label {
-  color: #fff;
-}
+.step--done .step__label { color: #fff; }
 
 /* ── Progress bar ── */
 .progress-track {
@@ -378,4 +454,15 @@ onMounted(async () => {
   margin: 0;
   letter-spacing: 0.3px;
 }
+
+/* ── Transitions ── */
+.fade-slide-enter-active { transition: opacity 0.3s ease, transform 0.3s var(--ease-out-quart); }
+.fade-slide-leave-active { transition: opacity 0.2s ease; }
+.fade-slide-enter-from   { opacity: 0; transform: translateY(10px); }
+.fade-slide-leave-to     { opacity: 0; }
+
+.err-fade-enter-active { transition: opacity 0.24s ease, transform 0.24s var(--ease-out-quart); }
+.err-fade-leave-active { transition: opacity 0.16s ease; }
+.err-fade-enter-from   { opacity: 0; transform: translateY(10px); }
+.err-fade-leave-to     { opacity: 0; }
 </style>

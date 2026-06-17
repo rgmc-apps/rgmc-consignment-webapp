@@ -276,7 +276,15 @@ watch(selectedCompanyId, (id) => {
 function loadCompanies() {
   companiesLoading.value = true;
   ApiService.getCompanies()
-    .then((data) => { companies.value = data; })
+    .then((data) => {
+      companies.value = data;
+      // Restore the company chosen on the splash screen (if any)
+      const stored = StorageService.getCompany();
+      if (stored) {
+        const match = data.find((c) => c.id === stored.id);
+        if (match) selectedCompanyId.value = match.id;
+      }
+    })
     .catch(() => { companies.value = []; })
     .finally(() => { companiesLoading.value = false; });
 }
