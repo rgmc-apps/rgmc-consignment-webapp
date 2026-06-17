@@ -1,4 +1,18 @@
 import axios from 'axios';
+
+/** Richer error that preserves HTTP status + endpoint for bug reports. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status?: number,
+    public readonly endpoint?: string,
+    public readonly method?: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 import type {
   Brand,
   Company,
@@ -60,12 +74,15 @@ apiClient.interceptors.response.use(
     return response;
   },
   (error) => {
-    const message =
+    const message: string =
       error.response?.data?.message ||
       error.response?.data?.error ||
       error.message ||
       'An unexpected error occurred';
-    return Promise.reject(new Error(message));
+    const status: number | undefined = error.response?.status;
+    const endpoint: string | undefined = error.config?.url;
+    const method: string | undefined = error.config?.method?.toUpperCase();
+    return Promise.reject(new ApiError(message, status, endpoint, method));
   },
 );
 

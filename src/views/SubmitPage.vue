@@ -7,6 +7,9 @@
           <ion-back-button default-href="/app/scan" />
         </ion-buttons>
         <ion-title>Review &amp; Submit</ion-title>
+        <ion-buttons slot="end">
+          <bug-report-button />
+        </ion-buttons>
       </ion-toolbar>
     </ion-header>
 
@@ -133,12 +136,18 @@
         <Transition name="status-in">
         <div v-if="salesStatus === 'failed'" class="status-badge status-badge--failed">
           <ion-icon :icon="alertCircleOutline" />
-          <div>
+          <div class="fail-body">
             <p>Sales submission failed.</p>
             <p class="error-detail">{{ salesError }}</p>
-            <ion-button size="small" fill="outline" color="danger" @click="confirmSubmit('sales')">
-              Retry
-            </ion-button>
+            <div class="fail-actions">
+              <ion-button size="small" fill="outline" color="danger" @click="confirmSubmit('sales')">
+                Retry
+              </ion-button>
+              <ion-button size="small" fill="clear" color="medium" @click="reportSalesError">
+                <ion-icon :icon="bugOutline" slot="start" />
+                Report to IT/MIS
+              </ion-button>
+            </div>
           </div>
         </div>
         </Transition>
@@ -232,12 +241,18 @@
         <Transition name="status-in">
         <div v-if="returnsStatus === 'failed'" class="status-badge status-badge--failed">
           <ion-icon :icon="alertCircleOutline" />
-          <div>
+          <div class="fail-body">
             <p>Return submission failed.</p>
             <p class="error-detail">{{ returnsError }}</p>
-            <ion-button size="small" fill="outline" color="danger" @click="confirmSubmit('returns')">
-              Retry
-            </ion-button>
+            <div class="fail-actions">
+              <ion-button size="small" fill="outline" color="danger" @click="confirmSubmit('returns')">
+                Retry
+              </ion-button>
+              <ion-button size="small" fill="clear" color="medium" @click="reportReturnsError">
+                <ion-icon :icon="bugOutline" slot="start" />
+                Report to IT/MIS
+              </ion-button>
+            </div>
           </div>
         </div>
         </Transition>
@@ -318,13 +333,16 @@ import {
   cloudOfflineOutline,
   calendarOutline,
   trashOutline,
+  bugOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
 import { useGoldAccent } from '@/composables/useGoldAccent';
+import { useErrorReporter } from '@/composables/useErrorReporter';
 import { ApiService } from '@/services/api.service';
 import { formatCurrency, formatDate } from '@/utils/format';
 import type { SalesOrderPayload, SalesReturnOrderPayload, OrderLine, DiscountType } from '@/types';
 import RemarksModal from '@/components/RemarksModal.vue';
+import BugReportButton from '@/components/BugReportButton.vue';
 
 const router = useRouter();
 const sessionStore = useSessionStore();
@@ -340,6 +358,17 @@ const salesSeriesNo = ref('');
 const returnsSeriesNo = ref('');
 const salesError = ref('');
 const returnsError = ref('');
+const salesErrorObj = ref<Error | null>(null);
+const returnsErrorObj = ref<Error | null>(null);
+
+const { openReport } = useErrorReporter();
+
+function reportSalesError() {
+  openReport({ error: salesErrorObj.value ?? new Error(salesError.value), context: 'Sales Order Submission' });
+}
+function reportReturnsError() {
+  openReport({ error: returnsErrorObj.value ?? new Error(returnsError.value), context: 'Return Order Submission' });
+}
 
 const showRemarksModal = ref(false);
 const pendingSubmitType = ref<'sales' | 'returns' | null>(null);
@@ -420,7 +449,8 @@ async function doSubmitSales(customerNumber: string, remarks: string) {
     triggerSweep();
     showToast('Sales orders submitted!', 'success');
   } catch (err) {
-    salesError.value = err instanceof Error ? err.message : 'Unknown error';
+    salesErrorObj.value = err instanceof Error ? err : new Error(String(err));
+    salesError.value = salesErrorObj.value.message;
     salesStatus.value = 'failed';
     showToast('Sales submission failed. Will save locally.', 'danger');
   }
@@ -450,7 +480,8 @@ async function doSubmitReturns(customerNumber: string, remarks: string) {
     triggerSweep();
     showToast('Return orders submitted!', 'success');
   } catch (err) {
-    returnsError.value = err instanceof Error ? err.message : 'Unknown error';
+    returnsErrorObj.value = err instanceof Error ? err : new Error(String(err));
+    returnsError.value = returnsErrorObj.value.message;
     returnsStatus.value = 'failed';
     showToast('Return submission failed. Will save locally.', 'danger');
   }
@@ -701,10 +732,19 @@ async function showToast(message: string, color: string) {
 }
 .status-badge--failed ion-icon { color: var(--ion-color-danger); }
 
+.fail-body { flex: 1; }
+.fail-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
 .error-detail {
   font-size: 12px;
   opacity: 0.8;
-  margin: 2px 0 8px;
+  margin: 2px 0 0;
   line-height: 1.4;
 }
 

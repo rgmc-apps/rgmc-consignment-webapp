@@ -21,6 +21,7 @@
           >
             <ion-icon :icon="saveOutline" slot="icon-only" />
           </ion-button>
+          <bug-report-button />
           <profile-menu />
         </ion-buttons>
       </ion-toolbar>
@@ -633,6 +634,7 @@ import { ApiService } from '@/services/api.service';
 import { formatCurrency, formatDiscount } from '@/utils/format';
 import ItemSelectorModal from '@/components/ItemSelectorModal.vue';
 import ProfileMenu from '@/components/ProfileMenu.vue';
+import BugReportButton from '@/components/BugReportButton.vue';
 import type { Customer, Item, ItemCategory, DiscountType } from '@/types';
 
 /* ─── Stores / composables ─── */

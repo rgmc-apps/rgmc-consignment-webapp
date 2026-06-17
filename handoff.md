@@ -1,78 +1,103 @@
 # Handoff
 
 ## Goal
-RGMC Consignment Web App — Ionic/Vue PWA for sales reps to scan items and submit Sales Orders / Sales Return Orders to Business Central via a GCP FastAPI proxy. The app must work offline (using IndexedDB + localStorage caches), sync data on demand, and correctly submit all scanned item lines to BC.
+Maintain and extend the RGMC Consignment Web App — an Ionic/Vue 3 PWA used by field sales agents to scan items and submit sales/return orders to Business Central via a GCP API gateway. The app runs offline-capable and is deployed to GCP Cloud Run.
 
-Two bugs were fixed this session. The primary remaining concern is verifying that the GCP API line-creation fix actually surfaces the real BC error so the root cause can be eliminated at the BC/AL level (see Next Step).
+This session had two tracks:
+1. **Theme color consistency** — ensure all UI elements adapt correctly across the three themes: `light` (default branded dark-header style), `dark` (full dark mode), and `minimalist` (all-white, low-contrast). The user reported the username on the home page was showing as white on white in minimalist mode.
+2. **IT/MIS bug reporting** — add a "Report a Bug" button to all page headers and a "Report to IT/MIS" button on all API error surfaces (400/500 errors in Submit page and History page detail modal). Also add a first-deployment tooltip on the bug button.
+
+Both tracks are complete. The build passes (`vite build` and `vue-tsc --noEmit` both clean).
 
 ---
 
 ## Current State
 
-All TypeScript checks pass (`npx vue-tsc --noEmit` — clean).
+**Everything is working and the build is clean.**
 
-### What is working
-- **Draft auto-save on navigation**: When the user navigates away from ScanningPage (to profile, home, history, etc.), the current session is automatically saved as a draft if a customer is set.
-- **"Start New Session" always creates a blank session**: The button now calls `sessionStore.clearCurrentSession()` before navigating to `/app/scan`, so `ScanningPage.onMounted` always sees no active session and calls `startNewSession()` fresh.
-- **Error surfacing on multi-line order submission**: If BC rejects any line during order creation, the GCP API now rolls back (deletes the header) and returns a descriptive HTTP 502 to the frontend.
-- **Safe JSON parsing in GCP API**: `rgmc_create_record` in `bc_functions.py` now uses `_safe_json()` so HTML/empty BC error bodies don't cause cryptic Python tracebacks.
-- All previously implemented features (price sync, offline price fallback, reconnect price prompt, item remove button on SubmitPage, etc.) remain intact.
+- `vue-tsc --noEmit` → no errors
+- `vite build` → succeeds in ~5s, outputs `dist/` with PWA service worker
+- Both feature tracks are fully implemented and integrated
 
-### What is unresolved / partially fixed
-- **Root cause of single-line BC bug is still UNKNOWN**: The GCP API fix makes the error visible (returns 502 with BC's error message) but does not fix the underlying BC-side issue. The actual reason BC was rejecting lines 2+ has NOT been identified because we can't see live BC API responses. The fix will surface the real error on the next test submission.
-- **`rgmc_sales_order_routes.py`** (at `/bc/custom/sales-orders`) was NOT modified — only `/bc/sales-orders` (`sales_order_routes.py`) was fixed, because that is what the frontend calls.
+### Theme fixes (complete)
+- `LandingPage.vue` — `.welcome-name` (username) and `.welcome-label` now correctly show dark text in minimalist mode via `.lp--minimalist` class overrides
+- `ScanningPage.vue` — `.submit-bar` and `.submit-bar__count` now adapt in minimalist via `.scanning--minimalist` (class was already applied; just added CSS)
+- `HistoryPage.vue` — `.grand-total-row` and `.grand-total-label` adapt in minimalist via `.history--minimalist` class
+- `LoginPage.vue` — `.login-title` adapts in minimalist via `.login--minimalist` class
+
+### Bug reporting (complete)
+- `src/version.ts` (NEW) — exports `APP_VERSION = '1.2.0'`; bump on each deployment to trigger tooltip
+- `src/composables/useErrorReporter.ts` (NEW) — `openReport({ error, context })` builds URL with user/brand/company/HTTP status/endpoint/UA and opens `https://rgmc-gateway-935246372408.asiasoutheast1.run.app/report-issue?system=rgmc-consignment-app&error=<encoded>`
+- `src/components/BugReportButton.vue` (NEW) — header icon button with pulsing red dot + slide-down tooltip on first login after new deployment; auto-dismisses in 9s
+- `src/services/api.service.ts` — new `ApiError` class preserving `.status`, `.endpoint`, `.method`; interceptor now throws `ApiError` instead of plain `Error`
+- `src/views/SubmitPage.vue` — "Report to IT/MIS" button in both sales and returns error blocks; `BugReportButton` in header
+- `src/views/HistoryPage.vue` — "Report to IT/MIS" button in failed session detail modal error block; `BugReportButton` in header
+- `src/views/LandingPage.vue` — `BugReportButton` in header
+- `src/views/ScanningPage.vue` — `BugReportButton` in header
 
 ---
 
 ## Files Actively Being Edited
 
-### Frontend — `C:\claude\rgmc-consignment-webapp`
+All edits are complete and saved. No file is in a partial/mid-edit state.
 
-- `src/stores/session.store.ts` — Added `autoSaveDraft()` public method (saves draft without clearing `currentSession`). Added it to the return object. This is distinct from `saveAsDraftAndExit()` which also nulls out `currentSession`.
-
-- `src/views/ScanningPage.vue` — Added `onBeforeRouteLeave` import from `vue-router`. Added `onBeforeRouteLeave(() => { sessionStore.autoSaveDraft(); })` guard immediately after `saveDraftAndGoHome()` function (~line 691).
-
-- `src/views/LandingPage.vue` — Changed "Start New Session" button from `router-link="/app/scan"` to `@click="startNewSession"`. Added `startNewSession()` function that calls `sessionStore.clearCurrentSession()` then `router.push('/app/scan')`.
-
-### GCP API — `C:\RGMC\Source\git\rgmc-gcp-api`
-
-- `src/routers/bc_routes/sales_order_routes.py` — Replaced silent `logger.error` on line-creation failure with a per-line try/except that: (1) raises `ValueError` on non-200/201 BC response, (2) calls `rgmc_delete_record` to roll back the order header, (3) raises `HTTPException(502)` with the BC error detail. Loop variable changed from `for line` to `for i, line in enumerate(lines, start=1)`.
-
-- `src/routers/bc_routes/sales_return_order_routes.py` — Same change as above, matching pattern for return orders.
-
-- `src/services/bc_functions.py` — Changed `rgmc_create_record` return from `response.json()` to `_safe_json(response)` (function already existed in the file at line ~187). This prevents `JSONDecodeError` when BC returns HTML/empty error bodies.
+- `src/version.ts` — NEW. Single export `APP_VERSION`. Must be bumped manually on each GCP deployment.
+- `src/composables/useErrorReporter.ts` — NEW. Composable that builds the IT/MIS report URL with rich context.
+- `src/components/BugReportButton.vue` — NEW. Self-contained header button with deployment tooltip logic. Tooltip tracks version via `localStorage.getItem('rgmc_seen_version')`.
+- `src/services/api.service.ts` — Added `ApiError` class at top of file (before the `import type` block). Updated response error interceptor to use `ApiError` instead of `new Error`.
+- `src/views/LandingPage.vue` — Added `lp--minimalist` class on `<ion-page>`, `isMinimalist` computed, minimalist scoped CSS overrides for welcome hero/label/name/date-row/draft-avatar. Added `BugReportButton` import + `<bug-report-button />` in `slot="end"`.
+- `src/views/ScanningPage.vue` — Added `.scanning--minimalist .submit-bar` and `.scanning--minimalist .submit-bar__count` CSS. Added `BugReportButton` import + `<bug-report-button />` in `slot="end"`.
+- `src/views/HistoryPage.vue` — Added `history--minimalist` class on `<ion-page>`, `isMinimalist` computed, minimalist overrides for `.grand-total-row`/`.grand-total-label`. Added `bugOutline` to ionicons imports, `BugReportButton` + `useErrorReporter` imports, `reportSessionError()` function, "Report to IT/MIS" button in `.error-block` of detail modal. CSS additions for `.error-block-body`, `.error-block-fallback`, `.report-btn`. Added `BugReportButton` to header.
+- `src/views/LoginPage.vue` — Added `login--minimalist` class on `<ion-page>`, `isMinimalist` computed, scoped CSS overrides for `.login-title`, `.login-card` shadow, `.brand-family-tag`.
+- `src/views/SubmitPage.vue` — Added `bugOutline` to ionicons imports, `BugReportButton` + `useErrorReporter` imports, `salesErrorObj`/`returnsErrorObj` refs, `reportSalesError()`/`reportReturnsError()` functions. Updated catch blocks to store error objects. Added "Report to IT/MIS" buttons in both error blocks. Added `.fail-body`/`.fail-actions` CSS. Added `<bug-report-button />` in header `slot="end"`.
 
 ---
 
 ## Failed Attempts
 
-- **Identifying the exact BC-side root cause of the single-line bug**: Could not determine whether the issue was (a) BC auto-creating a blank line that conflicts with the first POST, (b) BC's custom page requiring explicit `lineNo` per line, (c) a validation error on specific fields (e.g., `postingDate` format, unknown fields), or (d) a JSON decode error mid-loop causing a silent partial failure. Could not see live BC API responses. The fix was to surface whatever error BC returns rather than guess-and-patch at the API level.
+- **What was tried**: Using `v-bind(TIP_DURATION + 'ms')` inside a `@keyframes` rule in `BugReportButton.vue` — **Why it failed**: `v-bind()` in `<style scoped>` works for CSS property values but not as a keyframe animation duration string in that syntax. Fixed by hardcoding `9s` in both the `animation:` property and the matching `@keyframes brb-countdown` rule.
 
-- **Adding explicit `lineNo` values (10000, 20000, …) to each line payload**: Considered but not implemented because (a) `lineNo` is not in any of the Pydantic models, suggesting BC's custom page may not expose it, and (b) sending unknown fields to BC's strict OData API can itself cause 400 errors, potentially making things worse. Deferred until the actual BC error is visible via the new surfacing code.
+No other failed attempts. All other changes compiled and ran cleanly on first try.
 
 ---
 
 ## Next Step
 
-**Test a multi-item submission against the live BC environment** to see the real HTTP 502 error body that the GCP API now surfaces.
+**There is no pending work from this session.** The build is clean.
 
-Deploy the updated GCP API (the three changed Python files in `rgmc-gcp-api`) and submit an order with 2+ items. The frontend will now show an error toast/message rather than silently succeeding. The `detail` field of the 502 response will contain BC's actual rejection reason for the failing line (e.g., `"Line 2 creation failed: BC returned 400: {'error': {'code': 'Unknown', 'message': 'You cannot insert a Sales Line...'}}"`.
-
-Once the BC error message is known, fix the underlying cause:
-- If it's a **field mapping issue** (unknown field sent to BC): remove or rename the offending field in `_map_line_payload()` in `sales_order_routes.py` / `sales_return_order_routes.py`.
-- If it's a **`lineNo` conflict** (BC auto-creates a blank line when header is created): add `"lineNo": i * 10000` to each `line_payload` dict in the loop, and expose `lineNo` as an optional field in the Pydantic models.
-- If it's a **`postingDate` issue** in the header: check if Pydantic's `date` → JSON serialization (`"2026-06-10"`) matches what BC's custom page field expects, or whether `postingDate` should be excluded from the header payload entirely.
+The most likely next actions depending on what the user wants:
+1. **Deploy to GCP** — run the standard GCP Cloud Run deploy. After deploying, bump `APP_VERSION` in `src/version.ts` (e.g., `'1.2.0'` -> `'1.3.0'`) so existing users see the bug report tooltip on their next login.
+2. **Test the report URL** — verify the IT/MIS gateway at `https://rgmc-gateway-935246372408.asiasoutheast1.run.app/report-issue` actually accepts the `?system=` and `?error=` parameters and routes them correctly.
+3. **Test minimalist theme on device** — manually switch to minimalist in the ProfileMenu popover and verify the welcome hero name, submit bar, grand total row, and login title all render with dark text.
 
 ---
 
 ## Context & Gotchas
 
-- **Frontend calls `/bc/sales-orders`** (standard `sales_order_router`), NOT `/bc/custom/sales-orders` (`rgmc_sales_order_router`). Verify this if BC behavior seems to differ from what the code expects.
-- **Return orders use `/bc/custom/sales-return-orders`** (the `sales_return_order_router` in `sales_return_order_routes.py`).
-- **`onBeforeRouteLeave` only saves if `currentSession.value.customer` is set** — sessions without a customer are not persisted to drafts. The `visibleDrafts` filter in LandingPage also enforces `d.customer !== null`, so this is consistent.
-- **Ionic's `ion-router-outlet` keeps pages alive** — `onMounted` in ScanningPage only fires once, not on every navigation. The `onBeforeRouteLeave` guard fires on every route change away from the page.
-- **`_saveDraft()` (private) vs `autoSaveDraft()` (public)**: `_saveDraft` is called internally on every mutation (addSalesOrder, setCustomer, etc.). `autoSaveDraft` is the new public variant for the route-leave guard — same logic, but without clearing `currentSession`.
-- **GCP API rollback behavior**: If line creation fails AND the rollback delete also fails (e.g., network issue), the error is logged and the HTTPException is still raised. The frontend gets a 502 either way, but BC may be left with a partial order. This is an edge case.
-- **`SalesOrderCreate.postingDate` is type `date` in Pydantic** (not `str`). `model_dump(mode='json')` serializes it as `"YYYY-MM-DD"`. `SalesReturnOrderCreate.postingDate` is already `str`. This inconsistency exists but hasn't caused a confirmed bug.
-- **TypeScript version**: `npx vue-tsc --noEmit` must pass before any commit. It was clean at the end of this session.
-- **Working directory**: Frontend is at `C:\claude\rgmc-consignment-webapp`. GCP API is at `C:\RGMC\Source\git\rgmc-gcp-api`. They are separate git repos.
+### Theme system
+- Three themes: `'minimalist' | 'light' | 'dark'` stored in `localStorage` under key `rgmc_theme_v2`.
+- Default is `'minimalist'` (set in `useTheme.ts` `getStored()` fallback).
+- Theme applied as `data-theme="minimalist"` attribute on `document.documentElement`.
+- **Key CSS token**: `--app-dark: #ffffff` in `[data-theme="minimalist"]` — this is what causes `var(--app-dark)` callers (welcome hero, submit bar, grand total row) to become white in minimalist, which then requires text overrides in each component.
+- Per-component minimalist overrides use a class (e.g., `.lp--minimalist`) on `<ion-page>` driven by `isMinimalist = computed(() => theme.value === 'minimalist')`. This is necessary because Vue scoped CSS can't directly select `[data-theme="minimalist"]` on `<html>`.
+- Theme toggle is in `ProfileMenu.vue` popover (three pills: Minimal / Light / Dark). It was moved here in a previous session — there are no other theme toggles anywhere.
+
+### Bug reporting
+- `APP_VERSION` in `src/version.ts` must be bumped manually before each GCP deployment for the tooltip to fire. There is no automated version injection.
+- The tooltip is tracked per-device in `localStorage` under key `'rgmc_seen_version'`. If the stored value matches `APP_VERSION`, no tooltip fires.
+- The report URL uses `window.open(..., '_blank')` — on mobile (Capacitor/PWA), this opens in an in-app browser or system browser depending on the platform config.
+- `ApiError` (in `api.service.ts`) is a class, not an interface. Components can use `instanceof ApiError` to extract `.status`, `.endpoint`, `.method`. `useErrorReporter` already does this internally.
+
+### Build / deployment
+- Vite `publicDir` is `public/` — static assets (logos, icons) must be in `public/static/`, NOT the project-root `static/` folder. A prior session fixed the GCP logo-not-showing bug by copying all four logo files (`cons-logo.png`, `cons-logo-splash.png`, `logo.png`, `logo-bnw.png`) into `public/static/`.
+- `vue-tsc --noEmit` (not plain `tsc --noEmit`) is required for type-checking Vue SFCs.
+- The chunk size warning about `index-*.js > 500kB` is pre-existing and not introduced by this session. It is not a build failure.
+
+### Reporting URL
+The full base URL for IT/MIS reporting is:
+```
+https://rgmc-gateway-935246372408.asiasoutheast1.run.app/report-issue
+```
+Parameters appended by `useErrorReporter`:
+- `system=rgmc-consignment-app` (always)
+- `error=<URL-encoded multiline string>` (contains timestamp, user, brand, company, HTTP status, request method+endpoint, error message, page path, user-agent snippet)

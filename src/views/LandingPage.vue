@@ -13,6 +13,7 @@
           </div>
         </ion-title>
         <ion-buttons slot="end">
+          <bug-report-button />
           <profile-menu />
         </ion-buttons>
       </ion-toolbar>
@@ -157,6 +158,7 @@ import {
 } from 'ionicons/icons';
 import ProfileMenu from '@/components/ProfileMenu.vue';
 import WelcomeModal from '@/components/WelcomeModal.vue';
+import BugReportButton from '@/components/BugReportButton.vue';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
 import { StorageService } from '@/services/storage.service';
