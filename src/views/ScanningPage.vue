@@ -1,5 +1,5 @@
 <template>
-  <ion-page>
+  <ion-page :class="{ 'scanning--minimalist': isMinimalist }">
     <!-- ── Header ── -->
     <ion-header :class="{ 'gold-online-pulse': headerPulseActive }">
       <ion-toolbar>
@@ -642,8 +642,9 @@ const sessionStore = useSessionStore();
 const { isSyncing, syncError, lastSyncDate, lastSyncLabel, sync } = useSync();
 const { isOnline, isSlowConnection } = useNetworkStatus();
 const { theme } = useTheme();
+const isMinimalist = computed(() => theme.value === 'minimalist');
 const headerLogoSrc = computed(() =>
-  theme.value === 'minimalist' ? '/static/logo-bnw.png' : '/static/cons-logo.png',
+  isMinimalist.value ? '/static/logo-bnw.png' : '/static/cons-logo.png',
 );
 const { headerPulseActive, submitFlashActive, triggerSubmitFlash } = useGoldAccent();
 
@@ -1088,6 +1089,13 @@ async function toast(message: string, color: string) {
   --border-color: rgba(255, 255, 255, 0.05);
   min-height: 32px;
 }
+
+.scanning--minimalist .sync-bar {
+  --background: #f4f4f4;
+  --border-color: #e4e4e4;
+}
+.scanning--minimalist .sync-info-text { color: rgba(0, 0, 0, 0.4); }
+.scanning--minimalist .sync-today     { color: var(--app-gold); }
 .sync-bar-inner {
   display: flex;
   align-items: center;

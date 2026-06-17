@@ -283,7 +283,7 @@ async function onLogout() {
 }
 
 .pop-item:active {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .pop-item--disabled {

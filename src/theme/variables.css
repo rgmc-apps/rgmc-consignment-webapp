@@ -186,6 +186,9 @@
   --app-warn-text:    #6a5900;
   --app-error-border: #fecaca;
 
+  /* App dark token — override so var(--app-dark) callers go light */
+  --app-dark: #ffffff;
+
   /* Ion system overrides */
   --ion-background-color:     #f8f8f8;
   --ion-text-color:           #3a3a3a;
@@ -639,3 +642,18 @@ ion-header.gold-online-pulse {
   color: rgba(255, 255, 255, 0.65);
   line-height: 1.4;
 }
+
+/* ── Offline toast — minimalist mode ── */
+[data-theme="minimalist"] .offline-toast {
+  --background: #ffffff;
+  --color: #333333;
+  --box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="minimalist"] .offline-toast::part(container) {
+  border: 1px solid #e4e4e4;
+  border-top: 3px solid #555555;
+}
+
+[data-theme="minimalist"] .offline-toast-body strong { color: #1a1a1a; }
+[data-theme="minimalist"] .offline-toast-body span   { color: rgba(0, 0, 0, 0.5); }

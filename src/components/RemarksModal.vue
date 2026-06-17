@@ -1,6 +1,6 @@
 <template>
   <ion-modal :is-open="isOpen" @did-dismiss="onDismiss" class="remarks-modal">
-    <div class="rm-sheet">
+    <div class="rm-sheet" :class="{ 'rm-minimalist': isMinimalist }">
 
       <!-- Drag handle -->
       <div class="rm-handle" />
@@ -48,9 +48,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import { IonModal, IonIcon } from '@ionic/vue';
 import { cartOutline, returnDownBackOutline, sendOutline } from 'ionicons/icons';
+import { useTheme } from '@/composables/useTheme';
 
 const props = defineProps<{
   isOpen: boolean;
@@ -61,6 +62,9 @@ const emit = defineEmits<{
   confirm: [remarks: string];
   cancel: [];
 }>();
+
+const { theme } = useTheme();
+const isMinimalist = computed(() => theme.value === 'minimalist');
 
 const remarks = ref('');
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
@@ -244,6 +248,32 @@ function onDismiss() {
 .rm-btn--submit.rm-btn--returns { background: var(--ion-color-danger);   }
 
 .rm-safe-bottom { height: max(16px, env(safe-area-inset-bottom)); }
+
+/* ── Minimalist theme overrides ── */
+.rm-minimalist {
+  background: #ffffff;
+  border-top: 1px solid #e4e4e4;
+}
+.rm-minimalist .rm-handle { background: rgba(0, 0, 0, 0.14); }
+.rm-minimalist .rm-textarea {
+  background: #f8f8f8;
+  border-color: #e0e0e0;
+}
+.rm-minimalist .rm-textarea::placeholder { color: rgba(0, 0, 0, 0.3); }
+.rm-minimalist .rm-textarea:focus {
+  border-color: rgba(85, 85, 85, 0.4);
+  box-shadow: 0 0 0 3px rgba(85, 85, 85, 0.07);
+}
+.rm-minimalist .rm-char-count { color: rgba(0, 0, 0, 0.3); }
+.rm-minimalist .rm-btn--cancel {
+  background: #f0f0f0;
+  border-color: #e0e0e0;
+  color: #555;
+}
+.rm-minimalist .rm-btn--cancel:hover {
+  background: #e8e8e8;
+  color: #333;
+}
 </style>
 
 <!-- Bottom-sheet positioning — sheet anchors to the bottom of the screen -->

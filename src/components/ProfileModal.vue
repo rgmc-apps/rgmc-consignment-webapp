@@ -1,6 +1,6 @@
 <template>
   <ion-modal :is-open="isOpen" @did-dismiss="emit('close')">
-    <ion-page>
+    <ion-page :class="{ 'profile--minimalist': isMinimalist }">
       <ion-header>
         <ion-toolbar>
           <ion-title>Profile</ion-title>
@@ -187,8 +187,11 @@ import bcrypt from 'bcryptjs';
 import { useAuthStore } from '@/stores/auth.store';
 import { ApiService } from '@/services/api.service';
 import UserAvatar from '@/components/UserAvatar.vue';
+import { useTheme } from '@/composables/useTheme';
 
 defineProps<{ isOpen: boolean }>();
+const { theme } = useTheme();
+const isMinimalist = computed(() => theme.value === 'minimalist');
 const emit = defineEmits<{ close: [] }>();
 
 const authStore = useAuthStore();
@@ -273,6 +276,15 @@ async function savePassword() {
 </script>
 
 <style scoped>
+/* ── Minimalist hero overrides ── */
+.profile--minimalist .profile-hero {
+  background: #f4f4f4;
+  border-bottom: 1px solid #e4e4e4;
+}
+.profile--minimalist .profile-hero::after { display: none; }
+.profile--minimalist .hero-name { color: #2a2a2a; }
+.profile--minimalist .hero-avatar-badge { border-color: #f4f4f4; }
+
 /* ── Hero ── */
 .profile-hero {
   background: var(--app-dark);
