@@ -1,5 +1,5 @@
 <template>
-  <ion-page class="login-page">
+  <ion-page :class="['login-page', { 'login--minimalist': isMinimalist }]">
 
     <!-- Password setup modal — shown when account has no valid bcrypt hash -->
     <set-password-modal :is-open="authStore.forcePasswordSetup" />
@@ -186,8 +186,9 @@ import { useTheme } from '@/composables/useTheme';
 import type { Brand, Company } from '@/types';
 
 const { theme } = useTheme();
+const isMinimalist = computed(() => theme.value === 'minimalist');
 const logoSrc = computed(() =>
-  theme.value === 'minimalist' ? '/static/logo-bnw.png' : '/static/cons-logo.png',
+  isMinimalist.value ? '/static/logo-bnw.png' : '/static/cons-logo.png',
 );
 
 const router = useRouter();
@@ -571,5 +572,16 @@ async function handleLogin() {
 
 .login-field--unlocking {
   animation: field-unlock 0.55s var(--ease-out-expo) both;
+}
+
+/* ── Minimalist overrides ── */
+.login--minimalist .login-title { color: #1a1a1a; }
+.login--minimalist .login-card {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+.login--minimalist .brand-family-tag {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #555555;
 }
 </style>

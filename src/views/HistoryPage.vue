@@ -1,5 +1,5 @@
 <template>
-  <ion-page>
+  <ion-page :class="{ 'history--minimalist': isMinimalist }">
     <!-- ── Header ── -->
     <ion-header>
       <ion-toolbar>
@@ -331,8 +331,9 @@ import type { ScanSession } from '@/types';
 const router = useRouter();
 const sessionStore = useSessionStore();
 const { theme } = useTheme();
+const isMinimalist = computed(() => theme.value === 'minimalist');
 const headerLogoSrc = computed(() =>
-  theme.value === 'minimalist' ? '/static/logo-bnw.png' : '/static/cons-logo.png',
+  isMinimalist.value ? '/static/logo-bnw.png' : '/static/cons-logo.png',
 );
 
 function onPullRefresh(ev: CustomEvent) {
@@ -757,4 +758,11 @@ ion-list ion-item:nth-child(8) { animation: fade-slide-up 0.28s var(--ease-out-q
 .section-block  { animation: fade-slide-up 0.32s var(--ease-out-quart) 0.06s both; }
 .grand-total-row { animation: fade-slide-up 0.32s var(--ease-out-quart) 0.13s both; }
 .retry-wrap     { animation: fade-slide-up 0.32s var(--ease-out-quart) 0.17s both; }
+
+/* ── Minimalist overrides ── */
+.history--minimalist .grand-total-row {
+  background: #f0f0f0;
+  border-color: #e4e4e4;
+}
+.history--minimalist .grand-total-label { color: rgba(0, 0, 0, 0.4); }
 </style>

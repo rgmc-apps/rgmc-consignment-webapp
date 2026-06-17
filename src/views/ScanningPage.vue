@@ -1096,6 +1096,11 @@ async function toast(message: string, color: string) {
 }
 .scanning--minimalist .sync-info-text { color: rgba(0, 0, 0, 0.4); }
 .scanning--minimalist .sync-today     { color: var(--app-gold); }
+.scanning--minimalist .submit-bar {
+  background: #f4f4f4;
+  border-top-color: #e4e4e4;
+}
+.scanning--minimalist .submit-bar__count { color: rgba(0, 0, 0, 0.4); }
 .sync-bar-inner {
   display: flex;
   align-items: center;

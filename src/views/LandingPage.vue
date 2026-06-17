@@ -1,5 +1,5 @@
 <template>
-  <ion-page>
+  <ion-page :class="{ 'lp--minimalist': isMinimalist }">
 
     <!-- First-login welcome tour (shown once, stored in localStorage) -->
     <welcome-modal :is-open="showWelcome" @done="onWelcomeDone" />
@@ -168,8 +168,9 @@ const router = useRouter();
 const authStore = useAuthStore();
 const sessionStore = useSessionStore();
 const { theme } = useTheme();
+const isMinimalist = computed(() => theme.value === 'minimalist');
 const headerLogoSrc = computed(() =>
-  theme.value === 'minimalist' ? '/static/logo-bnw.png' : '/static/cons-logo.png',
+  isMinimalist.value ? '/static/logo-bnw.png' : '/static/cons-logo.png',
 );
 
 const showWelcome = ref(!StorageService.hasSeenWelcome());
@@ -491,4 +492,27 @@ async function confirmDeleteDraft(id: string) {
 .customers-list ion-item:nth-child(6) { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.25s both; }
 .customers-list ion-item:nth-child(7) { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.29s both; }
 .customers-list ion-item:nth-child(8) { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.33s both; }
+
+/* ── Minimalist overrides ── */
+.lp--minimalist .welcome-hero {
+  background: #f4f4f4;
+  border-bottom: 1px solid #e4e4e4;
+}
+.lp--minimalist .welcome-hero::before { display: none; }
+.lp--minimalist .welcome-hero::after {
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.09), transparent);
+}
+.lp--minimalist .welcome-label { color: rgba(0, 0, 0, 0.38); }
+.lp--minimalist .welcome-name  { color: #1a1a1a; }
+.lp--minimalist .welcome-date-row {
+  color: #555555;
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+.lp--minimalist .draft-item { --background: rgba(0, 0, 0, 0.02); }
+.lp--minimalist .draft-avatar {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #555555;
+}
 </style>
