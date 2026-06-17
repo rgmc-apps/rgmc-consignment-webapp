@@ -14,7 +14,7 @@ export default defineConfig(({ mode }) => {
       VitePWA({
         registerType: 'autoUpdate',
         injectRegister: 'auto',
-        includeAssets: ['static/cons-logo.png', 'static/logo.png'],
+        includeAssets: ['static/cons-logo.png', 'static/cons-logo-splash.png', 'static/logo.png', 'static/logo-bnw.png'],
         manifest: {
           name: 'RGMC Consignment',
           short_name: 'RGMC',

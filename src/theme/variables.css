@@ -151,7 +151,7 @@
   --app-border:      #e4e4e4;
 
   /* Text */
-  --app-fg:         #1a1a1a;
+  --app-fg:         #3a3a3a;
   --app-text-muted: #909090;
 
   /* Gold → neutral gray */
@@ -162,11 +162,11 @@
 
   /* Header: clean white */
   --app-header-bg:    #ffffff;
-  --app-header-color: #1a1a1a;
+  --app-header-color: #333333;
 
   /* Tabs: clean white */
   --app-tab-bg:         #ffffff;
-  --app-tab-selected:   #1a1a1a;
+  --app-tab-selected:   #3a3a3a;
   --app-tab-unselected: #aaaaaa;
 
   /* Shadows: very minimal */
@@ -188,7 +188,7 @@
 
   /* Ion system overrides */
   --ion-background-color:     #f8f8f8;
-  --ion-text-color:           #1a1a1a;
+  --ion-text-color:           #3a3a3a;
   --ion-item-background:      #ffffff;
   --ion-card-background:      #ffffff;
   --ion-searchbar-background: #f0f0f0;

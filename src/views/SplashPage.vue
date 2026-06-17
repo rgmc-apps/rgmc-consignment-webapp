@@ -1,5 +1,5 @@
 <template>
-  <ion-page class="splash">
+  <ion-page class="splash" :class="{ 'splash--minimalist': isMinimalist }">
     <ion-content :fullscreen="true" class="splash-content">
       <div class="splash-body">
 
@@ -113,8 +113,9 @@ import { useTheme } from '@/composables/useTheme';
 import type { Company } from '@/types';
 
 const { theme } = useTheme();
+const isMinimalist = computed(() => theme.value === 'minimalist');
 const logoSrc = computed(() =>
-  theme.value === 'minimalist' ? '/static/logo-bnw.png' : '/static/cons-logo-splash.png',
+  isMinimalist.value ? '/static/logo-bnw.png' : '/static/cons-logo-splash.png',
 );
 
 type StepStatus = 'idle' | 'loading' | 'done' | 'error';
@@ -244,6 +245,36 @@ onMounted(async () => {
 /* ── Layout ── */
 .splash { --background: #1a1a1a; }
 .splash-content { --background: #1a1a1a; }
+
+/* ── Minimalist theme overrides ── */
+.splash--minimalist { --background: #f7f7f7; }
+.splash--minimalist .splash-content { --background: #f7f7f7; }
+.splash--minimalist .phase-label { color: #666; }
+.splash--minimalist .select-prompt { color: #777; }
+.splash--minimalist .company-select-box {
+  background: #f0f0f0;
+  border-color: #dedede;
+  animation: select-box-in 0.4s var(--ease-out-expo) 0.1s both;
+}
+.splash--minimalist .company-select {
+  --color: #333;
+  --placeholder-color: #888;
+}
+.splash--minimalist .step__label { color: #666; }
+.splash--minimalist .step--done .step__label { color: #333; }
+.splash--minimalist .step__dot { background: #cccccc; }
+.splash--minimalist .error-block__msg { color: #666; }
+.splash--minimalist .progress-track { background: #e4e4e4; }
+.splash--minimalist .phase-spinner { color: #888; }
+.splash--minimalist .step__icon ion-spinner { color: #888; }
+.splash--minimalist .splash-version { color: #bbb; }
+.splash--minimalist .retry-btn {
+  --background: #555;
+  --background-activated: #333;
+}
+.splash--minimalist .logo-wrap--breathing {
+  animation: logo-enter 0.7s var(--ease-out-expo) both;
+}
 
 .splash-body {
   min-height: 100%;
