@@ -2,7 +2,16 @@ import { defineConfig, loadEnv } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { VitePWA } from 'vite-plugin-pwa';
 import { fileURLToPath, URL } from 'node:url';
+import { execSync } from 'node:child_process';
 import { version } from './package.json';
+
+function getBuildNumber(): string {
+  try {
+    return execSync('git rev-list --count HEAD', { encoding: 'utf-8' }).trim();
+  } catch {
+    return '0';
+  }
+}
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
@@ -38,6 +47,7 @@ export default defineConfig(({ mode }) => {
     ],
     define: {
       __APP_VERSION__: JSON.stringify(version),
+      __APP_BUILD__:   JSON.stringify(getBuildNumber()),
     },
     resolve: {
       alias: {

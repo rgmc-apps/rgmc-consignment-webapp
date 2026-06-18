@@ -1,7 +1,7 @@
 import { useAuthStore } from '@/stores/auth.store';
 import { ApiError } from '@/services/api.service';
 
-const REPORT_BASE = 'https://rgmc-gateway-935246372408.asiasoutheast1.run.app/report-issue';
+const REPORT_BASE = `${import.meta.env.VITE_GATEWAY_URL ?? 'https://rgmc-gateway-935246372408.asia-southeast1.run.app'}/report-issue`;
 
 export interface ReportContext {
   error?: unknown;
