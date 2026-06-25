@@ -6,10 +6,11 @@ const REPORT_BASE = `${import.meta.env.VITE_GATEWAY_URL ?? 'https://rgmc-gateway
 export interface ReportContext {
   error?: unknown;
   context?: string;
+  payload?: unknown;
 }
 
 export function useErrorReporter() {
-  function openReport({ error, context }: ReportContext = {}): void {
+  function openReport({ error, context, payload }: ReportContext = {}): void {
     const authStore = useAuthStore();
 
     const lines: string[] = ['[RGMC Consignment App Bug Report]'];
@@ -30,12 +31,27 @@ export function useErrorReporter() {
       lines.push(`Error    : ${String(error)}`);
     }
 
-    lines.push(`Page     : ${window.location.pathname}`);
+    const screen = window.location.pathname;
+    lines.push(`Page     : ${screen}`);
     lines.push(`UA       : ${navigator.userAgent.slice(0, 80)}`);
 
     const url = new URL(REPORT_BASE);
     url.searchParams.set('system', 'rgmc-consignment-app');
     url.searchParams.set('error', lines.join('\n'));
+
+    const apiBody = error instanceof ApiError ? error.body : undefined;
+    const resolvedPayload = payload ?? apiBody;
+    if (resolvedPayload != null || apiBody != null) {
+      const payloadObj = {
+        screen,
+        ...(resolvedPayload != null
+          ? (typeof resolvedPayload === 'object' && resolvedPayload !== null
+              ? (resolvedPayload as object)
+              : { data: resolvedPayload })
+          : {}),
+      };
+      url.searchParams.set('payload', JSON.stringify(payloadObj));
+    }
     window.open(url.toString(), '_blank');
   }
 

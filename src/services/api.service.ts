@@ -7,6 +7,7 @@ export class ApiError extends Error {
     public readonly status?: number,
     public readonly endpoint?: string,
     public readonly method?: string,
+    public readonly body?: unknown,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -82,7 +83,13 @@ apiClient.interceptors.response.use(
     const status: number | undefined = error.response?.status;
     const endpoint: string | undefined = error.config?.url;
     const method: string | undefined = error.config?.method?.toUpperCase();
-    return Promise.reject(new ApiError(message, status, endpoint, method));
+    let body: unknown;
+    try {
+      body = error.config?.data
+        ? (typeof error.config.data === 'string' ? JSON.parse(error.config.data) : error.config.data)
+        : undefined;
+    } catch { body = error.config?.data; }
+    return Promise.reject(new ApiError(message, status, endpoint, method, body));
   },
 );
 

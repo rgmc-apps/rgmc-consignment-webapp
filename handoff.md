@@ -1,7 +1,119 @@
 # Handoff
 
 ## Goal
-Maintain and extend the RGMC Consignment Web App — an Ionic/Vue 3 PWA used by field sales agents to scan items and submit sales/return orders to Business Central via a GCP API gateway. The app runs offline-capable and is deployed to GCP Cloud Run.
+
+Three separate tasks were in progress across two repos — `C:\claude\rgmc-consignment-webapp` (Ionic/Vue) and `C:\claude\rgmc-gateway` (Flask/Python admin portal):
+
+1. **Fix the Report-a-Bug link** — The "Report a Bug" button in the consignment app opens the gateway's `/report-issue` page. It was returning `ERR_CERT_COMMON_NAME_INVALID`. The root cause identified: the hardcoded URL had a malformed region (`asiasoutheast1` instead of `asia-southeast1`). A fix was applied but the user confirmed the error **still persists**, meaning the actual deployed gateway URL is unknown and needs to be confirmed from GCP Cloud Run.
+
+2. **Auto-incrementing build version** — ✅ Complete. Every `vite build` now stamps the app with `v{version} · build {commitCount}`. Displayed at the bottom of the Profile modal.
+
+3. **Brands & Brand Prompts config screen** — ❌ Not started. User wants:
+   - Two new Supabase tables: `brands` (brand_id uuid PK, brand_code text UNIQUE, brand_name text, brand_desc text) and `brand_prompts` (id uuid PK, brand_id uuid FK → brands, brand_prompt text, is_active boolean, created_at timestamptz)
+   - New "Brands" and "Brand Prompts" sub-tabs inside the existing Configurations panel of the gateway admin (`/admin`) — full CRUD with a brands dropdown on the prompt form
+   - Supabase project: `https://eesrzpgmsrbhjeenfojq.supabase.co` (same project already used by the gateway)
+
+---
+
+## Current State
+
+### Task 1 — Report-a-Bug URL (partial / still broken)
+- `useErrorReporter.ts` now reads `VITE_GATEWAY_URL` env var with a corrected fallback. Both `.env` and `.env.production` were updated.
+- **Still broken**: User confirmed `ERR_CERT_COMMON_NAME_INVALID` persists after the fix. The actual deployed gateway URL has not been confirmed. There is no `.env` in `C:\claude\rgmc-gateway` (only `.env.example`), so the deployed URL is unknown locally.
+
+### Task 2 — Build version ✅ Complete
+All changes are in the consignment webapp and working.
+
+### Task 3 — Brands config screen ❌ Not started
+All relevant gateway files were read for planning. No code written. An attempted first write (SQL migration file) was rejected/interrupted by the user before it was created.
+
+---
+
+## Files Actively Being Edited
+
+### `C:\claude\rgmc-consignment-webapp`
+
+- `src/composables/useErrorReporter.ts` — `REPORT_BASE` changed to env-var driven: `${import.meta.env.VITE_GATEWAY_URL ?? 'https://rgmc-gateway-935246372408.asia-southeast1.run.app'}/report-issue`. Done but URL may still be wrong.
+- `.env` — Added `VITE_GATEWAY_URL=https://rgmc-gateway-935246372408.asia-southeast1.run.app`. May need updating once correct URL is confirmed.
+- `.env.production` — Same `VITE_GATEWAY_URL` addition.
+- `src/env.d.ts` — Added `declare const __APP_BUILD__: string;` at line 4. Done.
+- `vite.config.ts` — Added `import { execSync }`, `getBuildNumber()` function, and `__APP_BUILD__` in `define`. Done.
+- `src/components/ProfileModal.vue` — Added "App" section (lines 152–157) with version/build display, added `appVersion`/`appBuild` constants in `<script setup>`, added `.app-version-block` styles. Done.
+
+### `C:\claude\rgmc-gateway`
+
+No files have been modified. All reading was planning only.
+
+---
+
+## Failed Attempts
+
+- **What was tried**: Assumed gateway URL typo was `asiasoutheast1` → fixed to `asia-southeast1`. — **Why it failed**: User confirmed `ERR_CERT_COMMON_NAME_INVALID` still occurs. Root cause not fully resolved — the gateway may be on a custom domain or a completely different URL.
+
+- **What was tried**: Creating `C:\claude\rgmc-gateway\migrations\add_brands.sql` as first step for Task 3. — **Why it failed**: User interrupted/rejected the file write. Preference appears to be providing SQL as a code block for manual execution in Supabase SQL Editor, not storing it as a project file.
+
+---
+
+## Next Step
+
+**Resolve the gateway URL.** Ask the user to run:
+```
+gcloud run services describe rgmc-gateway --region asia-southeast1 --format "value(status.url)"
+```
+Or check GCP → Cloud Run → rgmc-gateway → Domain Mappings. Once the real URL is known, update `VITE_GATEWAY_URL` in both `.env` and `.env.production`.
+
+**Then implement Task 3 (Brands config screen).** Full plan:
+
+1. **SQL** — Provide as code block for Supabase SQL Editor:
+   ```sql
+   CREATE TABLE IF NOT EXISTS brands (
+     brand_id   uuid         DEFAULT gen_random_uuid() PRIMARY KEY,
+     brand_code text         NOT NULL UNIQUE,
+     brand_name text         NOT NULL,
+     brand_desc text
+   );
+   CREATE TABLE IF NOT EXISTS brand_prompts (
+     id           uuid        DEFAULT gen_random_uuid() PRIMARY KEY,
+     brand_id     uuid        NOT NULL REFERENCES brands(brand_id) ON DELETE CASCADE,
+     brand_prompt text        NOT NULL,
+     is_active    boolean     NOT NULL DEFAULT false,
+     created_at   timestamptz NOT NULL DEFAULT now()
+   );
+   ALTER TABLE brands        ENABLE ROW LEVEL SECURITY;
+   ALTER TABLE brand_prompts ENABLE ROW LEVEL SECURITY;
+   ```
+
+2. **`controllers/public.py`** — Add public `GET /api/brands` returning `brand_id, brand_code, brand_name` ordered by `brand_name`.
+
+3. **`controllers/admin.py`** — Add admin-guarded endpoints:
+   - `GET/POST /api/admin/config/brands`
+   - `PATCH/DELETE /api/admin/config/brands/<brand_id>`
+   - `GET/POST /api/admin/config/brand-prompts`
+   - `PATCH/DELETE /api/admin/config/brand-prompts/<prompt_id>` — PATCH activating a prompt must deactivate all others for same `brand_id` first
+
+4. **`templates/admin.html`** — Add two sub-tab buttons (`data-ctab="brands"` and `data-ctab="brand-prompts"`) to `#configSubTabs`, two config sub-panels (`#config-panel-brands`, `#config-panel-brand-prompts`), and two modals (`#cfgBrandModal` with code/name/desc fields, `#cfgBrandPromptModal` with brand dropdown + prompt textarea + is_active toggle).
+
+5. **`static/admin.js`** — Add state vars (`_cfgBrandsCache`, `_cfgBrandPromptsCache`, `_cfgBrandEditId`, `_cfgBrandPromptEditId`), update `_loadCurrentConfigSub()` and Escape key handler, add full CRUD functions following the exact patterns of the existing NSI/Companies config sections.
+
+---
+
+## Context & Gotchas
+
+- **Two repos**: `C:\claude\rgmc-consignment-webapp` (Ionic/Vue scanning app) and `C:\claude\rgmc-gateway` (Flask admin portal). Task 3 is entirely in the gateway.
+
+- **Gateway admin auth**: All `/api/admin/*` endpoints must call `_require_admin()` from `services/guards.py`. Public endpoints like `/api/brands` do NOT need it.
+
+- **Supabase service key bypasses RLS**: All gateway DB calls use `SUPABASE_SERVICE_KEY`. No permissive RLS policies needed — enabling RLS is sufficient for the tables.
+
+- **`brand_prompts` PK is `id`, not `brand_id`**: `brand_id` is the FK column. The PATCH/DELETE endpoint path param is `prompt_id` mapped to `id`.
+
+- **Only one active prompt per brand**: When activating a prompt, first PATCH all other `brand_prompts` rows with the same `brand_id` to `is_active=false`, then set the target to `is_active=true`.
+
+- **Config sub-tabs use `data-ctab`** (not `data-tab`). Panels use id `config-panel-{ctab}`. `switchConfigTab()` and `.config-sub-panel` class drive visibility. New tabs must match exactly.
+
+- **Shared modal helpers** `_resetCfgModal`, `_setCfgLoading`, `_showCfgError` take a prefix string (e.g. `'cfgBrand'`) and look up DOM elements by id like `cfgBrandFormActions`, `cfgBrandFormLoading`, `cfgBrandFormError`, `cfgBrandErrorMsg`. New modals must have those exact element ids.
+
+- **ERR_CERT_COMMON_NAME_INVALID** means TLS cert hostname mismatch — not an expired cert. Cloud Run default `*.run.app` URLs have valid Google certs. If error persists with corrected region format, the gateway likely has a custom domain configured in Cloud Run with a missing or misconfigured SSL certificate. Check GCP → Cloud Run → rgmc-gateway → Domain Mappings tab.
 
 This session had two tracks:
 1. **Theme color consistency** — ensure all UI elements adapt correctly across the three themes: `light` (default branded dark-header style), `dark` (full dark mode), and `minimalist` (all-white, low-contrast). The user reported the username on the home page was showing as white on white in minimalist mode.
