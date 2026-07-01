@@ -1,5 +1,5 @@
 <template>
-  <ion-modal :is-open="isOpen" :can-dismiss="false">
+  <ion-modal ref="modalRef" :is-open="isOpen" :can-dismiss="false">
     <ion-page class="set-pw-page">
       <ion-content :fullscreen="true" class="set-pw-content">
         <div class="set-pw-container">
@@ -83,6 +83,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import type { ComponentPublicInstance } from 'vue';
 import {
   IonModal,
   IonPage,
@@ -110,6 +111,7 @@ defineProps<{ isOpen: boolean }>();
 
 const authStore = useAuthStore();
 
+const modalRef = ref<ComponentPublicInstance<{ $el: HTMLIonModalElement }> | null>(null);
 const newPassword = ref('');
 const confirmPassword = ref('');
 const showNew = ref(false);
@@ -138,8 +140,9 @@ async function submit() {
   isSaving.value = true;
   try {
     await authStore.completePasswordSetup(newPassword.value);
-    // Modal closes automatically (forcePasswordSetup → false), revealing the login page.
-    // Show a toast so the user knows to sign in with the new password.
+    newPassword.value = '';
+    confirmPassword.value = '';
+    await modalRef.value?.$el.dismiss();
     const t = await toastController.create({
       message: 'Password set! Sign in with your new password.',
       duration: 3000,
