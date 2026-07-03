@@ -18,7 +18,7 @@ export const useAuthStore = defineStore('auth', () => {
   const photoUrl = ref<string | null>(StorageService.getAuthPhoto());
 
   // Restore the API interceptor if a company was already persisted (e.g. page refresh)
-  if (company.value) setApiCompany(company.value);
+  if (company.value) setApiCompany(company.value.name);
 
   /** Set when a matched contact has an empty or non-bcrypt passwordHash */
   const forcePasswordSetup = ref(false);
@@ -43,7 +43,7 @@ export const useAuthStore = defineStore('auth', () => {
     const savedCompany = StorageService.getCompany();
     if (savedCompany) {
       company.value = savedCompany;
-      setApiCompany(savedCompany);
+      setApiCompany(savedCompany.name);
     }
     if (saved) {
       brand.value = saved.brand;
@@ -146,7 +146,7 @@ export const useAuthStore = defineStore('auth', () => {
         company.value = selectedCompany;
         brand.value = selectedBrand;
         user.value = upgraded;
-        setApiCompany(selectedCompany);
+        setApiCompany(selectedCompany.name);
         StorageService.setCompany(selectedCompany);
         StorageService.setAuth({ brand: selectedBrand, user: upgraded, company: selectedCompany });
         ApiService.updateContact(upgraded.id, { passwordHash: hash }).catch(() => {});
@@ -176,7 +176,7 @@ export const useAuthStore = defineStore('auth', () => {
       company.value = selectedCompany;
       brand.value = selectedBrand;
       user.value = candidate;
-      setApiCompany(selectedCompany);
+      setApiCompany(selectedCompany.name);
       StorageService.setCompany(selectedCompany);
       StorageService.setAuth({ brand: selectedBrand, user: candidate, company: selectedCompany });
       fetchAndCachePhoto();
