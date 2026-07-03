@@ -282,7 +282,7 @@ watch(selectedCompanyId, (id) => {
   const company = companies.value.find((c) => c.id === id);
   /* Point the API interceptor at the newly selected company so all /bc/ calls
      below pick up the correct ?company= param */
-  setApiCompany(company?.name ?? null);
+  setApiCompany(company ?? null);
 
   loadBrands();
   loadContacts();

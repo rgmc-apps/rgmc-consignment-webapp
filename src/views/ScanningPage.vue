@@ -868,7 +868,7 @@ async function fetchActivePrice(itemNumber: string, onDate: string): Promise<voi
   fetchingPrice.value = true;
   try {
     const price = await lookupPrice(itemNumber, onDate);
-    const resolved = price ?? confirmItem.value?.unitPrice ?? 0;
+    const resolved = price ?? confirmItem.value?.unitPriceIncVAT ?? 0;
     confirmedSrp.value = resolved;
     form.srp = resolved;
     if (price !== null && isOnline.value) {
@@ -945,14 +945,14 @@ function onItemSelected(item: Item) {
   form.itemNumber = item.number;
   form.itemName = item.displayName;
   form.description = item.description || item.displayName;
-  form.srp = item.unitPrice;
+  form.srp = item.unitPriceIncVAT;
   form.categoryCode = item.itemCategoryCode || form.categoryCode;
   form.quantity = 1;
   form.discountType = 'percent';
   form.discountValue = 0;
   showItemModal.value = false;
   confirmItem.value = item;
-  confirmedSrp.value = item.unitPrice;
+  confirmedSrp.value = item.unitPriceIncVAT;
   confirmQty.value = 1;
   confirmDiscountType.value = 'percent';
   confirmDiscountValue.value = 0;

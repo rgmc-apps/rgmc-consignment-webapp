@@ -40,14 +40,20 @@ const apiClient = axios.create({
 });
 
 /*
- * Selected company name — set once at login and restored on startup.
- * The request interceptor below injects it as `?company=<name>` on every
- * /bc/ call so individual methods never need to handle it.
+ * Selected company — set once at login and restored on startup.
+ * The request interceptor injects ?company=<name> on every /bc/ call.
+ * _companyId is used to build v2 BC API paths that embed the company.
  */
 let _companyName: string | null = null;
+let _companyId: string | null = null;
 
-export function setApiCompany(name: string | null): void {
-  _companyName = name;
+export function setApiCompany(company: { name: string; id: string } | null): void {
+  _companyName = company?.name ?? null;
+  _companyId   = company?.id   ?? null;
+}
+
+function itemPricesV2(suffix = ''): string {
+  return `/api/rgmc/rgmccustom/v2.0/companies(${_companyId})/itemPrices${suffix}`;
 }
 
 apiClient.interceptors.request.use((config) => {
@@ -206,11 +212,11 @@ export const ApiService = {
 
   async getActiveItemPrice(productNo: string, onDate: string): Promise<number | null> {
     try {
-      const res = await apiClient.get('/bc/custom/item-prices/active', {
+      const res = await apiClient.get(itemPricesV2('/active'), {
         params: { product_no: productNo, on_date: onDate },
       });
       const d = res.data as Record<string, unknown>;
-      const price = d?.unitPrice ?? d?.unit_price ?? d?.price;
+      const price = d?.unitPriceIncVAT ?? d?.unitPrice ?? d?.unit_price ?? d?.price;
       return typeof price === 'number' ? price : null;
     } catch {
       return null;
@@ -220,18 +226,18 @@ export const ApiService = {
   async updateCachedItemPrice(productNo: string, unitPrice: number, onDate?: string): Promise<void> {
     const params: Record<string, string> = { product_no: productNo };
     if (onDate) params['on_date'] = onDate;
-    await apiClient.patch('/bc/custom/item-prices/cache', { unitPrice }, { params });
+    await apiClient.patch(itemPricesV2('/cache'), { unitPriceIncVAT: unitPrice }, { params });
   },
 
   async getAllItemPricesForDate(onDate: string): Promise<Record<string, number>> {
-    const res = await apiClient.get('/bc/custom/item-prices', {
+    const res = await apiClient.get(itemPricesV2(), {
       params: { on_date: onDate },
     });
     const rows = extractList<Record<string, unknown>>(res.data);
     const map: Record<string, number> = {};
     for (const row of rows) {
       const no = row['productNo'] as string | undefined;
-      const price = (row['unitPrice'] ?? row['unit_price']) as number | undefined;
+      const price = (row['unitPriceIncVAT'] ?? row['unitPrice'] ?? row['unit_price']) as number | undefined;
       if (no && typeof price === 'number' && !(no in map)) {
         map[no] = price;
       }

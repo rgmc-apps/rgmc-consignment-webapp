@@ -162,7 +162,7 @@ export const StorageService = {
       description: i.description ? i.description.slice(0, 120) : '',
       itemCategoryCode: i.itemCategoryCode,
       familyCode: i.familyCode,
-      unitPrice: i.unitPrice,
+      unitPriceIncVAT: i.unitPriceIncVAT,
     })) as Item[];
     _itemsMemory = slim;
     // Persist to IndexedDB — fire and forget so the sync isn't blocked
@@ -177,7 +177,7 @@ export const StorageService = {
   patchCachedItemPrice(itemNumber: string, unitPrice: number): void {
     const item = _itemsMemory.find((i) => i.number === itemNumber);
     if (!item) return;
-    item.unitPrice = unitPrice;
+    item.unitPriceIncVAT = unitPrice;
     openItemsIDB().then((db) => {
       const tx = db.transaction(IDB_ITEMS_STORE, 'readwrite');
       tx.objectStore(IDB_ITEMS_STORE).put(_itemsMemory, 'all');
@@ -190,8 +190,8 @@ export const StorageService = {
     let changed = false;
     for (const item of _itemsMemory) {
       const price = prices[item.number];
-      if (price !== undefined && item.unitPrice !== price) {
-        item.unitPrice = price;
+      if (price !== undefined && item.unitPriceIncVAT !== price) {
+        item.unitPriceIncVAT = price;
         changed = true;
       }
     }

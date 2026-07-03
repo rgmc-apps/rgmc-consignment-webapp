@@ -86,7 +86,7 @@
                 </p>
               </ion-label>
               <ion-note slot="end" color="dark" class="item-price">
-                {{ formatCurrency(livePrices[item.number] ?? item.unitPrice) }}
+                {{ formatCurrency(livePrices[item.number] ?? item.unitPriceIncVAT) }}
               </ion-note>
             </ion-item>
           </ion-list>
