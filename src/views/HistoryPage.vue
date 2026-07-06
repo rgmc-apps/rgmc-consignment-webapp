@@ -1,18 +1,15 @@
 <template>
-  <ion-page>
+  <ion-page :class="{ 'history--minimalist': isMinimalist }">
     <!-- ── Header ── -->
     <ion-header>
       <ion-toolbar>
         <ion-title>
           <div class="header-title">
-            <img src="/static/cons-logo.png" alt="logo" class="header-logo" />
+            <img :src="headerLogoSrc" alt="logo" class="header-logo" />
             <span>History</span>
           </div>
         </ion-title>
         <ion-buttons slot="end">
-          <ion-button fill="clear" @click="toggleTheme">
-            <ion-icon :key="isDark ? 'dk' : 'lt'" :icon="isDark ? sunnyOutline : moonOutline" slot="icon-only" class="theme-toggle-icon" />
-          </ion-button>
           <ion-button
             v-if="filteredSessions.length"
             fill="clear"
@@ -20,6 +17,7 @@
           >
             <ion-icon :icon="downloadOutline" slot="icon-only" />
           </ion-button>
+          <bug-report-button />
         </ion-buttons>
       </ion-toolbar>
 
@@ -191,9 +189,22 @@
               </div>
 
               <!-- Error message for failed sessions -->
-              <div v-if="selectedSession.status === 'failed' && selectedSession.errorMessage" class="error-block">
+              <div v-if="selectedSession.status === 'failed'" class="error-block">
                 <ion-icon :icon="alertCircleOutline" color="danger" />
-                <p>{{ selectedSession.errorMessage }}</p>
+                <div class="error-block-body">
+                  <p v-if="selectedSession.errorMessage">{{ selectedSession.errorMessage }}</p>
+                  <p v-else class="error-block-fallback">Submission failed — no details available.</p>
+                  <ion-button
+                    size="small"
+                    fill="outline"
+                    color="danger"
+                    class="report-btn"
+                    @click="reportSessionError(selectedSession)"
+                  >
+                    <ion-icon :icon="bugOutline" slot="start" />
+                    Report to IT/MIS
+                  </ion-button>
+                </div>
               </div>
             </ion-card-content>
           </ion-card>
@@ -325,17 +336,30 @@ import {
   returnUpBackOutline,
   refreshOutline,
   chevronDownCircleOutline,
-  moonOutline,
-  sunnyOutline,
+  bugOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
 import { useTheme } from '@/composables/useTheme';
 import { formatCurrency, formatDate, formatDateTime, formatDiscount } from '@/utils/format';
+import { useErrorReporter } from '@/composables/useErrorReporter';
+import BugReportButton from '@/components/BugReportButton.vue';
 import type { ScanSession } from '@/types';
 
 const router = useRouter();
 const sessionStore = useSessionStore();
-const { isDark, toggleTheme } = useTheme();
+const { theme } = useTheme();
+const { openReport } = useErrorReporter();
+
+function reportSessionError(session: ScanSession) {
+  openReport({
+    error: session.errorMessage ? new Error(session.errorMessage) : undefined,
+    context: `Session: ${session.customer?.displayName ?? 'Unknown'} | ${session.brand.displayName} | ${formatDate(session.createdAt)}`,
+  });
+}
+const isMinimalist = computed(() => theme.value === 'minimalist');
+const headerLogoSrc = computed(() =>
+  isMinimalist.value ? '/static/logo-bnw.png' : '/static/cons-logo.png',
+);
 
 function onPullRefresh(ev: CustomEvent) {
   sessionStore.loadFromStorage();
@@ -630,12 +654,21 @@ ion-list ion-item:nth-child(8) { animation: fade-slide-up 0.28s var(--ease-out-q
   border-radius: 8px;
   border: 1px solid var(--app-error-border);
 }
-.error-block ion-icon { flex-shrink: 0; font-size: 18px; margin-top: 1px; }
+.error-block ion-icon { flex-shrink: 0; font-size: 18px; margin-top: 2px; }
+.error-block-body { flex: 1; }
 .error-block p {
   font-size: 13px;
   color: var(--ion-color-danger);
-  margin: 0;
+  margin: 0 0 8px;
   line-height: 1.5;
+}
+.error-block-fallback { opacity: 0.6; }
+.report-btn {
+  --border-radius: 7px;
+  height: 28px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
 }
 
 /* Section blocks */
@@ -759,4 +792,11 @@ ion-list ion-item:nth-child(8) { animation: fade-slide-up 0.28s var(--ease-out-q
 .section-block  { animation: fade-slide-up 0.32s var(--ease-out-quart) 0.06s both; }
 .grand-total-row { animation: fade-slide-up 0.32s var(--ease-out-quart) 0.13s both; }
 .retry-wrap     { animation: fade-slide-up 0.32s var(--ease-out-quart) 0.17s both; }
+
+/* ── Minimalist overrides ── */
+.history--minimalist .grand-total-row {
+  background: #f0f0f0;
+  border-color: #e4e4e4;
+}
+.history--minimalist .grand-total-label { color: rgba(0, 0, 0, 0.4); }
 </style>

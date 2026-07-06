@@ -69,7 +69,7 @@ export interface Item {
   itemCategoryCode: string;
   familyCode?: string;
   baseUnitOfMeasure: string;
-  unitPrice: number;
+  unitPriceIncVAT: number;
   lastModifiedDateTime: string;
 }
 

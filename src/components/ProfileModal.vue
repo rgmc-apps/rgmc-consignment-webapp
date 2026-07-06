@@ -1,6 +1,6 @@
 <template>
   <ion-modal :is-open="isOpen" @did-dismiss="emit('close')">
-    <ion-page>
+    <ion-page :class="{ 'profile--minimalist': isMinimalist }">
       <ion-header>
         <ion-toolbar>
           <ion-title>Profile</ion-title>
@@ -149,6 +149,13 @@
           </ion-button>
         </div>
 
+        <!-- ── App ── -->
+        <p class="section-label">App</p>
+        <div class="app-version-block">
+          <span class="app-version-text">RGMC Consignment</span>
+          <span class="app-version-badge">v{{ appVersion }} <span class="app-build-sep">·</span> build {{ appBuild }}</span>
+        </div>
+
         <div style="height: 32px;" />
       </ion-content>
     </ion-page>
@@ -187,9 +194,15 @@ import bcrypt from 'bcryptjs';
 import { useAuthStore } from '@/stores/auth.store';
 import { ApiService } from '@/services/api.service';
 import UserAvatar from '@/components/UserAvatar.vue';
+import { useTheme } from '@/composables/useTheme';
 
 defineProps<{ isOpen: boolean }>();
+const { theme } = useTheme();
+const isMinimalist = computed(() => theme.value === 'minimalist');
 const emit = defineEmits<{ close: [] }>();
+
+const appVersion = __APP_VERSION__;
+const appBuild   = __APP_BUILD__;
 
 const authStore = useAuthStore();
 
@@ -273,6 +286,15 @@ async function savePassword() {
 </script>
 
 <style scoped>
+/* ── Minimalist hero overrides ── */
+.profile--minimalist .profile-hero {
+  background: #f4f4f4;
+  border-bottom: 1px solid #e4e4e4;
+}
+.profile--minimalist .profile-hero::after { display: none; }
+.profile--minimalist .hero-name { color: #2a2a2a; }
+.profile--minimalist .hero-avatar-badge { border-color: #f4f4f4; }
+
 /* ── Hero ── */
 .profile-hero {
   background: var(--app-dark);
@@ -446,5 +468,40 @@ async function savePassword() {
   font-size: 16px;
   font-weight: 700;
   border: 1px solid rgba(160, 115, 32, 0.35);
+}
+
+/* ── App version block ── */
+.app-version-block {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 18px;
+  padding: 14px 16px;
+  background: var(--app-surface);
+  border-radius: 12px;
+}
+
+.app-version-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--app-fg);
+}
+
+.app-version-badge {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--app-text-muted);
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-build-sep {
+  margin: 0 3px;
+  opacity: 0.5;
+}
+
+/* Minimalist overrides */
+.profile--minimalist .app-version-block {
+  background: #f0f0f0;
 }
 </style>

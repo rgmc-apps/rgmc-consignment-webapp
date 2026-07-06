@@ -86,12 +86,12 @@ export function useSync() {
         const priceMap = await ApiService.getAllItemPricesForDate(today);
         const finalPriceMap: Record<string, number> = {};
         for (const item of familyItems) {
-          finalPriceMap[item.number] = priceMap[item.number] ?? item.unitPrice;
+          finalPriceMap[item.number] = priceMap[item.number] ?? item.unitPriceIncVAT;
         }
         StorageService.setCachedItemPrices(today, finalPriceMap);
         StorageService.applyPriceMapToItems(finalPriceMap);
       } catch {
-        // ignored — prices fall back to item.unitPrice when offline
+        // ignored — prices fall back to item.unitPriceIncVAT when offline
       }
 
       lastSyncDate.value = new Date();

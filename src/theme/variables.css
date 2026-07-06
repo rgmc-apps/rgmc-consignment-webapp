@@ -143,6 +143,73 @@
   --app-error-border: #ffd7d7;
 }
 
+/* ── Minimalist mode overrides ── */
+[data-theme="minimalist"] {
+  /* Surfaces */
+  --app-surface:     #ffffff;
+  --app-surface-alt: #f8f8f8;
+  --app-border:      #e4e4e4;
+
+  /* Text */
+  --app-fg:         #3a3a3a;
+  --app-text-muted: #909090;
+
+  /* Gold → neutral gray */
+  --app-gold:        #555555;
+  --app-gold-light:  #777777;
+  --app-gold-dark:   #333333;
+  --app-gold-pale:   #f0f0f0;
+
+  /* Header: clean white */
+  --app-header-bg:    #ffffff;
+  --app-header-color: #333333;
+
+  /* Tabs: clean white */
+  --app-tab-bg:         #ffffff;
+  --app-tab-selected:   #3a3a3a;
+  --app-tab-unselected: #aaaaaa;
+
+  /* Shadows: very minimal */
+  --app-shadow-xs: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --app-shadow:    0 1px 6px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --app-shadow-md: 0 2px 10px rgba(0, 0, 0, 0.07), 0 1px 3px rgba(0, 0, 0, 0.04);
+  --app-shadow-gold: 0 2px 6px rgba(0, 0, 0, 0.08);
+
+  /* Primary color → neutral dark */
+  --ion-color-primary:          #444444;
+  --ion-color-primary-rgb:      68, 68, 68;
+  --ion-color-primary-contrast: #ffffff;
+
+  /* Semantic utility */
+  --app-danger-bg:    #fff5f5;
+  --app-warn-bg:      #fffcf0;
+  --app-warn-text:    #6a5900;
+  --app-error-border: #fecaca;
+
+  /* App dark token — override so var(--app-dark) callers go light */
+  --app-dark: #ffffff;
+
+  /* Ion system overrides */
+  --ion-background-color:     #f8f8f8;
+  --ion-text-color:           #3a3a3a;
+  --ion-item-background:      #ffffff;
+  --ion-card-background:      #ffffff;
+  --ion-searchbar-background: #f0f0f0;
+}
+
+[data-theme="minimalist"] ion-tab-bar {
+  --border: 1px solid #e4e4e4;
+}
+
+[data-theme="minimalist"] ion-toolbar {
+  --border-color: #e4e4e4;
+}
+
+[data-theme="minimalist"] ion-toolbar ion-button,
+[data-theme="minimalist"] ion-toolbar ion-back-button {
+  --color: #555555;
+}
+
 /* ── Dark mode overrides ── */
 [data-theme="dark"] {
   /* Surfaces */
@@ -575,3 +642,18 @@ ion-header.gold-online-pulse {
   color: rgba(255, 255, 255, 0.65);
   line-height: 1.4;
 }
+
+/* ── Offline toast — minimalist mode ── */
+[data-theme="minimalist"] .offline-toast {
+  --background: #ffffff;
+  --color: #333333;
+  --box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="minimalist"] .offline-toast::part(container) {
+  border: 1px solid #e4e4e4;
+  border-top: 3px solid #555555;
+}
+
+[data-theme="minimalist"] .offline-toast-body strong { color: #1a1a1a; }
+[data-theme="minimalist"] .offline-toast-body span   { color: rgba(0, 0, 0, 0.5); }

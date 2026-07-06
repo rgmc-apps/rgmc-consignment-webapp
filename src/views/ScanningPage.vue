@@ -1,11 +1,11 @@
 <template>
-  <ion-page>
+  <ion-page :class="{ 'scanning--minimalist': isMinimalist }">
     <!-- ── Header ── -->
     <ion-header :class="{ 'gold-online-pulse': headerPulseActive }">
       <ion-toolbar>
         <ion-title>
           <div class="header-title">
-            <img src="/static/cons-logo.png" alt="logo" class="header-logo" />
+            <img :src="headerLogoSrc" alt="logo" class="header-logo" />
             <div class="header-text">
               <span class="header-brand">{{ authStore.brand?.displayName ?? 'Scan' }}</span>
               <span v-if="authStore.company" class="header-company">{{ authStore.company.displayName }}</span>
@@ -21,9 +21,7 @@
           >
             <ion-icon :icon="saveOutline" slot="icon-only" />
           </ion-button>
-          <ion-button fill="clear" @click="toggleTheme">
-            <ion-icon :key="isDark ? 'dk' : 'lt'" :icon="isDark ? sunnyOutline : moonOutline" slot="icon-only" class="theme-toggle-icon" />
-          </ion-button>
+          <bug-report-button />
           <profile-menu />
         </ion-buttons>
       </ion-toolbar>
@@ -622,8 +620,6 @@ import {
   closeOutline,
   arrowForwardOutline,
   saveOutline,
-  moonOutline,
-  sunnyOutline,
   informationCircleOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
@@ -638,6 +634,7 @@ import { ApiService } from '@/services/api.service';
 import { formatCurrency, formatDiscount } from '@/utils/format';
 import ItemSelectorModal from '@/components/ItemSelectorModal.vue';
 import ProfileMenu from '@/components/ProfileMenu.vue';
+import BugReportButton from '@/components/BugReportButton.vue';
 import type { Customer, Item, ItemCategory, DiscountType } from '@/types';
 
 /* ─── Stores / composables ─── */
@@ -646,7 +643,11 @@ const authStore = useAuthStore();
 const sessionStore = useSessionStore();
 const { isSyncing, syncError, lastSyncDate, lastSyncLabel, sync } = useSync();
 const { isOnline, isSlowConnection } = useNetworkStatus();
-const { isDark, toggleTheme } = useTheme();
+const { theme } = useTheme();
+const isMinimalist = computed(() => theme.value === 'minimalist');
+const headerLogoSrc = computed(() =>
+  isMinimalist.value ? '/static/logo-bnw.png' : '/static/cons-logo.png',
+);
 const { headerPulseActive, submitFlashActive, triggerSubmitFlash } = useGoldAccent();
 
 /* ─── Cached data ─── */
@@ -867,7 +868,7 @@ async function fetchActivePrice(itemNumber: string, onDate: string): Promise<voi
   fetchingPrice.value = true;
   try {
     const price = await lookupPrice(itemNumber, onDate);
-    const resolved = price ?? confirmItem.value?.unitPrice ?? 0;
+    const resolved = price ?? confirmItem.value?.unitPriceIncVAT ?? 0;
     confirmedSrp.value = resolved;
     form.srp = resolved;
     if (price !== null && isOnline.value) {
@@ -944,14 +945,14 @@ function onItemSelected(item: Item) {
   form.itemNumber = item.number;
   form.itemName = item.displayName;
   form.description = item.description || item.displayName;
-  form.srp = item.unitPrice;
+  form.srp = item.unitPriceIncVAT;
   form.categoryCode = item.itemCategoryCode || form.categoryCode;
   form.quantity = 1;
   form.discountType = 'percent';
   form.discountValue = 0;
   showItemModal.value = false;
   confirmItem.value = item;
-  confirmedSrp.value = item.unitPrice;
+  confirmedSrp.value = item.unitPriceIncVAT;
   confirmQty.value = 1;
   confirmDiscountType.value = 'percent';
   confirmDiscountValue.value = 0;
@@ -1090,6 +1091,18 @@ async function toast(message: string, color: string) {
   --border-color: rgba(255, 255, 255, 0.05);
   min-height: 32px;
 }
+
+.scanning--minimalist .sync-bar {
+  --background: #f4f4f4;
+  --border-color: #e4e4e4;
+}
+.scanning--minimalist .sync-info-text { color: rgba(0, 0, 0, 0.4); }
+.scanning--minimalist .sync-today     { color: var(--app-gold); }
+.scanning--minimalist .submit-bar {
+  background: #f4f4f4;
+  border-top-color: #e4e4e4;
+}
+.scanning--minimalist .submit-bar__count { color: rgba(0, 0, 0, 0.4); }
 .sync-bar-inner {
   display: flex;
   align-items: center;

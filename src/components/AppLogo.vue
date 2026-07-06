@@ -10,6 +10,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useTheme } from '@/composables/useTheme';
 
 const props = withDefaults(
   defineProps<{
@@ -24,11 +25,13 @@ const props = withDefaults(
   },
 );
 
+const { theme } = useTheme();
 const alt = 'RGMC Consignment';
 
-const logoSrc = computed(() =>
-  props.variant === 'group' ? '/static/logo.png' : '/static/cons-logo.png',
-);
+const logoSrc = computed(() => {
+  if (theme.value === 'minimalist') return '/static/logo-bnw.png';
+  return props.variant === 'group' ? '/static/logo.png' : '/static/cons-logo.png';
+});
 </script>
 
 <style scoped>

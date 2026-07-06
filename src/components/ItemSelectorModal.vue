@@ -1,6 +1,6 @@
 <template>
   <ion-modal :is-open="true" @did-dismiss="$emit('close')">
-    <ion-page>
+    <ion-page :class="{ 'item-selector--minimalist': isMinimalist }">
       <!-- ── Header ── -->
       <ion-header>
         <ion-toolbar>
@@ -86,7 +86,7 @@
                 </p>
               </ion-label>
               <ion-note slot="end" color="dark" class="item-price">
-                {{ formatCurrency(livePrices[item.number] ?? item.unitPrice) }}
+                {{ formatCurrency(livePrices[item.number] ?? item.unitPriceIncVAT) }}
               </ion-note>
             </ion-item>
           </ion-list>
@@ -213,7 +213,11 @@ import {
 import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 import { formatCurrency } from '@/utils/format';
+import { useTheme } from '@/composables/useTheme';
 import type { Item, ItemCategory } from '@/types';
+
+const { theme } = useTheme();
+const isMinimalist = computed(() => theme.value === 'minimalist');
 
 const DISPLAY_LIMIT = 100;
 
@@ -811,5 +815,36 @@ onUnmounted(() => {
 
 .single-confirm-btn {
   margin-bottom: 8px;
+}
+
+/* ── Minimalist theme overrides ── */
+.item-selector--minimalist .manual-wrap {
+  background: #f4f4f4;
+  border-top: 1px solid #e4e4e4;
+}
+.item-selector--minimalist .manual-label { color: #777; }
+.item-selector--minimalist .manual-input {
+  --background: #ffffff;
+  --color: #333;
+  --placeholder-color: #aaa;
+  border-color: #e0e0e0;
+}
+.item-selector--minimalist .multi-picker {
+  background: rgba(248, 248, 248, 0.98);
+  border-top-color: #e4e4e4;
+}
+.item-selector--minimalist .multi-picker-title { color: #2a2a2a; }
+.item-selector--minimalist .multi-picker-sub   { color: #888; }
+.item-selector--minimalist .multi-bc-btn {
+  background: #ffffff;
+  border-color: #e0e0e0;
+}
+.item-selector--minimalist .multi-bc-btn:active { background: #f0f0f0; }
+.item-selector--minimalist .scan-hint--scanning { color: rgba(0, 0, 0, 0.8); }
+.item-selector--minimalist .scan-hint--starting  { color: rgba(0, 0, 0, 0.5); }
+.item-selector--minimalist .single-confirm-value {
+  background: #f4f4f4;
+  border-color: #e0e0e0;
+  color: #2a2a2a;
 }
 </style>

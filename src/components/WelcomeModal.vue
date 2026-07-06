@@ -1,6 +1,6 @@
 <template>
   <ion-modal :is-open="isVisible" @did-dismiss="onDismissed" class="welcome-modal">
-    <ion-page class="wm-page">
+    <ion-page class="wm-page" :class="{ 'wm-page--minimalist': isMinimalist }">
 
       <!-- Ambient background orb (shifts subtly per slide) -->
       <div class="wm-bg-orb" :class="`wm-bg-orb--${current}`" aria-hidden="true" />
@@ -27,7 +27,7 @@
               <span class="wm-eyebrow">RGMC · Consignment</span>
               <div class="wm-intro-logo-wrap">
                 <div class="wm-intro-logo-glow" aria-hidden="true" />
-                <img src="/static/cons-logo-splash.png" alt="RGMC Consignment" class="wm-intro-logo" />
+                <img :src="isMinimalist ? '/static/logo-bnw.png' : '/static/cons-logo-splash.png'" alt="RGMC Consignment" class="wm-intro-logo" />
               </div>
               <div class="wm-intro-text">
                 <h1 class="wm-intro-heading">
@@ -158,6 +158,7 @@ import {
   cloudUploadOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
+import { useTheme } from '@/composables/useTheme';
 
 const landingImg  = '/static/screenshots/03-landing.png';
 const scanImg     = '/static/screenshots/04-scanning-form.png';
@@ -169,6 +170,8 @@ const emit  = defineEmits<{ done: [] }>();
 
 const isVisible = ref(props.isOpen);
 const authStore = useAuthStore();
+const { theme } = useTheme();
+const isMinimalist = computed(() => theme.value === 'minimalist');
 
 const firstName = computed(() => {
   const name = authStore.user?.displayName ?? '';
@@ -860,5 +863,138 @@ onUnmounted(() => stopTimer());
   --width: 100%;
   --max-height: 100%;
   --border-radius: 0;
+}
+
+/* ── Minimalist theme adaptations ── */
+.wm-page--minimalist {
+  --background: #f4f4f4;
+  background: #f4f4f4;
+}
+
+.wm-page--minimalist .wm-progress {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.wm-page--minimalist .wm-progress-fill {
+  background: linear-gradient(90deg, #555, #777 50%, #555);
+}
+
+.wm-page--minimalist .wm-skip-btn {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: rgba(0, 0, 0, 0.45);
+  box-shadow: none;
+}
+
+.wm-page--minimalist .wm-skip-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.wm-page--minimalist .wm-bg-orb { opacity: 0.25; }
+
+.wm-page--minimalist .wm-eyebrow {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #555;
+}
+
+.wm-page--minimalist .wm-intro-logo-glow {
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.06) 0%, transparent 68%);
+}
+
+.wm-page--minimalist .wm-intro-logo {
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.12));
+}
+
+.wm-page--minimalist .wm-intro-heading { color: #2a2a2a; }
+
+.wm-page--minimalist .wm-intro-name {
+  background: linear-gradient(135deg, #555 0%, #333 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.wm-page--minimalist .wm-intro-sub { color: rgba(0, 0, 0, 0.5); }
+
+.wm-page--minimalist .wm-phone-outer {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow:
+    0 20px 50px rgba(0, 0, 0, 0.12),
+    0 6px 18px rgba(0, 0, 0, 0.07);
+}
+
+.wm-page--minimalist .wm-phone {
+  background: #e8e8e8;
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.06);
+}
+
+.wm-page--minimalist .wm-phone-notch { background: rgba(0, 0, 0, 0.1); }
+
+.wm-page--minimalist .wm-phone-tag {
+  background: rgba(248, 248, 248, 0.95);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #444;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.wm-page--minimalist .wm-phone-tag-icon {
+  background: rgba(0, 0, 0, 0.06);
+  color: #555;
+}
+
+.wm-page--minimalist .wm-panel {
+  background: #f4f4f4;
+  border-top-color: rgba(0, 0, 0, 0.08);
+}
+
+.wm-page--minimalist .wm-step-chip {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #555;
+}
+
+.wm-page--minimalist .wm-panel-title { color: #2a2a2a; }
+.wm-page--minimalist .wm-panel-desc  { color: rgba(0, 0, 0, 0.5); }
+
+.wm-page--minimalist .wm-nav-btn {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.wm-page--minimalist .wm-nav-btn-inner {
+  background: rgba(0, 0, 0, 0.05);
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.wm-page--minimalist .wm-nav-btn:hover:not(:disabled) { border-color: rgba(0, 0, 0, 0.2); }
+.wm-page--minimalist .wm-nav-btn:hover:not(:disabled) .wm-nav-btn-inner {
+  background: rgba(0, 0, 0, 0.1);
+  color: #333;
+}
+
+.wm-page--minimalist .wm-nav-btn--gold {
+  border-color: rgba(0, 0, 0, 0.18);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.wm-page--minimalist .wm-nav-btn--gold .wm-nav-btn-inner {
+  background: rgba(0, 0, 0, 0.08);
+  color: #333;
+}
+
+.wm-page--minimalist .wm-dot { background: rgba(0, 0, 0, 0.14); }
+.wm-page--minimalist .wm-dot--active { background: #444; }
+
+.wm-page--minimalist .wm-cta-btn {
+  background: linear-gradient(135deg, #444 0%, #333 100%);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+.wm-page--minimalist .wm-cta-btn:active {
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
 }
 </style>

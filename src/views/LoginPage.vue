@@ -1,5 +1,5 @@
 <template>
-  <ion-page class="login-page">
+  <ion-page :class="['login-page', { 'login--minimalist': isMinimalist }]">
 
     <!-- Password setup modal — shown when account has no valid bcrypt hash -->
     <set-password-modal :is-open="authStore.forcePasswordSetup" />
@@ -8,7 +8,7 @@
       <div class="login-container">
         <!-- Logo block -->
         <div class="login-logo-block">
-          <img src="/static/cons-logo.png" alt="RGMC Consignment" class="login-logo" />
+          <img :src="logoSrc" alt="RGMC Consignment" class="login-logo" />
           <h1 class="login-title">RGMC Consignment</h1>
           <p class="login-subtitle">Web App</p>
         </div>
@@ -54,11 +54,17 @@
                   {{ c.displayName }}
                 </ion-select-option>
               </ion-select>
-              <ion-spinner v-if="companiesLoading" slot="end" name="crescent" />
+              <Transition name="spin-fade">
+                <ion-spinner v-if="companiesLoading" slot="end" name="crescent" />
+              </Transition>
             </ion-item>
 
             <!-- Brand dropdown -->
-            <ion-item lines="full" class="login-field">
+            <ion-item
+              lines="full"
+              class="login-field"
+              :class="{ 'login-field--unlocking': selectedCompanyId && !brandsLoading }"
+            >
               <ion-label position="stacked">Brand</ion-label>
               <ion-select
                 v-model="selectedBrandId"
@@ -74,7 +80,9 @@
                   {{ b.displayName }}
                 </ion-select-option>
               </ion-select>
-              <ion-spinner v-if="brandsLoading" slot="end" name="crescent" />
+              <Transition name="spin-fade">
+                <ion-spinner v-if="brandsLoading" slot="end" name="crescent" />
+              </Transition>
             </ion-item>
 
             <!-- Item family code for selected brand -->
@@ -174,7 +182,14 @@ import { StorageService } from '@/services/storage.service';
 import { useSync } from '@/composables/useSync';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import SetPasswordModal from '@/components/SetPasswordModal.vue';
+import { useTheme } from '@/composables/useTheme';
 import type { Brand, Company } from '@/types';
+
+const { theme } = useTheme();
+const isMinimalist = computed(() => theme.value === 'minimalist');
+const logoSrc = computed(() =>
+  isMinimalist.value ? '/static/logo-bnw.png' : '/static/cons-logo.png',
+);
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -276,7 +291,15 @@ watch(selectedCompanyId, (id) => {
 function loadCompanies() {
   companiesLoading.value = true;
   ApiService.getCompanies()
-    .then((data) => { companies.value = data; })
+    .then((data) => {
+      companies.value = data;
+      // Restore the company chosen on the splash screen (if any)
+      const stored = StorageService.getCompany();
+      if (stored) {
+        const match = data.find((c) => c.id === stored.id);
+        if (match) selectedCompanyId.value = match.id;
+      }
+    })
     .catch(() => { companies.value = []; })
     .finally(() => { companiesLoading.value = false; });
 }
@@ -533,4 +556,32 @@ async function handleLogin() {
 .family-fade-leave-active { transition: opacity 0.15s ease; }
 .family-fade-enter-from   { opacity: 0; transform: translateY(-4px); }
 .family-fade-leave-to     { opacity: 0; }
+
+/* Spinner fade-in/out (companies loading, brands loading) */
+.spin-fade-enter-active { transition: opacity 0.18s ease, transform 0.18s var(--ease-out-quart); }
+.spin-fade-leave-active { transition: opacity 0.12s ease; }
+.spin-fade-enter-from   { opacity: 0; transform: scale(0.7); }
+.spin-fade-leave-to     { opacity: 0; }
+
+/* Brand field unlock — subtle pulse when it becomes interactive */
+@keyframes field-unlock {
+  0%   { box-shadow: none; }
+  40%  { box-shadow: inset 0 0 0 1px oklch(53% 0.11 74 / 0.35); }
+  100% { box-shadow: none; }
+}
+
+.login-field--unlocking {
+  animation: field-unlock 0.55s var(--ease-out-expo) both;
+}
+
+/* ── Minimalist overrides ── */
+.login--minimalist .login-title { color: #1a1a1a; }
+.login--minimalist .login-card {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+.login--minimalist .brand-family-tag {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #555555;
+}
 </style>
