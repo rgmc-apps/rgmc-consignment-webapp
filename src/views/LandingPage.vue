@@ -182,7 +182,11 @@ function onWelcomeDone() {
   showWelcome.value = false;
 }
 
-const visibleDrafts = computed(() => sessionStore.drafts.filter((d) => d.customer !== null));
+const visibleDrafts = computed(() =>
+  sessionStore.drafts
+    .filter((d) => d.customer !== null)
+    .sort((a, b) => a.brand.displayName.localeCompare(b.brand.displayName)),
+);
 
 const allCustomers = ref<Customer[]>([]);
 const searchQuery = ref('');

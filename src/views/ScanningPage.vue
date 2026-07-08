@@ -377,7 +377,10 @@
       <ion-page>
         <ion-header>
           <ion-toolbar>
-            <ion-title>Select Customer</ion-title>
+            <ion-title>
+              <span>Select Customer</span>
+              <span v-if="authStore.brand" class="modal-brand-tag">{{ authStore.brand.displayName }}</span>
+            </ion-title>
             <ion-buttons slot="end">
               <ion-button fill="clear" @click="showCustomerModal = false">
                 <ion-icon :icon="closeOutline" slot="icon-only" />
@@ -387,7 +390,7 @@
           <ion-toolbar>
             <ion-searchbar
               v-model="customerSearch"
-              placeholder="Search name, code, or city…"
+              :placeholder="`Search ${authStore.brand?.displayName ?? ''} customers…`"
               :debounce="200"
               :show-clear-button="'focus'"
             />
@@ -416,7 +419,8 @@
             </ion-item>
           </ion-list>
           <div v-else class="modal-empty">
-            <p>No customers found for "<strong>{{ customerSearch }}</strong>"</p>
+            <p v-if="customerSearch">No customers found for "<strong>{{ customerSearch }}</strong>"</p>
+            <p v-else>No customers loaded for <strong>{{ authStore.brand?.displayName }}</strong>.<br />Try syncing from the toolbar.</p>
           </div>
         </ion-content>
       </ion-page>
@@ -1454,6 +1458,20 @@ async function toast(message: string, color: string) {
 .order-list ion-item-sliding:nth-child(6) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.17s both; }
 
 /* ── Customer modal internals ── */
+.modal-brand-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(160, 115, 32, 0.14);
+  color: var(--app-gold);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
 .modal-empty {
   padding: 40px 24px;
   text-align: center;
