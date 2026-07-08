@@ -113,8 +113,8 @@ function extractList<T>(body: unknown): T[] {
 
 export const ApiService = {
   async getCompanies(): Promise<Company[]> {
-    const res = await apiClient.get('/bc/companies');
-    return extractList<Company>(res.data);
+    const res = await apiClient.get('/bc/custom/v2/companies');
+    return extractList<Company>(res.data).filter((c) => c.ConsignmentAppVisible === true);
   },
 
   async getBrands(): Promise<Brand[]> {

@@ -2,6 +2,7 @@ export interface Company {
   id: string;
   name: string;
   displayName: string;
+  ConsignmentAppVisible?: boolean;
 }
 
 export interface Brand {
