@@ -174,7 +174,19 @@ export const ApiService = {
     const res = await apiClient.get('/bc/custom/v2/customers', {
       params: brandCode ? { brand: brandCode } : undefined,
     });
-    return extractList<Customer>(res.data);
+    const raw = extractList<Record<string, unknown>>(res.data);
+    return raw.map((c) => ({
+      ...c,
+      id:          (c['id']          ?? c['Id']                                         ?? '') as string,
+      number:      (c['number']      ?? c['no']       ?? c['customerNo']                ?? '') as string,
+      displayName: (c['name']        ?? c['displayName'] ?? c['customerName']           ?? '') as string,
+      city:        (c['city']        ?? c['City']     ?? c['addressCity']               ?? '') as string,
+      addressLine1:(c['addressLine1']?? c['address']  ?? c['address1']                  ?? '') as string,
+      country:     (c['country']     ?? c['countryRegionCode']                          ?? '') as string,
+      postalCode:  (c['postalCode']  ?? c['postCode'] ?? c['zip']                       ?? '') as string,
+      currencyCode:(c['currencyCode']?? c['currency']                                   ?? '') as string,
+      lastModifiedDateTime: (c['lastModifiedDateTime'] ?? '') as string,
+    })) as Customer[];
   },
 
   async getItemFamilies(): Promise<ItemFamily[]> {
