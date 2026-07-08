@@ -28,9 +28,11 @@ export function useSync() {
     syncError.value = null;
 
     try {
+      const brandCode = StorageService.getAuth()?.brand?.code;
+
       // Critical fetches — if any of these fail, the sync is aborted.
       const [customers, items, categories, brands] = await Promise.all([
-        ApiService.getCustomers(),
+        ApiService.getCustomers(brandCode),
         ApiService.getItems(),
         ApiService.getItemCategories(),
         ApiService.getBrands(),

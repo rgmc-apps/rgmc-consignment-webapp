@@ -187,10 +187,9 @@ const visibleDrafts = computed(() => sessionStore.drafts.filter((d) => d.custome
 const allCustomers = ref<Customer[]>([]);
 const searchQuery = ref('');
 
-const brandRef = computed(() => authStore.brand);
 const allCustomersRef = computed(() => allCustomers.value);
 const searchRef = computed(() => searchQuery.value);
-const { filteredCustomers: customers } = useCustomerFilter(brandRef, allCustomersRef, searchRef);
+const { filteredCustomers: customers } = useCustomerFilter(allCustomersRef, searchRef);
 
 const todayLabel = computed(() =>
   new Date().toLocaleDateString('en-PH', {

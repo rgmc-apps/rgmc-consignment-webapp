@@ -771,10 +771,9 @@ const networkNotice = computed<'offline' | 'slow' | null>(() => {
 const showCustomerModal = ref(false);
 const customerSearch = ref('');
 
-const brandRef = computed(() => authStore.brand);
 const allCustomersRef = computed(() => cachedCustomers.value);
 const customerSearchRef = computed(() => customerSearch.value);
-const { filteredCustomers } = useCustomerFilter(brandRef, allCustomersRef, customerSearchRef);
+const { filteredCustomers } = useCustomerFilter(allCustomersRef, customerSearchRef);
 
 const selectedCustomer = computed(() => sessionStore.currentSession?.customer ?? null);
 
