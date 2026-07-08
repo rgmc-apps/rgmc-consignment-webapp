@@ -172,7 +172,7 @@ export const ApiService = {
 
   async getCustomers(brandCode?: string): Promise<Customer[]> {
     const res = await apiClient.get('/bc/custom/v2/customers', {
-      params: brandCode ? { brand_code: brandCode } : undefined,
+      params: brandCode ? { brand: brandCode } : undefined,
     });
     return extractList<Customer>(res.data);
   },
