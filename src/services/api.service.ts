@@ -27,12 +27,8 @@ import type {
   SalesReturnOrderPayload,
 } from '@/types';
 
-/* In dev the Vite proxy rewrites /bc/* → GCP API, avoiding CORS.
-   In production set VITE_API_BASE_URL to the GCP origin (or a same-origin proxy). */
-const BASE_URL: string = (import.meta.env.VITE_API_BASE_URL as string) || '';
-
 const apiClient = axios.create({
-  baseURL: BASE_URL,
+  baseURL: '',
   timeout: 60000,
   headers: {
     'Content-Type': 'application/json',
