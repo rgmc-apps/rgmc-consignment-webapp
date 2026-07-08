@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue';
 import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
+import { useAuthStore } from '@/stores/auth.store';
 
 // Module-level singleton so all components share the same sync state
 const isSyncing = ref(false);
@@ -28,19 +29,18 @@ export function useSync() {
     syncError.value = null;
 
     try {
-      const brandCode = StorageService.getAuth()?.brand?.code;
+      const authStore = useAuthStore();
+      const brandCode = authStore.brand?.code ?? StorageService.getAuth()?.brand?.code;
+      const familyCode = authStore.brand?.itemFamilyCode ?? StorageService.getAuth()?.brand?.itemFamilyCode;
 
-      // Critical fetches — if any of these fail, the sync is aborted.
-      const [customers, items, categories, brands] = await Promise.all([
+      // Fetch customers filtered by current brand in parallel with other critical data.
+      const [customers, items, categories] = await Promise.all([
         ApiService.getCustomers(brandCode),
         ApiService.getItems(),
         ApiService.getItemCategories(),
-        ApiService.getBrands(),
       ]);
 
-      // Non-critical fetches — custom RGMC extension endpoints that may be unavailable
-      // (e.g. extension not yet deployed to an environment). Falls back to the previous
-      // cached value so core data is never blocked by these endpoints.
+      // Non-critical fetches — falls back to cached values if the endpoint is unavailable.
       const [familiesResult, contactsResult] = await Promise.allSettled([
         ApiService.getItemFamilies(),
         ApiService.getContacts(),
@@ -50,38 +50,28 @@ export function useSync() {
         ? contactsResult.value
         : StorageService.getCachedContacts();
 
-      const enrichedBrands = brands.map((b) => ({
-        ...b,
-        itemFamilyCode: families.find((f) => f.description === b.displayName)?.code,
-      }));
-
       StorageService.setCachedCustomers(customers);
       StorageService.setCachedItems(items);
       StorageService.setCachedItemCategories(categories);
-      StorageService.setCachedBrands(enrichedBrands);
       StorageService.setCachedContacts(contacts);
-      // Re-apply credentials for the authenticated user in case the API
-      // doesn't return username/passwordHash and the previous cache was empty.
-      const authSession = StorageService.getAuth();
-      if (authSession) {
-        const { id, username, passwordHash } = authSession.user;
+
+      // Re-apply credentials so login lookups always have the latest username/passwordHash.
+      const authUser = authStore.user ?? StorageService.getAuth()?.user;
+      if (authUser) {
         const patch: Record<string, string> = {};
-        if (username)     patch['username']     = username;
-        if (passwordHash) patch['passwordHash'] = passwordHash;
-        if (Object.keys(patch).length) StorageService.patchContact(id, patch);
+        if (authUser.username)     patch['username']     = authUser.username;
+        if (authUser.passwordHash) patch['passwordHash'] = authUser.passwordHash;
+        if (Object.keys(patch).length) StorageService.patchContact(authUser.id, patch);
       }
+
       StorageService.setSyncTimestamp('customers');
       StorageService.setSyncTimestamp('items');
       StorageService.setSyncTimestamp('itemCategories');
 
-      // Price lookup scoped to the user's item family.
-      // Builds an explicit map: price-list price if found, else the item's base BC
-      // price — so items with no price entry revert to their original price rather
-      // than keeping a stale value from a previous sync.
+      // Price lookup scoped to the current brand's item family.
       // Non-critical: a failure here does not abort the rest of the sync.
       try {
         const today = new Date().toISOString().split('T')[0];
-        const familyCode = StorageService.getAuth()?.brand?.itemFamilyCode;
         const familyItems = familyCode
           ? items.filter((i) => i.familyCode === familyCode)
           : items;
