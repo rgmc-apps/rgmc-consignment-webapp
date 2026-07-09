@@ -31,14 +31,18 @@ export function useSync() {
     try {
       const authStore = useAuthStore();
       const brandCode = authStore.brand?.code ?? StorageService.getAuth()?.brand?.code;
-      const familyCode = authStore.brand?.itemFamilyCode ?? StorageService.getAuth()?.brand?.itemFamilyCode;
 
       // Fetch customers and items filtered by current brand in parallel with other critical data.
-      const [customers, items, categories] = await Promise.all([
+      const [customers, rawItems, categories] = await Promise.all([
         ApiService.getCustomers(brandCode),
-        ApiService.getItems(familyCode),
+        ApiService.getItems(brandCode),
         ApiService.getItemCategories(),
       ]);
+
+      // Client-side guard: drop any items that slipped through without a matching familyCode.
+      const items = brandCode
+        ? rawItems.filter((i) => i.familyCode === brandCode)
+        : rawItems;
 
       // Non-critical fetches — falls back to cached values if the endpoint is unavailable.
       const [familiesResult, contactsResult] = await Promise.allSettled([
@@ -72,7 +76,8 @@ export function useSync() {
       // Non-critical: a failure here does not abort the rest of the sync.
       try {
         const today = new Date().toISOString().split('T')[0];
-        const priceMap = await ApiService.getAllItemPricesForDate(today);
+        const itemNumbers = items.map((i) => i.number);
+        const priceMap = await ApiService.getAllItemPricesForDate(today, itemNumbers);
         const finalPriceMap: Record<string, number> = {};
         for (const item of items) {
           finalPriceMap[item.number] = priceMap[item.number] ?? item.unitPriceIncVAT;

@@ -1,5 +1,5 @@
-export function formatCurrency(amount: number): string {
-  return `₱${amount.toLocaleString('en-PH', {
+export function formatCurrency(amount: number | undefined | null): string {
+  return `₱${(amount ?? 0).toLocaleString('en-PH', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;

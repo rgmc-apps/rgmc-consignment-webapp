@@ -669,8 +669,12 @@ const hasCache = computed(
 );
 
 function refreshCache() {
+  const brandCode = authStore.brand?.code;
   cachedCustomers.value = StorageService.getCachedCustomers();
-  cachedItems.value = StorageService.getCachedItems();
+  const allItems = StorageService.getCachedItems();
+  cachedItems.value = brandCode
+    ? allItems.filter((i) => i.familyCode === brandCode)
+    : allItems;
   categories.value = StorageService.getCachedItemCategories();
 }
 

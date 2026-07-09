@@ -201,7 +201,8 @@ export const ApiService = {
     const raw = extractList<Record<string, unknown>>(res.data);
     return raw.map((i) => ({
       ...i,
-      displayName: (i['displayName'] ?? i['description'] ?? i['number'] ?? '') as string,
+      displayName:    (i['displayName']    ?? i['description'] ?? i['number']     ?? '')  as string,
+      unitPriceIncVAT:(i['unitPriceIncVAT']?? i['unitPrice']   ?? i['unit_price'] ?? 0)   as number,
     })) as Item[];
   },
 
@@ -235,9 +236,12 @@ export const ApiService = {
     await apiClient.patch('/bc/custom/v2/item-prices/cache', { unitPriceIncVAT: unitPrice }, { params });
   },
 
-  async getAllItemPricesForDate(onDate: string): Promise<Record<string, number>> {
+  async getAllItemPricesForDate(onDate: string, productNos?: string[]): Promise<Record<string, number>> {
     const res = await apiClient.get('/bc/custom/v2/item-prices', {
-      params: { on_date: onDate },
+      params: {
+        on_date: onDate,
+        ...(productNos?.length ? { product_nos: productNos.join(',') } : {}),
+      },
     });
     const rows = extractList<Record<string, unknown>>(res.data);
     const map: Record<string, number> = {};
