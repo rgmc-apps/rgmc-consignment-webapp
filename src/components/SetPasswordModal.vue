@@ -1,5 +1,5 @@
 <template>
-  <ion-modal ref="modalRef" :is-open="isOpen" :can-dismiss="false">
+  <ion-modal ref="modalRef" :is-open="isOpen" :can-dismiss="canDismiss">
     <ion-page class="set-pw-page">
       <ion-content :fullscreen="true" class="set-pw-content">
         <div class="set-pw-container">
@@ -117,6 +117,7 @@ const confirmPassword = ref('');
 const showNew = ref(false);
 const showConfirm = ref(false);
 const isSaving = ref(false);
+const canDismiss = ref(false);
 
 const displayName = computed(
   () => authStore.pendingSetupData?.contact.displayName ?? 'Your Account',
@@ -142,6 +143,7 @@ async function submit() {
     await authStore.completePasswordSetup(newPassword.value);
     newPassword.value = '';
     confirmPassword.value = '';
+    canDismiss.value = true;
     await modalRef.value?.$el.dismiss();
     const t = await toastController.create({
       message: 'Password set! Sign in with your new password.',
@@ -166,6 +168,7 @@ async function submit() {
 function cancel() {
   newPassword.value = '';
   confirmPassword.value = '';
+  canDismiss.value = true;
   authStore.clearPasswordSetup();
 }
 </script>
