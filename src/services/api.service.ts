@@ -119,7 +119,7 @@ export const ApiService = {
   },
 
   async getContacts(): Promise<Contact[]> {
-    const res = await apiClient.get('/bc/custom/contacts');
+    const res = await apiClient.get('/bc/custom/v2/contacts');
     const raw = extractList<Record<string, unknown>>(res.data);
     // Normalise field-name variations the BC API may return
     return raw.map((c) => ({
@@ -141,13 +141,13 @@ export const ApiService = {
   },
 
   async updateContact(id: string, data: ContactUpdatePayload): Promise<Contact> {
-    const res = await apiClient.patch(`/bc/custom/contacts/${id}`, data);
+    const res = await apiClient.patch(`/bc/custom/v2/contacts/${id}`, data);
     return res.data as Contact;
   },
 
   async getContactPicture(id: string): Promise<string | null> {
     try {
-      const res = await apiClient.get(`/bc/custom/contacts/${id}/picture`, {
+      const res = await apiClient.get(`/bc/custom/v2/contacts/${id}/picture`, {
         responseType: 'blob',
       });
       if (!res.data || res.data.size === 0) return null;
@@ -165,7 +165,7 @@ export const ApiService = {
   async updateContactPicture(id: string, file: File): Promise<void> {
     const form = new FormData();
     form.append('file', file);
-    await apiClient.patch(`/bc/custom/contacts/${id}/picture`, form, {
+    await apiClient.patch(`/bc/custom/v2/contacts/${id}/picture`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
@@ -190,12 +190,12 @@ export const ApiService = {
   },
 
   async getItemFamilies(): Promise<ItemFamily[]> {
-    const res = await apiClient.get('/bc/custom/item-families');
+    const res = await apiClient.get('/bc/custom/v2/item-families');
     return extractList<ItemFamily>(res.data);
   },
 
   async getItems(): Promise<Item[]> {
-    const res = await apiClient.get('/bc/custom/items');
+    const res = await apiClient.get('/bc/custom/v2/items');
     const raw = extractList<Record<string, unknown>>(res.data);
     return raw.map((i) => ({
       ...i,
@@ -255,7 +255,7 @@ export const ApiService = {
   },
 
   async submitSalesReturnOrder(payload: SalesReturnOrderPayload): Promise<unknown> {
-    const res = await apiClient.post('/bc/custom/sales-return-orders', payload);
+    const res = await apiClient.post('/bc/custom/v2/sales-return-orders', payload);
     return res.data;
   },
 };
