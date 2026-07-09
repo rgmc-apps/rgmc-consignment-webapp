@@ -8,13 +8,6 @@ RUN npm ci
 
 COPY . .
 
-# VITE_API_BASE_URL is already set in .env.production.
-# Pass --build-arg VITE_API_BASE_URL=<url> to override at build time.
-ARG VITE_API_BASE_URL
-RUN if [ -n "$VITE_API_BASE_URL" ]; then \
-      echo "VITE_API_BASE_URL=$VITE_API_BASE_URL" > .env.production; \
-    fi
-
 RUN npm run build
 
 # ── Stage 2: Serve ─────────────────────────────────────────────────────────────

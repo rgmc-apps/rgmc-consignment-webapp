@@ -15,7 +15,7 @@ function getBuildNumber(): string {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const proxyTarget = env.BC_API_PROXY_TARGET;
+  const proxyTarget = env.VITE_API_BASE_URL;
 
   return {
     plugins: [

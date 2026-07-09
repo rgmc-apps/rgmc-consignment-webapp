@@ -33,8 +33,12 @@
         </Transition>
 
         <!-- Form card -->
-        <ion-card class="login-card">
+        <ion-card :class="['login-card', { 'login-card--shake': isCardShaking, 'login-card--success': loginState === 'success' }]">
           <ion-card-content>
+            <!-- Indeterminate loading strip — visible while auth or sync is in progress -->
+            <Transition name="strip-fade">
+              <div v-if="(isLoading || isSyncing) && loginState !== 'success'" class="login-progress-strip" />
+            </Transition>
             <p class="login-form-heading">Sign In</p>
 
             <!-- Company dropdown -->
@@ -94,7 +98,7 @@
             </Transition>
 
             <!-- Username -->
-            <ion-item lines="full" class="login-field">
+            <ion-item lines="full" :class="['login-field', { 'login-field--error': loginState === 'error' }]">
               <ion-label position="stacked">Username</ion-label>
               <ion-input
                 v-model="username"
@@ -107,7 +111,7 @@
             </ion-item>
 
             <!-- Password -->
-            <ion-item lines="full" class="login-field">
+            <ion-item lines="full" :class="['login-field', { 'login-field--error': loginState === 'error' }]">
               <ion-label position="stacked">Password</ion-label>
               <ion-input
                 v-model="password"
@@ -138,17 +142,35 @@
             <!-- Submit -->
             <ion-button
               expand="block"
-              class="login-btn"
+              :class="['login-btn', {
+                'login-btn--loading': isLoading || isSyncing,
+                'login-btn--success': loginState === 'success',
+              }]"
               :disabled="!canSubmit || isLoading || isSyncing"
               @click="handleLogin"
             >
-              <ion-spinner v-if="isLoading || isSyncing" name="crescent" slot="start" />
+              <ion-icon v-if="loginState === 'success' && !isSyncing" :icon="checkmarkCircleOutline" slot="start" />
+              <ion-spinner v-else-if="isLoading || isSyncing" name="crescent" slot="start" />
               <span>{{
-                isSyncing ? syncBtnLabel :
-                isLoading  ? 'Signing in…'  :
+                loginState === 'success' && !isSyncing ? 'Signed in' :
+                isSyncing  ? syncBtnLabel :
+                isLoading  ? 'Signing in…' :
                              'Sign In'
               }}</span>
             </ion-button>
+
+            <!-- Sync status panel — shown after login success while data loads -->
+            <Transition name="sync-status-fade">
+              <div v-if="loginState === 'success' && isSyncing" class="login-sync-status">
+                <ion-spinner name="dots" class="sync-status-dots" />
+                <div class="sync-status-text">
+                  <Transition name="sync-label-swap" mode="out-in">
+                    <span :key="syncBtnLabel" class="sync-status-label">{{ syncBtnLabel }}</span>
+                  </Transition>
+                  <span class="sync-status-sub">Preparing your workspace for offline use</span>
+                </div>
+              </div>
+            </Transition>
           </ion-card-content>
         </ion-card>
 
@@ -175,7 +197,7 @@ import {
   IonIcon,
   IonSpinner,
 } from '@ionic/vue';
-import { eyeOutline, eyeOffOutline, alertCircleOutline, cloudOfflineOutline, warningOutline, pricetagOutline } from 'ionicons/icons';
+import { eyeOutline, eyeOffOutline, alertCircleOutline, cloudOfflineOutline, warningOutline, pricetagOutline, checkmarkCircleOutline } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { ApiService, setApiCompany } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
@@ -205,6 +227,14 @@ const username = ref('');
 const password = ref('');
 const showPassword = ref(false);
 const currentYear = new Date().getFullYear();
+
+/* ─── Login animation state ─── */
+const loginState = ref<'idle' | 'loading' | 'success' | 'error'>('idle');
+const isCardShaking = ref(false);
+
+watch([username, password], () => {
+  if (loginState.value === 'error') loginState.value = 'idle';
+});
 
 const isLoading = computed(() => authStore.isLoading);
 const { isSyncing, sync } = useSync();
@@ -328,10 +358,19 @@ function loadContacts() {
 async function handleLogin() {
   if (!canSubmit.value) return;
   authStore.clearError();
+  loginState.value = 'idle';
   if (!selectedCompany.value || !selectedBrand.value) return;
 
   const ok = await authStore.login(selectedCompany.value, selectedBrand.value, username.value, password.value);
-  if (!ok) return;
+
+  if (!ok) {
+    loginState.value = 'error';
+    isCardShaking.value = true;
+    setTimeout(() => { isCardShaking.value = false; }, 420);
+    return;
+  }
+
+  loginState.value = 'success';
 
   /* Full offline prep — fetch all master data so the app works without a
      network connection after this login. Failure is non-fatal. */
@@ -583,5 +622,165 @@ async function handleLogin() {
   background: rgba(0, 0, 0, 0.05);
   border-color: rgba(0, 0, 0, 0.12);
   color: #555555;
+}
+
+/* ═══════════ Animation additions ═══════════ */
+
+/* ── Error shake ── */
+@keyframes login-shake {
+  0%, 100% { transform: translateX(0); }
+  15%       { transform: translateX(-9px); }
+  30%       { transform: translateX(9px); }
+  45%       { transform: translateX(-6px); }
+  60%       { transform: translateX(6px); }
+  75%       { transform: translateX(-3px); }
+  90%       { transform: translateX(3px); }
+}
+
+.login-card--shake {
+  animation: login-shake 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ── Error field highlight ── */
+.login-field--error {
+  --border-color: var(--ion-color-danger) !important;
+  transition: --border-color 0.18s ease;
+}
+
+/* ── Loading progress strip ── */
+.login-progress-strip {
+  position: relative;
+  height: 3px;
+  margin: -16px -16px 16px;
+  background: oklch(53% 0.11 74 / 0.12);
+  overflow: hidden;
+  border-radius: 16px 16px 0 0;
+}
+
+.login-progress-strip::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 42%;
+  left: -42%;
+  background: linear-gradient(90deg, transparent 0%, var(--app-gold) 50%, transparent 100%);
+  animation: progress-sweep 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes progress-sweep {
+  0%   { left: -42%; }
+  65%  { left: 100%; }
+  100% { left: 100%; }
+}
+
+.strip-fade-enter-active { transition: opacity 0.2s ease; }
+.strip-fade-leave-active { transition: opacity 0.15s ease; }
+.strip-fade-enter-from,
+.strip-fade-leave-to     { opacity: 0; }
+
+/* ── Button loading pulse ── */
+@keyframes btn-breathe {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.78; }
+}
+
+.login-btn--loading {
+  animation: btn-breathe 1.6s ease-in-out infinite;
+}
+
+/* ── Button success state ── */
+.login-btn--success {
+  --background: oklch(52% 0.15 145);
+  --background-activated: oklch(46% 0.15 145);
+  --background-hover: oklch(55% 0.15 145);
+}
+
+/* ── Card success ring ── */
+@keyframes card-success-ring {
+  0%   { box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 0 oklch(52% 0.15 145 / 0.5); }
+  45%  { box-shadow: 0 6px 24px rgba(0,0,0,0.3), 0 0 0 5px oklch(52% 0.15 145 / 0.3); }
+  100% { box-shadow: 0 6px 24px rgba(0,0,0,0.3), 0 0 0 2px oklch(52% 0.15 145 / 0.18); }
+}
+
+.login-card--success {
+  animation: card-success-ring 0.52s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  border-color: oklch(52% 0.15 145 / 0.35);
+  transition: border-color 0.3s ease;
+}
+
+/* ── Sync status panel ── */
+.login-sync-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: oklch(52% 0.15 145 / 0.08);
+  border: 1px solid oklch(52% 0.15 145 / 0.2);
+}
+
+.sync-status-dots {
+  color: oklch(62% 0.15 145);
+  flex-shrink: 0;
+  font-size: 1.1rem;
+}
+
+.sync-status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sync-status-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: oklch(70% 0.12 145);
+  display: block;
+}
+
+.sync-status-sub {
+  font-size: 11px;
+  color: oklch(60% 0.08 145 / 0.75);
+  display: block;
+}
+
+/* Panel enter/leave */
+.sync-status-fade-enter-active { transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+.sync-status-fade-leave-active { transition: opacity 0.15s ease; }
+.sync-status-fade-enter-from   { opacity: 0; transform: translateY(-6px); }
+.sync-status-fade-leave-to     { opacity: 0; }
+
+/* Cycling label swap */
+.sync-label-swap-enter-active { transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+.sync-label-swap-leave-active { transition: opacity 0.15s ease; }
+.sync-label-swap-enter-from   { opacity: 0; transform: translateY(5px); }
+.sync-label-swap-leave-to     { opacity: 0; }
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .login-card--shake,
+  .login-card--success,
+  .login-progress-strip::after,
+  .login-btn--loading {
+    animation: none !important;
+  }
+  .login-progress-strip {
+    background: var(--app-gold);
+    opacity: 0.4;
+  }
+  .login-btn--success,
+  .login-card--success {
+    --background: oklch(52% 0.15 145);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 2px oklch(52% 0.15 145 / 0.3);
+  }
+  .sync-status-fade-enter-active,
+  .sync-status-fade-leave-active,
+  .sync-label-swap-enter-active,
+  .sync-label-swap-leave-active {
+    transition: none !important;
+  }
 }
 </style>

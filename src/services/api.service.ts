@@ -27,12 +27,8 @@ import type {
   SalesReturnOrderPayload,
 } from '@/types';
 
-/* In dev the Vite proxy rewrites /bc/* → GCP API, avoiding CORS.
-   In production set VITE_API_BASE_URL to the GCP origin (or a same-origin proxy). */
-const BASE_URL: string = (import.meta.env.VITE_API_BASE_URL as string) || '';
-
 const apiClient = axios.create({
-  baseURL: BASE_URL,
+  baseURL: '',
   timeout: 60000,
   headers: {
     'Content-Type': 'application/json',
@@ -113,8 +109,8 @@ function extractList<T>(body: unknown): T[] {
 
 export const ApiService = {
   async getCompanies(): Promise<Company[]> {
-    const res = await apiClient.get('/bc/companies');
-    return extractList<Company>(res.data);
+    const res = await apiClient.get('/bc/custom/v2/company-settings');
+    return extractList<Company>(res.data).filter((c) => c.consignmentAppVisible === true);
   },
 
   async getBrands(): Promise<Brand[]> {
@@ -123,7 +119,7 @@ export const ApiService = {
   },
 
   async getContacts(): Promise<Contact[]> {
-    const res = await apiClient.get('/bc/custom/contacts');
+    const res = await apiClient.get('/bc/custom/v2/contacts');
     const raw = extractList<Record<string, unknown>>(res.data);
     // Normalise field-name variations the BC API may return
     return raw.map((c) => ({
@@ -145,13 +141,13 @@ export const ApiService = {
   },
 
   async updateContact(id: string, data: ContactUpdatePayload): Promise<Contact> {
-    const res = await apiClient.patch(`/bc/custom/contacts/${id}`, data);
+    const res = await apiClient.patch(`/bc/custom/v2/contacts/${id}`, data);
     return res.data as Contact;
   },
 
   async getContactPicture(id: string): Promise<string | null> {
     try {
-      const res = await apiClient.get(`/bc/custom/contacts/${id}/picture`, {
+      const res = await apiClient.get(`/bc/custom/v2/contacts/${id}/picture`, {
         responseType: 'blob',
       });
       if (!res.data || res.data.size === 0) return null;
@@ -169,27 +165,44 @@ export const ApiService = {
   async updateContactPicture(id: string, file: File): Promise<void> {
     const form = new FormData();
     form.append('file', file);
-    await apiClient.patch(`/bc/custom/contacts/${id}/picture`, form, {
+    await apiClient.patch(`/bc/custom/v2/contacts/${id}/picture`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
 
-  async getCustomers(): Promise<Customer[]> {
-    const res = await apiClient.get('/bc/customers');
-    return extractList<Customer>(res.data);
+  async getCustomers(brandCode?: string): Promise<Customer[]> {
+    const res = await apiClient.get('/bc/custom/v2/customers', {
+      params: brandCode ? { brand: brandCode } : undefined,
+    });
+    const raw = extractList<Record<string, unknown>>(res.data);
+    return raw.map((c) => ({
+      ...c,
+      id:          (c['id']          ?? c['Id']                                         ?? '') as string,
+      number:      (c['number']      ?? c['no']       ?? c['customerNo']                ?? '') as string,
+      displayName: (c['name']        ?? c['displayName'] ?? c['customerName']           ?? '') as string,
+      city:        (c['city']        ?? c['City']     ?? c['addressCity']               ?? '') as string,
+      addressLine1:(c['addressLine1']?? c['address']  ?? c['address1']                  ?? '') as string,
+      country:     (c['country']     ?? c['countryRegionCode']                          ?? '') as string,
+      postalCode:  (c['postalCode']  ?? c['postCode'] ?? c['zip']                       ?? '') as string,
+      currencyCode:(c['currencyCode']?? c['currency']                                   ?? '') as string,
+      lastModifiedDateTime: (c['lastModifiedDateTime'] ?? '') as string,
+    })) as Customer[];
   },
 
   async getItemFamilies(): Promise<ItemFamily[]> {
-    const res = await apiClient.get('/bc/custom/item-families');
+    const res = await apiClient.get('/bc/custom/v2/item-families');
     return extractList<ItemFamily>(res.data);
   },
 
-  async getItems(): Promise<Item[]> {
-    const res = await apiClient.get('/bc/custom/items');
+  async getItems(familyCode?: string): Promise<Item[]> {
+    const res = await apiClient.get('/bc/custom/v2/items', {
+      params: familyCode ? { family_code: familyCode } : undefined,
+    });
     const raw = extractList<Record<string, unknown>>(res.data);
     return raw.map((i) => ({
       ...i,
-      displayName: (i['displayName'] ?? i['description'] ?? i['number'] ?? '') as string,
+      displayName:    (i['displayName']    ?? i['description'] ?? i['number']     ?? '')  as string,
+      unitPriceIncVAT:(i['unitPriceIncVAT']?? i['unitPrice']   ?? i['unit_price'] ?? 0)   as number,
     })) as Item[];
   },
 
@@ -223,9 +236,12 @@ export const ApiService = {
     await apiClient.patch('/bc/custom/v2/item-prices/cache', { unitPriceIncVAT: unitPrice }, { params });
   },
 
-  async getAllItemPricesForDate(onDate: string): Promise<Record<string, number>> {
+  async getAllItemPricesForDate(onDate: string, productNos?: string[]): Promise<Record<string, number>> {
     const res = await apiClient.get('/bc/custom/v2/item-prices', {
-      params: { on_date: onDate },
+      params: {
+        on_date: onDate,
+        ...(productNos?.length ? { product_nos: productNos.join(',') } : {}),
+      },
     });
     const rows = extractList<Record<string, unknown>>(res.data);
     const map: Record<string, number> = {};
@@ -245,7 +261,7 @@ export const ApiService = {
   },
 
   async submitSalesReturnOrder(payload: SalesReturnOrderPayload): Promise<unknown> {
-    const res = await apiClient.post('/bc/custom/sales-return-orders', payload);
+    const res = await apiClient.post('/bc/custom/v2/sales-return-orders', payload);
     return res.data;
   },
 };
