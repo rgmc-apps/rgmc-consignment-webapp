@@ -194,8 +194,10 @@ export const ApiService = {
     return extractList<ItemFamily>(res.data);
   },
 
-  async getItems(): Promise<Item[]> {
-    const res = await apiClient.get('/bc/custom/v2/items');
+  async getItems(familyCode?: string): Promise<Item[]> {
+    const res = await apiClient.get('/bc/custom/v2/items', {
+      params: familyCode ? { family_code: familyCode } : undefined,
+    });
     const raw = extractList<Record<string, unknown>>(res.data);
     return raw.map((i) => ({
       ...i,

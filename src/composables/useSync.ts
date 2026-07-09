@@ -33,10 +33,10 @@ export function useSync() {
       const brandCode = authStore.brand?.code ?? StorageService.getAuth()?.brand?.code;
       const familyCode = authStore.brand?.itemFamilyCode ?? StorageService.getAuth()?.brand?.itemFamilyCode;
 
-      // Fetch customers filtered by current brand in parallel with other critical data.
+      // Fetch customers and items filtered by current brand in parallel with other critical data.
       const [customers, items, categories] = await Promise.all([
         ApiService.getCustomers(brandCode),
-        ApiService.getItems(),
+        ApiService.getItems(familyCode),
         ApiService.getItemCategories(),
       ]);
 
@@ -72,12 +72,9 @@ export function useSync() {
       // Non-critical: a failure here does not abort the rest of the sync.
       try {
         const today = new Date().toISOString().split('T')[0];
-        const familyItems = familyCode
-          ? items.filter((i) => i.familyCode === familyCode)
-          : items;
         const priceMap = await ApiService.getAllItemPricesForDate(today);
         const finalPriceMap: Record<string, number> = {};
-        for (const item of familyItems) {
+        for (const item of items) {
           finalPriceMap[item.number] = priceMap[item.number] ?? item.unitPriceIncVAT;
         }
         StorageService.setCachedItemPrices(today, finalPriceMap);
