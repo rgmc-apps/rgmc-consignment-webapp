@@ -113,8 +113,10 @@ export const ApiService = {
     return extractList<Company>(res.data).filter((c) => c.consignmentAppVisible === true);
   },
 
-  async getBrands(): Promise<Brand[]> {
-    const res = await apiClient.get('/bc/brands');
+  async getBrands(company?: string): Promise<Brand[]> {
+    const res = await apiClient.get('/bc/brands', {
+      params: company ? { company } : undefined,
+    });
     return extractList<Brand>(res.data);
   },
 

@@ -336,7 +336,7 @@ function loadCompanies() {
 
 function loadBrands() {
   brandsLoading.value = true;
-  Promise.all([ApiService.getBrands(), ApiService.getItemFamilies()])
+  Promise.all([ApiService.getBrands(selectedCompany.value?.name), ApiService.getItemFamilies()])
     .then(([rawBrands, families]) => {
       brands.value = rawBrands.map((b) => ({
         ...b,
