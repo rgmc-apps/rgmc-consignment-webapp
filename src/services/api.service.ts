@@ -115,8 +115,8 @@ export const ApiService = {
       .filter((c) => c['consignmentAppVisible'] === true)
       .map((c) => ({
         id:                   (c['id']                   ?? '') as string,
-        code:                 (c['code']                 ?? c['name'] ?? '') as string,
-        name:                 (c['name']                 ?? '') as string,
+        code:                 (c['code'] ?? c['companyName'] ?? c['name'] ?? '') as string,
+        name:                 (c['name'] ?? c['companyName'] ?? '') as string,
         displayName:          (c['displayName']          ?? '') as string,
         consignmentAppVisible: c['consignmentAppVisible'] as boolean | undefined,
       }));

@@ -159,7 +159,7 @@ watch(selectedCompanyId, async (id) => {
   if (!id || loadPhase.value !== 'selecting') return;
   const company = companies.value.find((c) => c.id === id);
   if (!company) return;
-  setApiCompany(company.name);
+  setApiCompany(company.code);
   StorageService.setCompany(company);
   await loadData(company.code);
 });
