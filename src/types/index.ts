@@ -1,5 +1,6 @@
 export interface Company {
   id: string;
+  code: string;
   name: string;
   displayName: string;
   consignmentAppVisible?: boolean;

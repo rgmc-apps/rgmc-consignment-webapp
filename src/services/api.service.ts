@@ -110,7 +110,16 @@ function extractList<T>(body: unknown): T[] {
 export const ApiService = {
   async getCompanies(): Promise<Company[]> {
     const res = await apiClient.get('/bc/custom/v2/company-settings');
-    return extractList<Company>(res.data).filter((c) => c.consignmentAppVisible === true);
+    const raw = extractList<Record<string, unknown>>(res.data);
+    return raw
+      .filter((c) => c['consignmentAppVisible'] === true)
+      .map((c) => ({
+        id:                   (c['id']                   ?? '') as string,
+        code:                 (c['code']                 ?? c['name'] ?? '') as string,
+        name:                 (c['name']                 ?? '') as string,
+        displayName:          (c['displayName']          ?? '') as string,
+        consignmentAppVisible: c['consignmentAppVisible'] as boolean | undefined,
+      }));
   },
 
   async getBrands(company?: string): Promise<Brand[]> {

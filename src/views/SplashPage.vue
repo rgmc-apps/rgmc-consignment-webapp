@@ -161,7 +161,7 @@ watch(selectedCompanyId, async (id) => {
   if (!company) return;
   setApiCompany(company.name);
   StorageService.setCompany(company);
-  await loadData(company.name);
+  await loadData(company.code);
 });
 
 async function load() {
