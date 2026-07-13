@@ -48,16 +48,22 @@
       </ion-card>
 
       <!-- ── Sales Orders Section ── -->
-      <div v-if="sessionStore.salesOrders.length" class="section">
+      <div v-if="sessionStore.salesOrders.length || session?.noSales" class="section">
         <div class="section-header">
           <p class="section-title">
             <ion-icon :icon="cartOutline" /> Sales Orders
             <ion-badge color="primary">{{ sessionStore.salesOrders.length }}</ion-badge>
+            <ion-badge v-if="session?.noSales" color="warning" class="no-sales-badge">No Sales</ion-badge>
           </p>
           <p class="section-sub">{{ sessionStore.salesQty }} units &bull; {{ formatCurrency(sessionStore.salesTotal) }}</p>
         </div>
 
-        <ion-list lines="full" class="order-table">
+        <div v-if="session?.noSales && !sessionStore.salesOrders.length" class="no-sales-notice">
+          <ion-icon :icon="banOutline" color="warning" />
+          <span>No items — this will be submitted as a No Sales order.</span>
+        </div>
+
+        <ion-list v-if="sessionStore.salesOrders.length" lines="full" class="order-table">
           <ion-item v-for="line in sessionStore.salesOrders" :key="line.id">
             <ion-label>
               <h3>{{ line.itemName }}</h3>
@@ -334,6 +340,7 @@ import {
   calendarOutline,
   trashOutline,
   bugOutline,
+  banOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
 import { useGoldAccent } from '@/composables/useGoldAccent';
@@ -404,6 +411,10 @@ function removeLine(line: OrderLine, orderType: 'sales' | 'returns') {
 
 function confirmSubmit(type: 'sales' | 'returns') {
   if (!session.value?.customer) return;
+  if (type === 'sales' && session.value?.noSales) {
+    doSubmitSales(session.value.customer.number, '');
+    return;
+  }
   pendingSubmitType.value = type;
   showRemarksModal.value = true;
 }
@@ -427,10 +438,11 @@ function onRemarksCancel() {
 
 async function doSubmitSales(customerNumber: string, remarks: string) {
   salesStatus.value = 'submitting';
+  const isNoSales = session.value?.noSales ?? false;
   const payload: SalesOrderPayload = {
     customerNumber,
     ...(session.value?.postingDate ? { postingDate: session.value.postingDate } : {}),
-    ...(remarks ? { externalDocumentNumber: remarks } : {}),
+    externalDocumentNumber: isNoSales ? 'No Sales' : (remarks || undefined),
     ...(session.value?.user?.displayName ? { submittedBy: session.value.user.displayName } : {}),
     lines: sessionStore.salesOrders.map((l) => ({
       itemNumber: l.itemNumber,
@@ -567,6 +579,20 @@ async function showToast(message: string, color: string) {
   margin: 0 0 2px;
 }
 .section-title ion-icon { font-size: 16px; }
+.no-sales-badge { font-size: 10px; letter-spacing: 0.3px; }
+
+.no-sales-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(var(--ion-color-warning-rgb), 0.1);
+  border-bottom: 1px solid var(--app-border);
+  font-size: 13px;
+  color: var(--ion-color-warning-shade);
+  font-weight: 500;
+}
+.no-sales-notice ion-icon { font-size: 16px; flex-shrink: 0; }
 
 .section-sub {
   font-size: 12px;

@@ -1,5 +1,6 @@
 export interface Company {
   id: string;
+  code: string;
   name: string;
   displayName: string;
   consignmentAppVisible?: boolean;
@@ -103,6 +104,7 @@ export interface ScanSession {
   user: { displayName: string };
   customer: Customer | null;
   postingDate?: string;
+  noSales?: boolean;
   salesOrders: OrderLine[];
   returnOrders: OrderLine[];
   createdAt: string;

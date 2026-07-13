@@ -237,36 +237,13 @@ watch([username, password], () => {
 });
 
 const isLoading = computed(() => authStore.isLoading);
-const { isSyncing, sync } = useSync();
-
-const syncBtnMessages = [
-  'Loading data…',
-  'Fetching items…',
-  'Loading customers…',
-  'Preparing app…',
-  'Almost ready…',
-];
-const syncBtnIndex = ref(0);
-let syncBtnTimer: ReturnType<typeof setInterval> | null = null;
-
-watch(isSyncing, (active) => {
-  if (active) {
-    syncBtnIndex.value = 0;
-    syncBtnTimer = setInterval(() => {
-      syncBtnIndex.value = (syncBtnIndex.value + 1) % syncBtnMessages.length;
-    }, 5000);
-  } else {
-    if (syncBtnTimer) { clearInterval(syncBtnTimer); syncBtnTimer = null; }
-    syncBtnIndex.value = 0;
-  }
-});
+const { isSyncing, syncPhase, sync } = useSync();
 
 onUnmounted(() => {
-  if (syncBtnTimer)  { clearInterval(syncBtnTimer);  syncBtnTimer  = null; }
-  if (syncSlowTimer) { clearTimeout(syncSlowTimer);  syncSlowTimer = null; }
+  if (syncSlowTimer) { clearTimeout(syncSlowTimer); syncSlowTimer = null; }
 });
 
-const syncBtnLabel = computed(() => syncBtnMessages[syncBtnIndex.value]);
+const syncBtnLabel = computed(() => syncPhase.value || 'Syncing…');
 
 const { isOnline, isSlowConnection } = useNetworkStatus();
 
@@ -312,7 +289,7 @@ watch(selectedCompanyId, (id) => {
   const company = companies.value.find((c) => c.id === id);
   /* Point the API interceptor at the newly selected company so all /bc/ calls
      below pick up the correct ?company= param */
-  setApiCompany(company?.name ?? null);
+  setApiCompany(company?.code ?? null);
 
   loadBrands();
   loadContacts();
@@ -336,7 +313,7 @@ function loadCompanies() {
 
 function loadBrands() {
   brandsLoading.value = true;
-  Promise.all([ApiService.getBrands(), ApiService.getItemFamilies()])
+  Promise.all([ApiService.getBrands(selectedCompany.value?.code), ApiService.getItemFamilies()])
     .then(([rawBrands, families]) => {
       brands.value = rawBrands.map((b) => ({
         ...b,

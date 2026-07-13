@@ -159,9 +159,9 @@ watch(selectedCompanyId, async (id) => {
   if (!id || loadPhase.value !== 'selecting') return;
   const company = companies.value.find((c) => c.id === id);
   if (!company) return;
-  setApiCompany(company.name);
+  setApiCompany(company.code);
   StorageService.setCompany(company);
-  await loadData();
+  await loadData(company.code);
 });
 
 async function load() {
@@ -180,13 +180,13 @@ async function load() {
   }
 }
 
-async function loadData() {
+async function loadData(companyName?: string) {
   loadPhase.value = 'data';
 
   setStep('brands', 'loading');
   let rawBrands: Awaited<ReturnType<typeof ApiService.getBrands>> = [];
   try {
-    rawBrands = await ApiService.getBrands();
+    rawBrands = await ApiService.getBrands(companyName);
     setStep('brands', 'done');
   } catch (err) {
     setStep('brands', 'error');

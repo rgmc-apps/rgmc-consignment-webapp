@@ -90,6 +90,13 @@ export const useSessionStore = defineStore('session', () => {
     _saveDraft();
   }
 
+  function setNoSales(value: boolean): void {
+    if (!currentSession.value) return;
+    currentSession.value.noSales = value;
+    _touch();
+    _saveDraft();
+  }
+
   function addSalesOrder(line: Omit<OrderLine, 'id' | 'totalAmount'>): void {
     if (!currentSession.value) return;
     const total = computeTotal(line.srp, line.quantity, line.discountType, line.discountValue);
@@ -245,6 +252,7 @@ export const useSessionStore = defineStore('session', () => {
     resumeDraft,
     setCustomer,
     setPostingDate,
+    setNoSales,
     addSalesOrder,
     addReturnOrder,
     removeSalesOrder,

@@ -107,14 +107,57 @@ function extractList<T>(body: unknown): T[] {
   return [];
 }
 
+/**
+ * Fetch one price chunk with per-attempt retry on transient server errors (502/503).
+ * AbortErrors propagate immediately. After exhausting retries the chunk returns []
+ * so the caller can still use results from other successful chunks.
+ */
+async function fetchPriceChunk(
+  chunk: string[],
+  onDate: string,
+  signal: AbortSignal | undefined,
+  retries = 3,
+): Promise<Record<string, unknown>[]> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await apiClient.get('/bc/custom/v3/item-prices', {
+        params: { on_date: onDate, product_nos: chunk.join(',') },
+        signal,
+      });
+      return extractList<Record<string, unknown>>(res.data);
+    } catch (err) {
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
+      const status = err instanceof ApiError ? err.status : undefined;
+      if ((status === 502 || status === 503) && attempt < retries) {
+        await new Promise<void>((r) => setTimeout(r, Math.min(500 * 2 ** attempt, 4000)));
+        continue;
+      }
+      console.warn(`[API] price chunk failed after ${attempt + 1} attempt(s):`, err);
+      return [];
+    }
+  }
+  return [];
+}
+
 export const ApiService = {
   async getCompanies(): Promise<Company[]> {
     const res = await apiClient.get('/bc/custom/v2/company-settings');
-    return extractList<Company>(res.data).filter((c) => c.consignmentAppVisible === true);
+    const raw = extractList<Record<string, unknown>>(res.data);
+    return raw
+      .filter((c) => c['consignmentAppVisible'] === true)
+      .map((c) => ({
+        id:                   (c['id']                   ?? '') as string,
+        code:                 (c['code'] ?? c['companyName'] ?? c['name'] ?? '') as string,
+        name:                 (c['name'] ?? c['companyName'] ?? '') as string,
+        displayName:          (c['displayName']          ?? '') as string,
+        consignmentAppVisible: c['consignmentAppVisible'] as boolean | undefined,
+      }));
   },
 
-  async getBrands(): Promise<Brand[]> {
-    const res = await apiClient.get('/bc/brands');
+  async getBrands(company?: string): Promise<Brand[]> {
+    const res = await apiClient.get('/bc/brands', {
+      params: company ? { company } : undefined,
+    });
     return extractList<Brand>(res.data);
   },
 
@@ -219,10 +262,11 @@ export const ApiService = {
 
   async getActiveItemPrice(productNo: string, onDate: string): Promise<number | null> {
     try {
-      const res = await apiClient.get('/bc/custom/v2/item-prices/active', {
+      const res = await apiClient.get('/bc/custom/v3/item-prices', {
         params: { product_no: productNo, on_date: onDate },
       });
-      const d = res.data as Record<string, unknown>;
+      const rows = extractList<Record<string, unknown>>(res.data);
+      const d = rows[0];
       const price = d?.unitPriceIncVAT ?? d?.unitPrice ?? d?.unit_price ?? d?.price;
       return typeof price === 'number' ? price : null;
     } catch {
@@ -230,22 +274,31 @@ export const ApiService = {
     }
   },
 
-  async updateCachedItemPrice(productNo: string, unitPrice: number, onDate?: string): Promise<void> {
-    const params: Record<string, string> = { product_no: productNo };
-    if (onDate) params['on_date'] = onDate;
-    await apiClient.patch('/bc/custom/v2/item-prices/cache', { unitPriceIncVAT: unitPrice }, { params });
-  },
-
-  async getAllItemPricesForDate(onDate: string, productNos?: string[]): Promise<Record<string, number>> {
-    const res = await apiClient.get('/bc/custom/v2/item-prices', {
-      params: {
-        on_date: onDate,
-        ...(productNos?.length ? { product_nos: productNos.join(',') } : {}),
-      },
-    });
-    const rows = extractList<Record<string, unknown>>(res.data);
+  async getAllItemPricesForDate(
+    onDate: string,
+    productNos: string[],
+    signal?: AbortSignal,
+  ): Promise<Record<string, number>> {
+    if (!productNos.length) return {};
+    // Chunk into batches of 50 to stay well under BC's URL length limit.
+    const CHUNK = 50;
+    const chunks: string[][] = [];
+    for (let i = 0; i < productNos.length; i += CHUNK) {
+      chunks.push(productNos.slice(i, i + CHUNK));
+    }
+    // Two concurrent chunks at a time — conservative enough to stay clear of BC's
+    // per-tenant concurrency limit while still overlapping round-trip latency.
+    const CONCURRENCY = 2;
+    const allRows: Record<string, unknown>[] = [];
+    for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+      const batch = chunks.slice(i, i + CONCURRENCY);
+      const rows = (
+        await Promise.all(batch.map((chunk) => fetchPriceChunk(chunk, onDate, signal)))
+      ).flat();
+      allRows.push(...rows);
+    }
     const map: Record<string, number> = {};
-    for (const row of rows) {
+    for (const row of allRows) {
       const no = row['productNo'] as string | undefined;
       const price = (row['unitPriceIncVAT'] ?? row['unitPrice'] ?? row['unit_price']) as number | undefined;
       if (no && typeof price === 'number' && !(no in map)) {

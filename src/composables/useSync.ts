@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth.store';
 
 // Module-level singleton so all components share the same sync state
 const isSyncing = ref(false);
+const syncPhase = ref('');
 const syncError = ref<string | null>(null);
 const lastSyncDate = ref<Date | null>(StorageService.getLastSync());
 
@@ -26,37 +27,44 @@ export function useSync() {
     if (isSyncing.value) return;
     if (!navigator.onLine) return;
     isSyncing.value = true;
+    syncPhase.value = 'Fetching items & customers…';
     syncError.value = null;
 
     try {
       const authStore = useAuthStore();
       const brandCode = authStore.brand?.code ?? StorageService.getAuth()?.brand?.code;
+      const today = new Date().toISOString().split('T')[0];
 
-      // Fetch customers and items filtered by current brand in parallel with other critical data.
+      // Phase 1 — critical master data.
       const [customers, rawItems, categories] = await Promise.all([
         ApiService.getCustomers(brandCode),
         ApiService.getItems(brandCode),
         ApiService.getItemCategories(),
       ]);
 
-      // Client-side guard: drop any items that slipped through without a matching familyCode.
       const items = brandCode
         ? rawItems.filter((i) => i.familyCode === brandCode)
         : rawItems;
 
-      // Non-critical fetches — falls back to cached values if the endpoint is unavailable.
-      const [familiesResult, contactsResult] = await Promise.allSettled([
-        ApiService.getItemFamilies(),
-        ApiService.getContacts(),
-      ]);
-      const families = familiesResult.status === 'fulfilled' ? familiesResult.value : [];
-      const contacts = contactsResult.status === 'fulfilled'
-        ? contactsResult.value
-        : StorageService.getCachedContacts();
-
       StorageService.setCachedCustomers(customers);
       StorageService.setCachedItems(items);
       StorageService.setCachedItemCategories(categories);
+      StorageService.setSyncTimestamp('customers');
+      StorageService.setSyncTimestamp('items');
+      StorageService.setSyncTimestamp('itemCategories');
+
+      // Phase 2 — contacts, families, and item prices run in parallel.
+      // All three are non-critical: failures fall back to cached data.
+      syncPhase.value = 'Loading prices & contacts…';
+      const [familiesResult, contactsResult, pricesResult] = await Promise.allSettled([
+        ApiService.getItemFamilies(),
+        ApiService.getContacts(),
+        ApiService.getAllItemPricesForDate(today, items.map((i) => i.number)),
+      ]);
+
+      const contacts = contactsResult.status === 'fulfilled'
+        ? contactsResult.value
+        : StorageService.getCachedContacts();
       StorageService.setCachedContacts(contacts);
 
       // Re-apply credentials so login lookups always have the latest username/passwordHash.
@@ -68,30 +76,22 @@ export function useSync() {
         if (Object.keys(patch).length) StorageService.patchContact(authUser.id, patch);
       }
 
-      StorageService.setSyncTimestamp('customers');
-      StorageService.setSyncTimestamp('items');
-      StorageService.setSyncTimestamp('itemCategories');
-
-      // Price lookup scoped to the current brand's item family.
-      // Non-critical: a failure here does not abort the rest of the sync.
-      try {
-        const today = new Date().toISOString().split('T')[0];
-        const itemNumbers = items.map((i) => i.number);
-        const priceMap = await ApiService.getAllItemPricesForDate(today, itemNumbers);
+      // Apply today's prices to the item cache.
+      if (pricesResult.status === 'fulfilled') {
+        const priceMap = pricesResult.value;
         const finalPriceMap: Record<string, number> = {};
         for (const item of items) {
           finalPriceMap[item.number] = priceMap[item.number] ?? item.unitPriceIncVAT;
         }
         StorageService.setCachedItemPrices(today, finalPriceMap);
         StorageService.applyPriceMapToItems(finalPriceMap);
-      } catch {
-        // ignored — prices fall back to item.unitPriceIncVAT when offline
       }
 
       lastSyncDate.value = new Date();
     } catch (err) {
       syncError.value = err instanceof Error ? err.message : 'Sync failed. Check your connection.';
     } finally {
+      syncPhase.value = '';
       isSyncing.value = false;
     }
   }
@@ -109,6 +109,7 @@ export function useSync() {
 
   return {
     isSyncing,
+    syncPhase,
     syncError,
     lastSyncDate,
     lastSyncLabel,

@@ -151,6 +151,20 @@
                 />
               </div>
             </div>
+
+            <!-- No Sales toggle -->
+            <div class="no-sales-row">
+              <div class="no-sales-label-group">
+                <span class="no-sales-label">No Sales</span>
+                <span class="no-sales-hint">Submit a sales order without items</span>
+              </div>
+              <ion-toggle
+                :checked="sessionStore.currentSession?.noSales ?? false"
+                @ionChange="sessionStore.setNoSales(($event as CustomEvent).detail.checked)"
+                color="warning"
+                class="no-sales-toggle"
+              />
+            </div>
           </ion-card-content>
         </ion-card>
 
@@ -206,7 +220,7 @@
               </ion-item>
               <p class="srp-date-hint">
                 <ion-icon :icon="informationCircleOutline" />
-                Prices are based on today's date. Update the posting date if necessary.
+                Price reflects the posting date above. Changing the date updates all prices.
               </p>
 
               <!-- Quantity -->
@@ -278,6 +292,14 @@
         <div class="scan-list-col">
         <!-- ══ Order Lists ══ -->
         <template v-if="sessionStore.hasLines">
+          <!-- Price-refresh indicator — shown while date-change price lookups are in flight -->
+          <Transition name="net-notice-fade">
+            <div v-if="isUpdatingLinePrices" class="price-refresh-banner">
+              <ion-spinner name="dots" class="price-refresh-spinner" />
+              <span>Updating prices for {{ orderDateValue }}…</span>
+            </div>
+          </Transition>
+
           <ion-segment v-model="activeTab" class="order-segment">
             <ion-segment-button value="sales">
               <ion-label>
@@ -358,7 +380,7 @@
 
     <!-- ── Sticky submit bar ── -->
     <Transition name="submit-bar">
-    <div v-if="sessionStore.hasLines" :class="['submit-bar', { 'gold-item-flash': submitFlashActive }]">
+    <div v-if="sessionStore.hasLines || (sessionStore.currentSession?.noSales && sessionStore.currentSession?.customer)" :class="['submit-bar', { 'gold-item-flash': submitFlashActive }]">
       <div class="submit-bar__left">
         <span class="submit-bar__count">
           {{ sessionStore.salesOrders.length + sessionStore.returnOrders.length }} items
@@ -599,6 +621,7 @@ import {
   IonSpinner,
   IonRefresher,
   IonRefresherContent,
+  IonToggle,
   toastController,
   alertController,
 } from '@ionic/vue';
@@ -852,6 +875,7 @@ const confirmDiscountValue = ref(0);
 
 const confirmedSrp = ref(0);
 const fetchingPrice = ref(false);
+const isUpdatingLinePrices = ref(false);
 
 const confirmTotal = computed(() =>
   computeTotal(
@@ -880,35 +904,83 @@ async function fetchActivePrice(itemNumber: string, onDate: string): Promise<voi
     form.srp = resolved;
     if (price !== null && isOnline.value) {
       StorageService.patchCachedItemPrice(itemNumber, price);
-      ApiService.updateCachedItemPrice(itemNumber, price, onDate).catch(() => {});
     }
   } finally {
     fetchingPrice.value = false;
   }
 }
 
+let _dateWatchAbort: AbortController | null = null;
+
 watch(orderDateValue, async (newDate) => {
   if (!newDate) return;
-  if (form.itemId) {
-    fetchActivePrice(form.itemNumber, newDate);
-  }
+
   const allLines = [
     ...sessionStore.salesOrders.map((l) => ({ line: l, type: 'sales' as const })),
     ...sessionStore.returnOrders.map((l) => ({ line: l, type: 'returns' as const })),
   ];
-  if (allLines.length) {
-    await Promise.all(
-      allLines.map(async ({ line, type }) => {
-        const price = await lookupPrice(line.itemNumber, newDate);
-        if (price !== null) {
-          sessionStore.updateLineSrp(line.id, type, price);
-          if (isOnline.value) {
-            StorageService.patchCachedItemPrice(line.itemNumber, price);
-            ApiService.updateCachedItemPrice(line.itemNumber, price, newDate).catch(() => {});
-          }
-        }
-      }),
-    );
+  const hasFormItem = !!form.itemId;
+  if (!allLines.length && !hasFormItem) return;
+
+  // Offline: apply cached prices immediately — no network call, no loading state.
+  if (!isOnline.value) {
+    const priceMap = StorageService.getCachedItemPrices()?.prices ?? {};
+    if (hasFormItem) {
+      const price = priceMap[form.itemNumber] ?? null;
+      if (price !== null) { confirmedSrp.value = price; form.srp = price; }
+    }
+    for (const { line, type } of allLines) {
+      const price = priceMap[line.itemNumber] ?? null;
+      if (price !== null) sessionStore.updateLineSrp(line.id, type, price);
+    }
+    return;
+  }
+
+  // Online: cancel any previous in-flight fetch, then load from API.
+  _dateWatchAbort?.abort();
+  _dateWatchAbort = new AbortController();
+  const { signal } = _dateWatchAbort;
+
+  const lineNos = allLines.map(({ line }) => line.itemNumber);
+  const allNos = [...new Set(hasFormItem ? [form.itemNumber, ...lineNos] : lineNos)];
+
+  isUpdatingLinePrices.value = true;
+  let updatedCount = 0;
+  try {
+    const priceMap = await ApiService.getAllItemPricesForDate(newDate, allNos, signal);
+
+    if (hasFormItem) {
+      const price = priceMap[form.itemNumber] ?? null;
+      if (price !== null) {
+        confirmedSrp.value = price;
+        form.srp = price;
+        StorageService.patchCachedItemPrice(form.itemNumber, price);
+      }
+    }
+
+    for (const { line, type } of allLines) {
+      const price = priceMap[line.itemNumber] ?? null;
+      if (price !== null) {
+        sessionStore.updateLineSrp(line.id, type, price);
+        updatedCount++;
+        StorageService.patchCachedItemPrice(line.itemNumber, price);
+      }
+    }
+
+    if (updatedCount > 0) {
+      const t = await toastController.create({
+        message: `${updatedCount} ${updatedCount === 1 ? 'item price' : 'item prices'} updated for ${newDate}.`,
+        duration: 2500,
+        position: 'bottom',
+        color: 'success',
+      });
+      await t.present();
+    }
+  } catch (err) {
+    if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) return;
+    throw err;
+  } finally {
+    isUpdatingLinePrices.value = false;
   }
 });
 
@@ -927,18 +999,24 @@ watch(isOnline, async (online, wasOnline) => {
       {
         text: 'Update Prices',
         handler: async () => {
-          if (form.itemId) fetchActivePrice(form.itemNumber, orderDateValue.value);
-          if (allLines.length) {
-            await Promise.all(
-              allLines.map(async ({ line, type }) => {
-                const price = await ApiService.getActiveItemPrice(line.itemNumber, orderDateValue.value);
-                if (price !== null) {
-                  sessionStore.updateLineSrp(line.id, type, price);
-                  StorageService.patchCachedItemPrice(line.itemNumber, price);
-                  ApiService.updateCachedItemPrice(line.itemNumber, price, orderDateValue.value).catch(() => {});
-                }
-              }),
-            );
+          const hasFormItem = !!form.itemId;
+          const lineNos = allLines.map(({ line }) => line.itemNumber);
+          const allNos = [...new Set(hasFormItem ? [form.itemNumber, ...lineNos] : lineNos)];
+          const priceMap = await ApiService.getAllItemPricesForDate(orderDateValue.value, allNos);
+          if (hasFormItem) {
+            const price = priceMap[form.itemNumber] ?? null;
+            if (price !== null) {
+              confirmedSrp.value = price;
+              form.srp = price;
+              StorageService.patchCachedItemPrice(form.itemNumber, price);
+            }
+          }
+          for (const { line, type } of allLines) {
+            const price = priceMap[line.itemNumber] ?? null;
+            if (price !== null) {
+              sessionStore.updateLineSrp(line.id, type, price);
+              StorageService.patchCachedItemPrice(line.itemNumber, price);
+            }
           }
         },
       },
@@ -1337,6 +1415,25 @@ async function toast(message: string, color: string) {
 .no-cust-notice ion-icon { font-size: 18px; flex-shrink: 0; }
 .no-cust-notice p { margin: 0; }
 
+/* ── Price refresh banner ── */
+.price-refresh-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 12px 0;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--ion-color-primary) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ion-color-primary) 30%, transparent);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--ion-color-primary);
+}
+.price-refresh-spinner {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
 /* ── Order tabs / list ── */
 .order-segment {
   margin: 12px 12px 0;
@@ -1721,6 +1818,34 @@ async function toast(message: string, color: string) {
   border-top: 1px solid var(--app-border);
   margin-top: 14px;
   padding-top: 14px;
+}
+
+.no-sales-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--app-border);
+  margin-top: 14px;
+  padding-top: 12px;
+}
+.no-sales-label-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.no-sales-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--app-fg);
+  letter-spacing: 0.2px;
+}
+.no-sales-hint {
+  font-size: 11px;
+  color: var(--app-text-muted);
+}
+.no-sales-toggle {
+  flex-shrink: 0;
 }
 
 .order-date-row {

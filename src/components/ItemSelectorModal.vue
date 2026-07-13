@@ -279,15 +279,17 @@ watch(displayItems, (items) => {
   priceTimer = setTimeout(async () => {
     const missing = items.filter((i) => livePrices.value[i.number] === undefined);
     if (!missing.length) return;
-    await Promise.all(
-      missing.map(async (item) => {
-        const price = await ApiService.getActiveItemPrice(item.number, lookupDate.value);
-        if (price !== null) {
-          livePrices.value[item.number] = price;
-          StorageService.patchCachedItemPrice(item.number, price);
-        }
-      }),
+    const priceMap = await ApiService.getAllItemPricesForDate(
+      lookupDate.value,
+      missing.map((i) => i.number),
     );
+    for (const item of missing) {
+      const price = priceMap[item.number] ?? null;
+      if (price !== null) {
+        livePrices.value[item.number] = price;
+        StorageService.patchCachedItemPrice(item.number, price);
+      }
+    }
   }, 300);
 });
 
