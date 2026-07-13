@@ -242,16 +242,27 @@ export const ApiService = {
     }
   },
 
-  async getAllItemPricesForDate(onDate: string, familyCode?: string): Promise<Record<string, number>> {
-    const res = await apiClient.get('/bc/custom/v3/item-prices', {
-      params: {
-        on_date: onDate,
-        ...(familyCode ? { family_code: familyCode } : {}),
-      },
-    });
-    const rows = extractList<Record<string, unknown>>(res.data);
+  async getAllItemPricesForDate(onDate: string, productNos: string[]): Promise<Record<string, number>> {
+    if (!productNos.length) return {};
+    // Chunk into batches of 50 to stay well under BC's URL length limit.
+    const CHUNK = 50;
+    const chunks: string[][] = [];
+    for (let i = 0; i < productNos.length; i += CHUNK) {
+      chunks.push(productNos.slice(i, i + CHUNK));
+    }
+    const allRows = (
+      await Promise.all(
+        chunks.map((chunk) =>
+          apiClient
+            .get('/bc/custom/v3/item-prices', {
+              params: { on_date: onDate, product_nos: chunk.join(',') },
+            })
+            .then((res) => extractList<Record<string, unknown>>(res.data)),
+        ),
+      )
+    ).flat();
     const map: Record<string, number> = {};
-    for (const row of rows) {
+    for (const row of allRows) {
       const no = row['productNo'] as string | undefined;
       const price = (row['unitPriceIncVAT'] ?? row['unitPrice'] ?? row['unit_price']) as number | undefined;
       if (no && typeof price === 'number' && !(no in map)) {

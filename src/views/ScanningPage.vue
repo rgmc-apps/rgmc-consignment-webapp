@@ -908,18 +908,23 @@ watch(orderDateValue, async (newDate) => {
   isUpdatingLinePrices.value = true;
   let updatedCount = 0;
   try {
-    await Promise.all(
-      allLines.map(async ({ line, type }) => {
-        const price = await lookupPrice(line.itemNumber, newDate);
-        if (price !== null) {
-          sessionStore.updateLineSrp(line.id, type, price);
-          updatedCount++;
-          if (isOnline.value) {
-            StorageService.patchCachedItemPrice(line.itemNumber, price);
-          }
+    const uniqueNos = [...new Set(allLines.map(({ line }) => line.itemNumber))];
+    let priceMap: Record<string, number>;
+    if (isOnline.value) {
+      priceMap = await ApiService.getAllItemPricesForDate(newDate, uniqueNos);
+    } else {
+      priceMap = StorageService.getCachedItemPrices()?.prices ?? {};
+    }
+    for (const { line, type } of allLines) {
+      const price = priceMap[line.itemNumber] ?? null;
+      if (price !== null) {
+        sessionStore.updateLineSrp(line.id, type, price);
+        updatedCount++;
+        if (isOnline.value) {
+          StorageService.patchCachedItemPrice(line.itemNumber, price);
         }
-      }),
-    );
+      }
+    }
     if (updatedCount > 0) {
       const t = await toastController.create({
         message: `${updatedCount} ${updatedCount === 1 ? 'item price' : 'item prices'} updated for ${newDate}.`,
@@ -951,15 +956,15 @@ watch(isOnline, async (online, wasOnline) => {
         handler: async () => {
           if (form.itemId) fetchActivePrice(form.itemNumber, orderDateValue.value);
           if (allLines.length) {
-            await Promise.all(
-              allLines.map(async ({ line, type }) => {
-                const price = await ApiService.getActiveItemPrice(line.itemNumber, orderDateValue.value);
-                if (price !== null) {
-                  sessionStore.updateLineSrp(line.id, type, price);
-                  StorageService.patchCachedItemPrice(line.itemNumber, price);
-                }
-              }),
-            );
+            const uniqueNos = [...new Set(allLines.map(({ line }) => line.itemNumber))];
+            const priceMap = await ApiService.getAllItemPricesForDate(orderDateValue.value, uniqueNos);
+            for (const { line, type } of allLines) {
+              const price = priceMap[line.itemNumber] ?? null;
+              if (price !== null) {
+                sessionStore.updateLineSrp(line.id, type, price);
+                StorageService.patchCachedItemPrice(line.itemNumber, price);
+              }
+            }
           }
         },
       },

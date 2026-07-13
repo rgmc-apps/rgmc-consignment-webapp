@@ -77,7 +77,7 @@ export function useSync() {
       // Non-critical: a failure here does not abort the rest of the sync.
       try {
         const today = new Date().toISOString().split('T')[0];
-        const priceMap = await ApiService.getAllItemPricesForDate(today, brandCode);
+        const priceMap = await ApiService.getAllItemPricesForDate(today, items.map((i) => i.number));
         const finalPriceMap: Record<string, number> = {};
         for (const item of items) {
           finalPriceMap[item.number] = priceMap[item.number] ?? item.unitPriceIncVAT;
