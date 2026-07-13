@@ -895,36 +895,58 @@ async function fetchActivePrice(itemNumber: string, onDate: string): Promise<voi
   }
 }
 
+let _dateWatchAbort: AbortController | null = null;
+
 watch(orderDateValue, async (newDate) => {
   if (!newDate) return;
-  if (form.itemId) {
-    fetchActivePrice(form.itemNumber, newDate);
-  }
+
+  // Cancel any previous in-flight price fetch triggered by an earlier date change.
+  _dateWatchAbort?.abort();
+  _dateWatchAbort = new AbortController();
+  const { signal } = _dateWatchAbort;
+
   const allLines = [
     ...sessionStore.salesOrders.map((l) => ({ line: l, type: 'sales' as const })),
     ...sessionStore.returnOrders.map((l) => ({ line: l, type: 'returns' as const })),
   ];
-  if (!allLines.length) return;
+  const hasFormItem = !!form.itemId;
+  if (!allLines.length && !hasFormItem) return;
+
   isUpdatingLinePrices.value = true;
   let updatedCount = 0;
   try {
-    const uniqueNos = [...new Set(allLines.map(({ line }) => line.itemNumber))];
+    // Include the active form item in the same batch so we never issue
+    // a separate concurrent getActiveItemPrice call.
+    const lineNos = allLines.map(({ line }) => line.itemNumber);
+    const allNos = [...new Set(hasFormItem ? [form.itemNumber, ...lineNos] : lineNos)];
+
     let priceMap: Record<string, number>;
     if (isOnline.value) {
-      priceMap = await ApiService.getAllItemPricesForDate(newDate, uniqueNos);
+      priceMap = await ApiService.getAllItemPricesForDate(newDate, allNos, signal);
     } else {
       priceMap = StorageService.getCachedItemPrices()?.prices ?? {};
     }
+
+    // Update the active form item price.
+    if (hasFormItem) {
+      const price = priceMap[form.itemNumber] ?? null;
+      if (price !== null) {
+        confirmedSrp.value = price;
+        form.srp = price;
+        if (isOnline.value) StorageService.patchCachedItemPrice(form.itemNumber, price);
+      }
+    }
+
+    // Update order line prices.
     for (const { line, type } of allLines) {
       const price = priceMap[line.itemNumber] ?? null;
       if (price !== null) {
         sessionStore.updateLineSrp(line.id, type, price);
         updatedCount++;
-        if (isOnline.value) {
-          StorageService.patchCachedItemPrice(line.itemNumber, price);
-        }
+        if (isOnline.value) StorageService.patchCachedItemPrice(line.itemNumber, price);
       }
     }
+
     if (updatedCount > 0) {
       const t = await toastController.create({
         message: `${updatedCount} ${updatedCount === 1 ? 'item price' : 'item prices'} updated for ${newDate}.`,
@@ -934,6 +956,10 @@ watch(orderDateValue, async (newDate) => {
       });
       await t.present();
     }
+  } catch (err) {
+    // AbortError is expected when a newer date change supersedes this one.
+    if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) return;
+    throw err;
   } finally {
     isUpdatingLinePrices.value = false;
   }
@@ -954,16 +980,23 @@ watch(isOnline, async (online, wasOnline) => {
       {
         text: 'Update Prices',
         handler: async () => {
-          if (form.itemId) fetchActivePrice(form.itemNumber, orderDateValue.value);
-          if (allLines.length) {
-            const uniqueNos = [...new Set(allLines.map(({ line }) => line.itemNumber))];
-            const priceMap = await ApiService.getAllItemPricesForDate(orderDateValue.value, uniqueNos);
-            for (const { line, type } of allLines) {
-              const price = priceMap[line.itemNumber] ?? null;
-              if (price !== null) {
-                sessionStore.updateLineSrp(line.id, type, price);
-                StorageService.patchCachedItemPrice(line.itemNumber, price);
-              }
+          const hasFormItem = !!form.itemId;
+          const lineNos = allLines.map(({ line }) => line.itemNumber);
+          const allNos = [...new Set(hasFormItem ? [form.itemNumber, ...lineNos] : lineNos)];
+          const priceMap = await ApiService.getAllItemPricesForDate(orderDateValue.value, allNos);
+          if (hasFormItem) {
+            const price = priceMap[form.itemNumber] ?? null;
+            if (price !== null) {
+              confirmedSrp.value = price;
+              form.srp = price;
+              StorageService.patchCachedItemPrice(form.itemNumber, price);
+            }
+          }
+          for (const { line, type } of allLines) {
+            const price = priceMap[line.itemNumber] ?? null;
+            if (price !== null) {
+              sessionStore.updateLineSrp(line.id, type, price);
+              StorageService.patchCachedItemPrice(line.itemNumber, price);
             }
           }
         },

@@ -242,7 +242,11 @@ export const ApiService = {
     }
   },
 
-  async getAllItemPricesForDate(onDate: string, productNos: string[]): Promise<Record<string, number>> {
+  async getAllItemPricesForDate(
+    onDate: string,
+    productNos: string[],
+    signal?: AbortSignal,
+  ): Promise<Record<string, number>> {
     if (!productNos.length) return {};
     // Chunk into batches of 50 to stay well under BC's URL length limit.
     const CHUNK = 50;
@@ -250,17 +254,25 @@ export const ApiService = {
     for (let i = 0; i < productNos.length; i += CHUNK) {
       chunks.push(productNos.slice(i, i + CHUNK));
     }
-    const allRows = (
-      await Promise.all(
-        chunks.map((chunk) =>
-          apiClient
-            .get('/bc/custom/v3/item-prices', {
-              params: { on_date: onDate, product_nos: chunk.join(',') },
-            })
-            .then((res) => extractList<Record<string, unknown>>(res.data)),
-        ),
-      )
-    ).flat();
+    // Run at most 3 chunks concurrently — BC throttles at 5 concurrent requests.
+    const CONCURRENCY = 3;
+    const allRows: Record<string, unknown>[] = [];
+    for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+      const window = chunks.slice(i, i + CONCURRENCY);
+      const rows = (
+        await Promise.all(
+          window.map((chunk) =>
+            apiClient
+              .get('/bc/custom/v3/item-prices', {
+                params: { on_date: onDate, product_nos: chunk.join(',') },
+                signal,
+              })
+              .then((res) => extractList<Record<string, unknown>>(res.data)),
+          ),
+        )
+      ).flat();
+      allRows.push(...rows);
+    }
     const map: Record<string, number> = {};
     for (const row of allRows) {
       const no = row['productNo'] as string | undefined;
