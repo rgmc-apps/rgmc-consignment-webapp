@@ -42,6 +42,37 @@
         </div>
       </div>
 
+      <!-- Sync warning banner -->
+      <Transition name="sync-warn-fade">
+        <div
+          v-if="syncNotice"
+          :class="['sync-warn-banner', syncError ? 'sync-warn-banner--error' : 'sync-warn-banner--warn']"
+        >
+          <ion-icon :icon="warningOutline" class="sync-warn-icon" />
+          <span class="sync-warn-text">{{ syncNotice }}</span>
+          <div class="sync-warn-actions">
+            <ion-button
+              fill="clear"
+              size="small"
+              class="sync-warn-btn"
+              :disabled="isSyncing"
+              @click="doSync"
+            >
+              <ion-spinner v-if="isSyncing" name="crescent" class="sync-warn-spinner" />
+              <span v-else>Sync Now</span>
+            </ion-button>
+            <ion-button
+              fill="clear"
+              size="small"
+              class="sync-warn-dismiss"
+              @click="clearSyncWarning"
+            >
+              <ion-icon :icon="closeOutline" slot="icon-only" />
+            </ion-button>
+          </div>
+        </div>
+      </Transition>
+
       <!-- Start new session CTA -->
       <div class="ion-padding-horizontal ion-padding-top">
         <ion-button expand="block" size="large" class="start-btn" @click="startNewSession">
@@ -155,6 +186,8 @@ import {
   storefrontOutline,
   sendOutline,
   chevronDownCircleOutline,
+  warningOutline,
+  closeOutline,
 } from 'ionicons/icons';
 import ProfileMenu from '@/components/ProfileMenu.vue';
 import WelcomeModal from '@/components/WelcomeModal.vue';
@@ -162,6 +195,7 @@ import BugReportButton from '@/components/BugReportButton.vue';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
 import { StorageService } from '@/services/storage.service';
+import { useSync } from '@/composables/useSync';
 import { useCustomerFilter } from '@/composables/useCustomerFilter';
 import { useTheme } from '@/composables/useTheme';
 import type { Customer, ScanSession } from '@/types';
@@ -170,6 +204,14 @@ const router = useRouter();
 const authStore = useAuthStore();
 const sessionStore = useSessionStore();
 const { theme } = useTheme();
+const { isSyncing, syncError, syncWarning, sync, clearSyncWarning } = useSync();
+
+const syncNotice = computed(() => syncError.value || syncWarning.value);
+
+async function doSync() {
+  await sync();
+  allCustomers.value = StorageService.getCachedCustomers();
+}
 const isMinimalist = computed(() => theme.value === 'minimalist');
 const headerLogoSrc = computed(() =>
   isMinimalist.value ? '/static/logo-bnw.png' : '/static/cons-logo.png',
@@ -497,6 +539,78 @@ async function confirmDeleteDraft(id: string) {
 .customers-list ion-item:nth-child(6) { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.25s both; }
 .customers-list ion-item:nth-child(7) { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.29s both; }
 .customers-list ion-item:nth-child(8) { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.33s both; }
+
+/* ── Sync warning banner ── */
+.sync-warn-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 16px 0;
+  padding: 10px 8px 10px 12px;
+  border-radius: 10px;
+  animation: fade-slide-up 0.25s var(--ease-out-quart) both;
+}
+
+.sync-warn-banner--warn {
+  background: rgba(var(--ion-color-warning-rgb), 0.12);
+  border: 1px solid rgba(var(--ion-color-warning-rgb), 0.3);
+}
+
+.sync-warn-banner--error {
+  background: var(--app-danger-bg);
+  border: 1px solid var(--app-error-border);
+}
+
+.sync-warn-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  color: var(--ion-color-warning-shade);
+}
+.sync-warn-banner--error .sync-warn-icon {
+  color: var(--ion-color-danger);
+}
+
+.sync-warn-text {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--app-fg);
+  flex: 1;
+  line-height: 1.4;
+}
+
+.sync-warn-actions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+.sync-warn-btn {
+  --color: var(--ion-color-warning-shade);
+  font-size: 12px;
+  font-weight: 700;
+  height: 30px;
+}
+.sync-warn-banner--error .sync-warn-btn {
+  --color: var(--ion-color-danger);
+}
+
+.sync-warn-dismiss {
+  --color: var(--app-text-muted);
+  font-size: 12px;
+  height: 30px;
+  width: 30px;
+}
+
+.sync-warn-spinner {
+  width: 14px;
+  height: 14px;
+}
+
+.sync-warn-fade-enter-active { transition: opacity 0.25s ease, transform 0.25s var(--ease-out-quart); }
+.sync-warn-fade-leave-active { transition: opacity 0.15s ease; }
+.sync-warn-fade-enter-from   { opacity: 0; transform: translateY(-6px); }
+.sync-warn-fade-leave-to     { opacity: 0; }
 
 /* ── Minimalist overrides ── */
 .lp--minimalist .welcome-hero {

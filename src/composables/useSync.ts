@@ -7,7 +7,9 @@ import { useAuthStore } from '@/stores/auth.store';
 const isSyncing = ref(false);
 const syncPhase = ref('');
 const syncProgress = ref(0);
+const syncSubTasks = ref<{ label: string; status: 'pending' | 'done' | 'error' }[]>([]);
 const syncError = ref<string | null>(null);
+const syncWarning = ref<string | null>(null);
 const lastSyncDate = ref<Date | null>(StorageService.getLastSync());
 
 export function useSync() {
@@ -31,6 +33,7 @@ export function useSync() {
     syncPhase.value = 'Fetching items & customers…';
     syncProgress.value = 0;
     syncError.value = null;
+    syncWarning.value = null;
 
     try {
       const authStore = useAuthStore();
@@ -58,7 +61,11 @@ export function useSync() {
 
       // Phase 2 — contacts, families, and item prices run in parallel (45 → 100%).
       // All three are non-critical: failures fall back to cached data.
-      syncPhase.value = 'Loading prices & contacts…';
+      syncPhase.value = 'Fetching…';
+      syncSubTasks.value = [
+        { label: 'Contacts', status: 'pending' },
+        { label: 'Item Prices', status: 'pending' },
+      ];
 
       // When a brandCode is available use the familyCode filter — one BC call instead
       // of N/50 chunked calls. Fall back to chunked product-number batches otherwise.
@@ -75,9 +82,20 @@ export function useSync() {
 
       const [familiesResult, contactsResult, pricesResult] = await Promise.allSettled([
         ApiService.getItemFamilies(),
-        ApiService.getContacts(),
-        pricesCall,
+        ApiService.getContacts()
+          .then((r) => { syncSubTasks.value[0].status = 'done'; return r; })
+          .catch((e) => { syncSubTasks.value[0].status = 'error'; throw e; }),
+        pricesCall
+          .then((r) => { syncSubTasks.value[1].status = 'done'; return r; })
+          .catch((e) => { syncSubTasks.value[1].status = 'error'; throw e; }),
       ]);
+
+      const failedTasks = syncSubTasks.value
+        .filter((t) => t.status === 'error')
+        .map((t) => t.label);
+      if (failedTasks.length) {
+        syncWarning.value = `Some data failed to load: ${failedTasks.join(', ')}. Please sync again when ready.`;
+      }
 
       const contacts = contactsResult.status === 'fulfilled'
         ? contactsResult.value
@@ -110,6 +128,7 @@ export function useSync() {
       syncError.value = err instanceof Error ? err.message : 'Sync failed. Check your connection.';
     } finally {
       syncPhase.value = '';
+      syncSubTasks.value = [];
       isSyncing.value = false;
     }
   }
@@ -125,14 +144,22 @@ export function useSync() {
     }
   }
 
+  function clearSyncWarning(): void {
+    syncWarning.value = null;
+    syncError.value = null;
+  }
+
   return {
     isSyncing,
     syncPhase,
     syncProgress,
+    syncSubTasks,
     syncError,
+    syncWarning,
     lastSyncDate,
     lastSyncLabel,
     sync,
     syncIfStale,
+    clearSyncWarning,
   };
 }

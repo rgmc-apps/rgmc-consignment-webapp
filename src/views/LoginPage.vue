@@ -168,7 +168,32 @@
                     <Transition name="sync-label-swap" mode="out-in">
                       <span :key="syncPhase" class="sync-status-label">{{ syncPhase || 'Syncing…' }}</span>
                     </Transition>
-                    <span class="sync-status-pct">{{ syncProgress }}%</span>
+                    <span v-if="!syncSubTasks.length" class="sync-status-pct">{{ syncProgress }}%</span>
+                  </div>
+                  <!-- Per-task rows during Phase 2 -->
+                  <div v-if="syncSubTasks.length" class="sync-subtasks">
+                    <div v-for="task in syncSubTasks" :key="task.label" class="sync-subtask-row">
+                      <ion-icon
+                        v-if="task.status === 'done'"
+                        :icon="checkmarkCircleOutline"
+                        class="subtask-icon subtask-icon--done"
+                      />
+                      <ion-icon
+                        v-else-if="task.status === 'error'"
+                        :icon="alertCircleOutline"
+                        class="subtask-icon subtask-icon--error"
+                      />
+                      <ion-spinner v-else name="crescent" class="subtask-spinner" />
+                      <span
+                        class="subtask-label"
+                        :class="{
+                          'subtask-label--done': task.status === 'done',
+                          'subtask-label--error': task.status === 'error',
+                        }"
+                      >{{ task.label }}</span>
+                      <span v-if="task.status === 'pending' && task.label === 'Item Prices'" class="subtask-pct">{{ syncProgress }}%</span>
+                      <span v-if="task.status === 'error'" class="subtask-err-note">Failed</span>
+                    </div>
                   </div>
                   <div class="sync-progress-track">
                     <div class="sync-progress-fill" :style="{ width: syncProgress + '%' }" />
@@ -243,7 +268,7 @@ watch([username, password], () => {
 });
 
 const isLoading = computed(() => authStore.isLoading);
-const { isSyncing, syncPhase, syncProgress, sync } = useSync();
+const { isSyncing, syncPhase, syncProgress, syncSubTasks, sync } = useSync();
 
 onUnmounted(() => {
   if (syncSlowTimer) { clearTimeout(syncSlowTimer); syncSlowTimer = null; }
@@ -746,6 +771,70 @@ async function handleLogin() {
 .sync-label-swap-leave-active { transition: opacity 0.15s ease; }
 .sync-label-swap-enter-from   { opacity: 0; transform: translateY(5px); }
 .sync-label-swap-leave-to     { opacity: 0; }
+
+/* ── Sync sub-tasks (Phase 2) ── */
+.sync-subtasks {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 6px 0 2px;
+}
+
+.sync-subtask-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.subtask-icon--done {
+  font-size: 14px;
+  color: oklch(62% 0.15 145);
+  flex-shrink: 0;
+}
+
+.subtask-icon--error {
+  font-size: 14px;
+  color: var(--ion-color-danger);
+  flex-shrink: 0;
+}
+
+.subtask-spinner {
+  width: 14px;
+  height: 14px;
+  color: oklch(62% 0.15 145);
+  flex-shrink: 0;
+}
+
+.subtask-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: oklch(70% 0.12 145);
+  flex: 1;
+}
+
+.subtask-label--done {
+  opacity: 0.55;
+}
+
+.subtask-label--error {
+  color: var(--ion-color-danger);
+}
+
+.subtask-err-note {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ion-color-danger);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+}
+
+.subtask-pct {
+  font-size: 11px;
+  font-weight: 700;
+  color: oklch(70% 0.12 145);
+  flex-shrink: 0;
+}
 
 /* ── Sync progress bar ── */
 .sync-status-top {
