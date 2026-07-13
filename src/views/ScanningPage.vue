@@ -900,11 +900,6 @@ let _dateWatchAbort: AbortController | null = null;
 watch(orderDateValue, async (newDate) => {
   if (!newDate) return;
 
-  // Cancel any previous in-flight price fetch triggered by an earlier date change.
-  _dateWatchAbort?.abort();
-  _dateWatchAbort = new AbortController();
-  const { signal } = _dateWatchAbort;
-
   const allLines = [
     ...sessionStore.salesOrders.map((l) => ({ line: l, type: 'sales' as const })),
     ...sessionStore.returnOrders.map((l) => ({ line: l, type: 'returns' as const })),
@@ -912,38 +907,48 @@ watch(orderDateValue, async (newDate) => {
   const hasFormItem = !!form.itemId;
   if (!allLines.length && !hasFormItem) return;
 
+  // Offline: apply cached prices immediately — no network call, no loading state.
+  if (!isOnline.value) {
+    const priceMap = StorageService.getCachedItemPrices()?.prices ?? {};
+    if (hasFormItem) {
+      const price = priceMap[form.itemNumber] ?? null;
+      if (price !== null) { confirmedSrp.value = price; form.srp = price; }
+    }
+    for (const { line, type } of allLines) {
+      const price = priceMap[line.itemNumber] ?? null;
+      if (price !== null) sessionStore.updateLineSrp(line.id, type, price);
+    }
+    return;
+  }
+
+  // Online: cancel any previous in-flight fetch, then load from API.
+  _dateWatchAbort?.abort();
+  _dateWatchAbort = new AbortController();
+  const { signal } = _dateWatchAbort;
+
+  const lineNos = allLines.map(({ line }) => line.itemNumber);
+  const allNos = [...new Set(hasFormItem ? [form.itemNumber, ...lineNos] : lineNos)];
+
   isUpdatingLinePrices.value = true;
   let updatedCount = 0;
   try {
-    // Include the active form item in the same batch so we never issue
-    // a separate concurrent getActiveItemPrice call.
-    const lineNos = allLines.map(({ line }) => line.itemNumber);
-    const allNos = [...new Set(hasFormItem ? [form.itemNumber, ...lineNos] : lineNos)];
+    const priceMap = await ApiService.getAllItemPricesForDate(newDate, allNos, signal);
 
-    let priceMap: Record<string, number>;
-    if (isOnline.value) {
-      priceMap = await ApiService.getAllItemPricesForDate(newDate, allNos, signal);
-    } else {
-      priceMap = StorageService.getCachedItemPrices()?.prices ?? {};
-    }
-
-    // Update the active form item price.
     if (hasFormItem) {
       const price = priceMap[form.itemNumber] ?? null;
       if (price !== null) {
         confirmedSrp.value = price;
         form.srp = price;
-        if (isOnline.value) StorageService.patchCachedItemPrice(form.itemNumber, price);
+        StorageService.patchCachedItemPrice(form.itemNumber, price);
       }
     }
 
-    // Update order line prices.
     for (const { line, type } of allLines) {
       const price = priceMap[line.itemNumber] ?? null;
       if (price !== null) {
         sessionStore.updateLineSrp(line.id, type, price);
         updatedCount++;
-        if (isOnline.value) StorageService.patchCachedItemPrice(line.itemNumber, price);
+        StorageService.patchCachedItemPrice(line.itemNumber, price);
       }
     }
 
@@ -957,7 +962,6 @@ watch(orderDateValue, async (newDate) => {
       await t.present();
     }
   } catch (err) {
-    // AbortError is expected when a newer date change supersedes this one.
     if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) return;
     throw err;
   } finally {

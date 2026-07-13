@@ -107,6 +107,38 @@ function extractList<T>(body: unknown): T[] {
   return [];
 }
 
+/**
+ * Fetch one price chunk with per-attempt retry on transient server errors (502/503).
+ * AbortErrors propagate immediately. After exhausting retries the chunk returns []
+ * so the caller can still use results from other successful chunks.
+ */
+async function fetchPriceChunk(
+  chunk: string[],
+  onDate: string,
+  signal: AbortSignal | undefined,
+  retries = 3,
+): Promise<Record<string, unknown>[]> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await apiClient.get('/bc/custom/v3/item-prices', {
+        params: { on_date: onDate, product_nos: chunk.join(',') },
+        signal,
+      });
+      return extractList<Record<string, unknown>>(res.data);
+    } catch (err) {
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
+      const status = err instanceof ApiError ? err.status : undefined;
+      if ((status === 502 || status === 503) && attempt < retries) {
+        await new Promise<void>((r) => setTimeout(r, Math.min(500 * 2 ** attempt, 4000)));
+        continue;
+      }
+      console.warn(`[API] price chunk failed after ${attempt + 1} attempt(s):`, err);
+      return [];
+    }
+  }
+  return [];
+}
+
 export const ApiService = {
   async getCompanies(): Promise<Company[]> {
     const res = await apiClient.get('/bc/custom/v2/company-settings');
@@ -254,22 +286,14 @@ export const ApiService = {
     for (let i = 0; i < productNos.length; i += CHUNK) {
       chunks.push(productNos.slice(i, i + CHUNK));
     }
-    // Run at most 3 chunks concurrently — BC throttles at 5 concurrent requests.
-    const CONCURRENCY = 3;
+    // Two concurrent chunks at a time — conservative enough to stay clear of BC's
+    // per-tenant concurrency limit while still overlapping round-trip latency.
+    const CONCURRENCY = 2;
     const allRows: Record<string, unknown>[] = [];
     for (let i = 0; i < chunks.length; i += CONCURRENCY) {
-      const window = chunks.slice(i, i + CONCURRENCY);
+      const batch = chunks.slice(i, i + CONCURRENCY);
       const rows = (
-        await Promise.all(
-          window.map((chunk) =>
-            apiClient
-              .get('/bc/custom/v3/item-prices', {
-                params: { on_date: onDate, product_nos: chunk.join(',') },
-                signal,
-              })
-              .then((res) => extractList<Record<string, unknown>>(res.data)),
-          ),
-        )
+        await Promise.all(batch.map((chunk) => fetchPriceChunk(chunk, onDate, signal)))
       ).flat();
       allRows.push(...rows);
     }

@@ -162,11 +162,11 @@
                   <span class="info-value">{{ selectedSession.user.displayName }}</span>
                 </div>
                 <div class="info-row">
-                  <span class="info-label">Date</span>
-                  <span class="info-value">{{ formatDateTime(selectedSession.createdAt) }}</span>
+                  <span class="info-label">Posting Date</span>
+                  <span class="info-value">{{ selectedSession.postingDate ? formatDate(selectedSession.postingDate) : '—' }}</span>
                 </div>
                 <div v-if="selectedSession.submittedAt" class="info-row">
-                  <span class="info-label">Submitted</span>
+                  <span class="info-label">Date Submitted</span>
                   <span class="info-value">{{ formatDateTime(selectedSession.submittedAt) }}</span>
                 </div>
                 <div class="info-row">
@@ -456,7 +456,7 @@ function buildSessionLines(s: ScanSession): string[] {
   lines.push(`Customer : ${s.customer?.displayName ?? '—'}`);
   lines.push(`Brand    : ${s.brand.displayName}`);
   lines.push(`User     : ${s.user.displayName}`);
-  lines.push(`Date     : ${formatDate(s.createdAt)}`);
+  lines.push(`Posting Date : ${s.postingDate ? formatDate(s.postingDate) : '—'}`);
   lines.push(`Status   : ${s.status.toUpperCase()}`);
   if (s.salesOrderSeries) lines.push(`SO#      : ${s.salesOrderSeries}`);
   if (s.returnOrderSeries) lines.push(`SRO#     : ${s.returnOrderSeries}`);
