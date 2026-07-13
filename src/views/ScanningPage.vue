@@ -206,7 +206,7 @@
               </ion-item>
               <p class="srp-date-hint">
                 <ion-icon :icon="informationCircleOutline" />
-                Prices are based on today's date. Update the posting date if necessary.
+                Price reflects the posting date above. Changing the date updates all prices.
               </p>
 
               <!-- Quantity -->
@@ -278,6 +278,14 @@
         <div class="scan-list-col">
         <!-- ══ Order Lists ══ -->
         <template v-if="sessionStore.hasLines">
+          <!-- Price-refresh indicator — shown while date-change price lookups are in flight -->
+          <Transition name="net-notice-fade">
+            <div v-if="isUpdatingLinePrices" class="price-refresh-banner">
+              <ion-spinner name="dots" class="price-refresh-spinner" />
+              <span>Updating prices for {{ orderDateValue }}…</span>
+            </div>
+          </Transition>
+
           <ion-segment v-model="activeTab" class="order-segment">
             <ion-segment-button value="sales">
               <ion-label>
@@ -852,6 +860,7 @@ const confirmDiscountValue = ref(0);
 
 const confirmedSrp = ref(0);
 const fetchingPrice = ref(false);
+const isUpdatingLinePrices = ref(false);
 
 const confirmTotal = computed(() =>
   computeTotal(
@@ -880,7 +889,6 @@ async function fetchActivePrice(itemNumber: string, onDate: string): Promise<voi
     form.srp = resolved;
     if (price !== null && isOnline.value) {
       StorageService.patchCachedItemPrice(itemNumber, price);
-      ApiService.updateCachedItemPrice(itemNumber, price, onDate).catch(() => {});
     }
   } finally {
     fetchingPrice.value = false;
@@ -896,19 +904,33 @@ watch(orderDateValue, async (newDate) => {
     ...sessionStore.salesOrders.map((l) => ({ line: l, type: 'sales' as const })),
     ...sessionStore.returnOrders.map((l) => ({ line: l, type: 'returns' as const })),
   ];
-  if (allLines.length) {
+  if (!allLines.length) return;
+  isUpdatingLinePrices.value = true;
+  let updatedCount = 0;
+  try {
     await Promise.all(
       allLines.map(async ({ line, type }) => {
         const price = await lookupPrice(line.itemNumber, newDate);
         if (price !== null) {
           sessionStore.updateLineSrp(line.id, type, price);
+          updatedCount++;
           if (isOnline.value) {
             StorageService.patchCachedItemPrice(line.itemNumber, price);
-            ApiService.updateCachedItemPrice(line.itemNumber, price, newDate).catch(() => {});
           }
         }
       }),
     );
+    if (updatedCount > 0) {
+      const t = await toastController.create({
+        message: `${updatedCount} ${updatedCount === 1 ? 'item price' : 'item prices'} updated for ${newDate}.`,
+        duration: 2500,
+        position: 'bottom',
+        color: 'success',
+      });
+      await t.present();
+    }
+  } finally {
+    isUpdatingLinePrices.value = false;
   }
 });
 
@@ -935,7 +957,6 @@ watch(isOnline, async (online, wasOnline) => {
                 if (price !== null) {
                   sessionStore.updateLineSrp(line.id, type, price);
                   StorageService.patchCachedItemPrice(line.itemNumber, price);
-                  ApiService.updateCachedItemPrice(line.itemNumber, price, orderDateValue.value).catch(() => {});
                 }
               }),
             );
@@ -1336,6 +1357,25 @@ async function toast(message: string, color: string) {
 }
 .no-cust-notice ion-icon { font-size: 18px; flex-shrink: 0; }
 .no-cust-notice p { margin: 0; }
+
+/* ── Price refresh banner ── */
+.price-refresh-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 12px 0;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--ion-color-primary) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ion-color-primary) 30%, transparent);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--ion-color-primary);
+}
+.price-refresh-spinner {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
 
 /* ── Order tabs / list ── */
 .order-segment {

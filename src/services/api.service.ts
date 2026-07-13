@@ -230,10 +230,11 @@ export const ApiService = {
 
   async getActiveItemPrice(productNo: string, onDate: string): Promise<number | null> {
     try {
-      const res = await apiClient.get('/bc/custom/v2/item-prices/active', {
+      const res = await apiClient.get('/bc/custom/v3/item-prices', {
         params: { product_no: productNo, on_date: onDate },
       });
-      const d = res.data as Record<string, unknown>;
+      const rows = extractList<Record<string, unknown>>(res.data);
+      const d = rows[0];
       const price = d?.unitPriceIncVAT ?? d?.unitPrice ?? d?.unit_price ?? d?.price;
       return typeof price === 'number' ? price : null;
     } catch {
@@ -241,17 +242,11 @@ export const ApiService = {
     }
   },
 
-  async updateCachedItemPrice(productNo: string, unitPrice: number, onDate?: string): Promise<void> {
-    const params: Record<string, string> = { product_no: productNo };
-    if (onDate) params['on_date'] = onDate;
-    await apiClient.patch('/bc/custom/v2/item-prices/cache', { unitPriceIncVAT: unitPrice }, { params });
-  },
-
-  async getAllItemPricesForDate(onDate: string, productNos?: string[]): Promise<Record<string, number>> {
-    const res = await apiClient.get('/bc/custom/v2/item-prices', {
+  async getAllItemPricesForDate(onDate: string, familyCode?: string): Promise<Record<string, number>> {
+    const res = await apiClient.get('/bc/custom/v3/item-prices', {
       params: {
         on_date: onDate,
-        ...(productNos?.length ? { product_nos: productNos.join(',') } : {}),
+        ...(familyCode ? { family_code: familyCode } : {}),
       },
     });
     const rows = extractList<Record<string, unknown>>(res.data);

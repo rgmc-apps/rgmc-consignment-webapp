@@ -73,11 +73,11 @@ export function useSync() {
       StorageService.setSyncTimestamp('itemCategories');
 
       // Price lookup scoped to the current brand's item family.
+      // Pass brandCode so the API resolves product numbers server-side (avoids 413 from large URLs).
       // Non-critical: a failure here does not abort the rest of the sync.
       try {
         const today = new Date().toISOString().split('T')[0];
-        const itemNumbers = items.map((i) => i.number);
-        const priceMap = await ApiService.getAllItemPricesForDate(today, itemNumbers);
+        const priceMap = await ApiService.getAllItemPricesForDate(today, brandCode);
         const finalPriceMap: Record<string, number> = {};
         for (const item of items) {
           finalPriceMap[item.number] = priceMap[item.number] ?? item.unitPriceIncVAT;
