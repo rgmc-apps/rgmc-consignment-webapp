@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth.store';
 // Module-level singleton so all components share the same sync state
 const isSyncing = ref(false);
 const syncPhase = ref('');
+const syncProgress = ref(0);
 const syncError = ref<string | null>(null);
 const lastSyncDate = ref<Date | null>(StorageService.getLastSync());
 
@@ -28,6 +29,7 @@ export function useSync() {
     if (!navigator.onLine) return;
     isSyncing.value = true;
     syncPhase.value = 'Fetching items & customers…';
+    syncProgress.value = 0;
     syncError.value = null;
 
     try {
@@ -35,11 +37,12 @@ export function useSync() {
       const brandCode = authStore.brand?.code ?? StorageService.getAuth()?.brand?.code;
       const today = new Date().toISOString().split('T')[0];
 
-      // Phase 1 — critical master data.
+      // Phase 1 — critical master data (0 → 45%).
+      const bump1 = () => { syncProgress.value = Math.min(45, syncProgress.value + 15); };
       const [customers, rawItems, categories] = await Promise.all([
-        ApiService.getCustomers(brandCode),
-        ApiService.getItems(brandCode),
-        ApiService.getItemCategories(),
+        ApiService.getCustomers(brandCode).then((r) => { bump1(); return r; }),
+        ApiService.getItems(brandCode).then((r) => { bump1(); return r; }),
+        ApiService.getItemCategories().then((r) => { bump1(); return r; }),
       ]);
 
       const items = brandCode
@@ -53,13 +56,27 @@ export function useSync() {
       StorageService.setSyncTimestamp('items');
       StorageService.setSyncTimestamp('itemCategories');
 
-      // Phase 2 — contacts, families, and item prices run in parallel.
+      // Phase 2 — contacts, families, and item prices run in parallel (45 → 100%).
       // All three are non-critical: failures fall back to cached data.
       syncPhase.value = 'Loading prices & contacts…';
+
+      // When a brandCode is available use the familyCode filter — one BC call instead
+      // of N/50 chunked calls. Fall back to chunked product-number batches otherwise.
+      let pricesCall: Promise<Record<string, number>>;
+      if (brandCode) {
+        const bumpPrice = () => { syncProgress.value = Math.min(99, syncProgress.value + 55); };
+        pricesCall = ApiService.getAllItemPricesForDate(today, [], undefined, bumpPrice, brandCode);
+      } else {
+        const totalChunks = Math.max(1, Math.ceil(items.length / 50));
+        const priceStep = Math.round(55 / totalChunks);
+        const bumpPrice = () => { syncProgress.value = Math.min(99, syncProgress.value + priceStep); };
+        pricesCall = ApiService.getAllItemPricesForDate(today, items.map((i) => i.number), undefined, bumpPrice);
+      }
+
       const [familiesResult, contactsResult, pricesResult] = await Promise.allSettled([
         ApiService.getItemFamilies(),
         ApiService.getContacts(),
-        ApiService.getAllItemPricesForDate(today, items.map((i) => i.number)),
+        pricesCall,
       ]);
 
       const contacts = contactsResult.status === 'fulfilled'
@@ -87,6 +104,7 @@ export function useSync() {
         StorageService.applyPriceMapToItems(finalPriceMap);
       }
 
+      syncProgress.value = 100;
       lastSyncDate.value = new Date();
     } catch (err) {
       syncError.value = err instanceof Error ? err.message : 'Sync failed. Check your connection.';
@@ -110,6 +128,7 @@ export function useSync() {
   return {
     isSyncing,
     syncPhase,
+    syncProgress,
     syncError,
     lastSyncDate,
     lastSyncLabel,

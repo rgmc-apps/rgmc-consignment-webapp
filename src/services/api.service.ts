@@ -278,7 +278,35 @@ export const ApiService = {
     onDate: string,
     productNos: string[],
     signal?: AbortSignal,
+    onChunkDone?: () => void,
+    familyCode?: string,
   ): Promise<Record<string, number>> {
+    const buildMap = (rows: Record<string, unknown>[]): Record<string, number> => {
+      const map: Record<string, number> = {};
+      for (const row of rows) {
+        const no = row['productNo'] as string | undefined;
+        const price = (row['unitPriceIncVAT'] ?? row['unitPrice'] ?? row['unit_price']) as number | undefined;
+        if (no && typeof price === 'number' && !(no in map)) map[no] = price;
+      }
+      return map;
+    };
+
+    // Fast path: single BC call filtered by familyCode — no chunking needed.
+    if (familyCode) {
+      try {
+        const res = await apiClient.get('/bc/custom/v3/item-prices', {
+          params: { on_date: onDate, family_code: familyCode },
+          signal,
+        });
+        onChunkDone?.();
+        return buildMap(extractList<Record<string, unknown>>(res.data));
+      } catch (err) {
+        if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
+        console.warn('[API] familyCode price fetch failed:', err);
+        return {};
+      }
+    }
+
     if (!productNos.length) return {};
     // Chunk into batches of 50 to stay well under BC's URL length limit.
     const CHUNK = 50;
@@ -293,19 +321,15 @@ export const ApiService = {
     for (let i = 0; i < chunks.length; i += CONCURRENCY) {
       const batch = chunks.slice(i, i + CONCURRENCY);
       const rows = (
-        await Promise.all(batch.map((chunk) => fetchPriceChunk(chunk, onDate, signal)))
+        await Promise.all(
+          batch.map((chunk) =>
+            fetchPriceChunk(chunk, onDate, signal).then((r) => { onChunkDone?.(); return r; }),
+          ),
+        )
       ).flat();
       allRows.push(...rows);
     }
-    const map: Record<string, number> = {};
-    for (const row of allRows) {
-      const no = row['productNo'] as string | undefined;
-      const price = (row['unitPriceIncVAT'] ?? row['unitPrice'] ?? row['unit_price']) as number | undefined;
-      if (no && typeof price === 'number' && !(no in map)) {
-        map[no] = price;
-      }
-    }
-    return map;
+    return buildMap(allRows);
   },
 
   async submitSalesOrder(payload: SalesOrderPayload): Promise<unknown> {

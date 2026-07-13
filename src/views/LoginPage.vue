@@ -164,9 +164,15 @@
               <div v-if="loginState === 'success' && isSyncing" class="login-sync-status">
                 <ion-spinner name="dots" class="sync-status-dots" />
                 <div class="sync-status-text">
-                  <Transition name="sync-label-swap" mode="out-in">
-                    <span :key="syncBtnLabel" class="sync-status-label">{{ syncBtnLabel }}</span>
-                  </Transition>
+                  <div class="sync-status-top">
+                    <Transition name="sync-label-swap" mode="out-in">
+                      <span :key="syncPhase" class="sync-status-label">{{ syncPhase || 'Syncing…' }}</span>
+                    </Transition>
+                    <span class="sync-status-pct">{{ syncProgress }}%</span>
+                  </div>
+                  <div class="sync-progress-track">
+                    <div class="sync-progress-fill" :style="{ width: syncProgress + '%' }" />
+                  </div>
                   <span class="sync-status-sub">Preparing your workspace for offline use</span>
                 </div>
               </div>
@@ -237,13 +243,18 @@ watch([username, password], () => {
 });
 
 const isLoading = computed(() => authStore.isLoading);
-const { isSyncing, syncPhase, sync } = useSync();
+const { isSyncing, syncPhase, syncProgress, sync } = useSync();
 
 onUnmounted(() => {
   if (syncSlowTimer) { clearTimeout(syncSlowTimer); syncSlowTimer = null; }
 });
 
-const syncBtnLabel = computed(() => syncPhase.value || 'Syncing…');
+const syncBtnLabel = computed(() => {
+  const phase = syncPhase.value || 'Syncing…';
+  return syncProgress.value > 0 && syncProgress.value < 100
+    ? `${phase} ${syncProgress.value}%`
+    : phase;
+});
 
 const { isOnline, isSlowConnection } = useNetworkStatus();
 
@@ -736,6 +747,36 @@ async function handleLogin() {
 .sync-label-swap-enter-from   { opacity: 0; transform: translateY(5px); }
 .sync-label-swap-leave-to     { opacity: 0; }
 
+/* ── Sync progress bar ── */
+.sync-status-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sync-status-pct {
+  font-size: 12px;
+  font-weight: 700;
+  color: oklch(70% 0.12 145);
+  flex-shrink: 0;
+}
+
+.sync-progress-track {
+  height: 4px;
+  border-radius: 4px;
+  background: oklch(52% 0.15 145 / 0.15);
+  overflow: hidden;
+  margin: 5px 0 4px;
+}
+
+.sync-progress-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, oklch(52% 0.15 145) 0%, oklch(68% 0.18 145) 100%);
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   .login-card--shake,
@@ -757,6 +798,9 @@ async function handleLogin() {
   .sync-status-fade-leave-active,
   .sync-label-swap-enter-active,
   .sync-label-swap-leave-active {
+    transition: none !important;
+  }
+  .sync-progress-fill {
     transition: none !important;
   }
 }

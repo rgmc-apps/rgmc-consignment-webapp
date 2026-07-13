@@ -90,7 +90,7 @@
           <ion-label>
             <h3 class="session-customer">{{ session.customer?.displayName ?? '— No customer —' }}</h3>
             <p class="session-meta">
-              {{ session.brand.displayName }} &bull; {{ formatDate(session.createdAt) }}
+              {{ session.brand.displayName }} &bull; {{ session.postingDate ? formatDate(session.postingDate) : formatDate(session.createdAt) }}
             </p>
             <p class="session-counts">
               <span v-if="session.salesOrders.length">
