@@ -104,6 +104,7 @@ export interface ScanSession {
   user: { displayName: string };
   customer: Customer | null;
   postingDate?: string;
+  noSales?: boolean;
   salesOrders: OrderLine[];
   returnOrders: OrderLine[];
   createdAt: string;

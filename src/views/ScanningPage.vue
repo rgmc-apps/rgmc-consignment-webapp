@@ -151,6 +151,20 @@
                 />
               </div>
             </div>
+
+            <!-- No Sales toggle -->
+            <div class="no-sales-row">
+              <div class="no-sales-label-group">
+                <span class="no-sales-label">No Sales</span>
+                <span class="no-sales-hint">Submit a sales order without items</span>
+              </div>
+              <ion-toggle
+                :checked="sessionStore.currentSession?.noSales ?? false"
+                @ionChange="sessionStore.setNoSales(($event as CustomEvent).detail.checked)"
+                color="warning"
+                class="no-sales-toggle"
+              />
+            </div>
           </ion-card-content>
         </ion-card>
 
@@ -366,7 +380,7 @@
 
     <!-- ── Sticky submit bar ── -->
     <Transition name="submit-bar">
-    <div v-if="sessionStore.hasLines" :class="['submit-bar', { 'gold-item-flash': submitFlashActive }]">
+    <div v-if="sessionStore.hasLines || (sessionStore.currentSession?.noSales && sessionStore.currentSession?.customer)" :class="['submit-bar', { 'gold-item-flash': submitFlashActive }]">
       <div class="submit-bar__left">
         <span class="submit-bar__count">
           {{ sessionStore.salesOrders.length + sessionStore.returnOrders.length }} items
@@ -607,6 +621,7 @@ import {
   IonSpinner,
   IonRefresher,
   IonRefresherContent,
+  IonToggle,
   toastController,
   alertController,
 } from '@ionic/vue';
@@ -1803,6 +1818,34 @@ async function toast(message: string, color: string) {
   border-top: 1px solid var(--app-border);
   margin-top: 14px;
   padding-top: 14px;
+}
+
+.no-sales-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--app-border);
+  margin-top: 14px;
+  padding-top: 12px;
+}
+.no-sales-label-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.no-sales-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--app-fg);
+  letter-spacing: 0.2px;
+}
+.no-sales-hint {
+  font-size: 11px;
+  color: var(--app-text-muted);
+}
+.no-sales-toggle {
+  flex-shrink: 0;
 }
 
 .order-date-row {
