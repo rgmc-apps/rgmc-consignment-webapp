@@ -291,12 +291,15 @@ export const ApiService = {
       return map;
     };
 
-    // Fast path: single BC call filtered by familyCode — no chunking needed.
+    // Fast path: single call — backend filters from its in-memory full-catalog cache.
+    // On a cold backend start the cache may not be warm yet, so the backend fetches the
+    // full BC catalog synchronously before filtering; allow 5 min for that one-time cost.
     if (familyCode) {
       try {
         const res = await apiClient.get('/bc/custom/v3/item-prices', {
           params: { on_date: onDate, family_code: familyCode },
           signal,
+          timeout: 300000,
         });
         onChunkDone?.();
         return buildMap(extractList<Record<string, unknown>>(res.data));

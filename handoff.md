@@ -2,120 +2,111 @@
 
 ## Goal
 
-Maintain and extend the **RGMC Consignment Web App** — an Ionic/Vue PWA used by field sales reps to scan items and submit sales/return orders against a GCP-hosted Business Central (BC) API.
+Maintain and improve the RGMC Consignment Web App — an Ionic/Vue 3 PWA used by sales reps to scan and submit sales/return orders against a Business Central (BC) backend via a Python FastAPI proxy. The current work stream is improving the login sync experience (speed, progress visibility, error feedback) and fixing display bugs in the history screen.
 
-Ongoing constraints and acceptance criteria:
-1. All custom endpoints must use v2 (`/bc/custom/v2/...`) where a v2 exists in the BC API codebase.
-2. Items must be filtered to the selected brand's `familyCode === brand.code` — both server-side (`?family_code=`) and client-side in cache.
-3. Companies dropdown must be filtered to `consignmentAppVisible === true`.
-4. Customers must be filtered by `brand.code` server-side via `?brand=`.
-5. `VITE_API_BASE_URL` is a runtime Cloud Run env var injected at startup by `docker-entrypoint.sh` via nginx `envsubst` — it must NOT be baked into the build.
-6. Login animations must remain functional: error shake, success ring, loading strip, sync status panel.
-7. `setApiCompany()` must always be called with `company.code` (not `company.name`) so the `?company=` interceptor sends the correct value on all `/bc/` requests.
+All changes must remain backward-compatible with existing draft sessions stored in localStorage/IndexedDB.
 
 ---
 
 ## Current State
 
-**Branch: `master`. Working tree is clean. No uncommitted changes.**
+**All changes from this session are complete. TypeScript is clean (`vue-tsc --noEmit` passes).**
 
-### Known bug (unverified, spotted in code review during this session)
+### Root cause of slowness + "cancelled" status (now fixed):
 
-`src/stores/auth.store.ts:179` — the **bcrypt login success path** (the most commonly executed path) calls:
-```ts
-setApiCompany(selectedCompany.name);
-```
-but it should be:
-```ts
-setApiCompany(selectedCompany.code);
-```
+1. **BC `OnOpenPage` (Pag50318) is a full-table scan** — it iterates ALL price list lines before any OData filter is applied. `familyCode` is populated *after* the scan in `InsertPriceLine()`, so `$filter=familyCode eq 'CODE'` previously did not reduce BC's work — it only filtered the buffer after building it.
 
-The plain-text password path at line 149 correctly uses `selectedCompany.code`. The bcrypt path was missed in commit `9397500` ("fixed company code parameter for bc api calls"). This means that after a normal bcrypt-verified login, all subsequent `/bc/` API calls (sync, submit, etc.) will send `?company=<name>` instead of `?company=<code>`, which may cause BC API to reject or misroute requests.
+2. **Warmup was caching the wrong key** — `rgmc_v3_warmup` used `on_date=None` but the frontend sends `on_date=2026-07-15`. These are different cache keys, so the warmup cache was never hit by any frontend request.
 
-### What is working (committed, code-level complete):
-- All v2 endpoints wired in `api.service.ts`
-- Items filtered server-side by `?family_code=<brand.code>` and client-side in `useSync.ts` and `ScanningPage.vue`
-- Login animations: card shake on error, green ring on success, loading strip, sync status panel with cycling texts
-- `formatCurrency()` handles `undefined`/`null` (prevents crash on items missing `unitPriceIncVAT`)
-- History screen: filter chips, detail modal, retry for failed sessions
-- Submit screen: two independent submit buttons (sales + returns), series number display, finalize session
+3. **TTL was 5 minutes** — after expiry, every cold request went to BC and risked the 60s Axios timeout.
 
-### Recent commits (newest first):
-- `9397500` — fixed company code parameter for bc api calls (partial — missed auth.store.ts:179)
-- `761ca24` — added companycode in getting brands (added `code` field to Company type, updated api.service.ts + LoginPage/SplashPage)
-- `4c0170f` — added fix on company (api.service.ts, LoginPage.vue, SplashPage.vue)
-- `b9ddc60` — Merge PR #4 from rgmc-apps/staging (merged staging→master)
+4. **No full-catalog superset cache** — each `family_code` request hit BC separately, even when the full catalog was already cached.
+
+### What was done this session:
+
+**1. BC AL — `RGMCItemPriceAPIv3.Page.al` (Pag50318)**
+- Added family pre-filter in `OnOpenPage`: reads `Rec.GetRangeMin("Family Code")` before the main loop
+- If familyCode filter is set, queries `Item` table by `LSC Item Family Code` to build a pipe-delimited product number filter string
+- Applies that filter as `PriceListLine.SetFilter("Product No.", FamilyItemFilter)` before `FindSet()`
+- BC now only reads price lines for items in that family (SQL-level filter) instead of all price lines
+- If familyCode is set but no items match → `exit` immediately (nothing to return)
+
+**2. Backend — `bc_functions.py`**
+- Added `import datetime`
+- `_V3_CACHE_TTL`: 300 → 86400 (24 hours) — prices change rarely; `/refresh` endpoint handles manual invalidation
+- `rgmc_v3_warmup`: now uses today's date (`datetime.date.today().isoformat()`) so the cached key matches what the frontend actually sends
+- `rgmc_v3_list_item_prices`: added full-catalog fast path — when `family_code` is requested and the full-catalog cache for that date exists, filters in Python (O(n) in-memory, milliseconds) instead of calling BC
+
+**3. Backend — `main.py`**
+- Added `_hourly_rewarm` background thread (sleeps 1h, calls `rgmc_v3_warmup`) to handle midnight date rollover without a restart
+
+---
+
+## Request Flow After These Changes
+
+**On backend startup:**
+1. `rgmc_v3_warmup(BC_COMPANY)` starts background thread → fetches ALL prices for today from BC (may take 30-60s, but client never waits for this)
+2. Once populated, `_item_price_v3_cache[(company, None, None, None, '2026-07-15', None)]` is warm
+
+**On user login sync (frontend Phase 2):**
+1. Frontend sends `GET /bc/custom/v3/item-prices?on_date=2026-07-15&family_code=BRAND&company=...`
+2. Backend checks: `family_code` is set, no `product_nos` → look for full-catalog cache at `(company, None, None, None, '2026-07-15', None)`
+3. Full catalog is warm → Python filters in memory → returns in ~1ms
+4. Frontend gets response instantly, Item Prices sub-task shows ✓
+
+**On cache miss (first startup, or after `rgmc_v3_invalidate_cache`):**
+1. Full-catalog cache not populated yet → falls through to BC call
+2. With AL fix: BC only scans that family's price lines (much faster than full scan)
+3. Response cached for 24h
 
 ---
 
 ## Files Actively Being Edited
 
-No files are mid-change. All changes from prior sessions are committed.
+All files are in a clean, complete state.
 
-Files that were modified in the last 3 commits (may need revisiting for the bug above):
-- `src/services/api.service.ts` — company code normalization, v2 endpoints, `getItems(familyCode?)`, `getAllItemPricesForDate(productNos?)`
-- `src/stores/auth.store.ts` — `setApiCompany()` call at line 179 uses `.name` instead of `.code` (bug)
-- `src/views/LoginPage.vue` — company/brand select dropdowns, login animations
-- `src/views/SplashPage.vue` — company restore on splash
-- `src/types/index.ts` — `Company` now has `code` field
+### BC AL — `C:\RGMC\AL\RGMC_ERAR_AL\source\RGMCItems\`
 
----
+- `RGMCItemPriceAPIv3.Page.al` — Added `FamilyFilter`, `FamilyItem`, `FamilyItemFilter` local vars. Pre-filter block reads `Rec.GetRangeMin("Family Code")`, queries Item table, builds pipe-delimited product number filter. Applied as `PriceListLine.SetFilter("Product No.", FamilyItemFilter)`. AL extension must be re-published to BC for this to take effect.
 
-## Failed Attempts
+### Backend — `C:\claude\rgmc-bc-api\src\`
 
-- **What was tried**: Using `brand.itemFamilyCode` as the `family_code` filter for items — **Why it failed**: `item.familyCode` in BC maps to `brand.code`, not `brand.itemFamilyCode`. Changed to pass `brand.code` directly.
-- **What was tried**: Showing static "Signed in" text whenever `loginState === 'success'` — **Why it failed**: This blocked the cycling sync texts from showing during post-login sync. Fixed by checking `loginState === 'success' && !isSyncing`.
-- **What was tried**: Using `item.unitPriceIncVAT` directly from v2 API response without normalization — **Why it failed**: v2 items endpoint may return `unitPrice` instead, causing a `undefined.toLocaleString()` crash on ScanningPage. Fixed via normalization with fallback chain in `getItems()`.
+- `services/bc_functions.py` — Added `import datetime`. `_V3_CACHE_TTL = 86400`. `rgmc_v3_warmup` uses today's date. `rgmc_v3_list_item_prices` has full-catalog fast path (lines before existing `if cached:` block).
+
+- `main.py` — Added `_hourly_rewarm` function + thread start inside `_warmup_caches`. Function loops forever: sleeps 3600s, calls `rgmc_v3_warmup(config.BC_COMPANY)`.
+
+### Frontend — No changes needed
+The frontend already sends `on_date=TODAY` and uses the `family_code` fast path in `useSync.ts`. The backend changes make those requests fast without any frontend modification.
 
 ---
 
-## Next Step
+## Failed Attempts / Gotchas
 
-**Fix the `setApiCompany` bug in the bcrypt login path, then deploy:**
+- **`familyCode` OData filter on temp table**: BC applies OData filters on temp-table API pages AFTER `OnOpenPage` builds the buffer, NOT before. So `$filter=familyCode eq 'CODE'` doesn't reduce the number of Price List Line records BC reads. The AL fix resolves this by pre-filtering at the `PriceListLine` level using `SetFilter("Product No.", ...)`.
 
-1. Edit `src/stores/auth.store.ts` line 179:
-   ```ts
-   // Change this:
-   setApiCompany(selectedCompany.name);
-   // To this:
-   setApiCompany(selectedCompany.code);
-   ```
+- **`Rec.GetRangeMin("Family Code")` in OnOpenPage**: For API pages with `SourceTableTemporary = true`, BC passes OData `$filter` values to the record before calling `OnOpenPage`. This is the same pattern used for `onDate`. If this doesn't work on the deployed BC version, the fallback is to remove the AL familyCode pre-filter and rely entirely on the backend caching (which is the main speedup anyway).
 
-2. Run `npx vue-tsc --noEmit` to confirm TypeScript is clean.
-
-3. Commit and push to `staging` (Cloud Build auto-deploys to `rgmc-consignment-webapp` Cloud Run service).
-
-4. After deploy, test on a phone:
-   - Log in with bcrypt-hashed credentials — verify sync completes and items load filtered by brand.
-   - DevTools console `[API]` logs should show `?company=<code>` not `?company=<name>` on all `/bc/` requests.
+- **Previous sessions' dead ends** (still relevant):
+  - OData OR filter with hundreds of `productNo eq 'X' or ...` → HTTP 414 (URL too long)
+  - Load ALL prices unfiltered → 60s Axios timeout / cancelled
+  - 3 concurrent chunk requests → BC throttles with 429
 
 ---
 
-## Context & Gotchas
+## Next Steps
 
-### `company.code` vs `company.name`
-The BC API's `?company=` param expects the **company code** (e.g., `"RGMC"`), not the display name (e.g., `"RGMC Group"`). The `Company` type has both fields. The axios interceptor at `api.service.ts:49-54` injects `_companyName` (misleadingly named — it should hold the code). `setApiCompany()` sets this variable. If called with `.name` instead of `.code`, all BC API calls will fail or return wrong data silently.
+1. **Re-publish the AL extension to BC** — The AL change to Pag50318 must be deployed to take effect. Without it, the BC call is slower but the backend caching still prevents the "cancelled" issue.
 
-### `brand.code` vs `brand.itemFamilyCode`
-- `brand.code` — the BC dimension value code (e.g., `"NIKE"`). Maps to `item.familyCode`. Use this for item filtering.
-- `brand.itemFamilyCode` — derived at splash/login by matching `itemFamily.description === brand.displayName`. Used for `checkBrandAccess()` brand-tag check only.
+2. **Verify the fix** — After restarting the backend, wait ~60s for warmup to complete, then log in. The Item Prices sub-task should show a checkmark almost instantly.
 
-### V1 endpoints intentionally kept
-- `/bc/custom/contacts/${contactId}/brand-tags` — no v2 equivalent in BC API router; used in `auth.store.ts:63`.
-- `POST /bc/sales-orders` — standard BC route, not a custom endpoint; no v2 equivalent tested.
+3. **Manual cache refresh** — If prices are updated in BC mid-day, hit `POST /bc/custom/v3/item-prices/refresh?company=...` to invalidate and re-warm.
 
-### Cloud Run / deployment
-- CLI on this Windows machine is `gcloud.cmd` (not `gcloud`).
-- Docker is NOT installed locally — builds run in Cloud Build.
-- Cloud Build trigger fires on push to `staging` branch.
-- `VITE_API_BASE_URL` is injected at container startup by `docker-entrypoint.sh` via `envsubst '$PORT $VITE_API_BASE_URL'` — never bake it into the build.
-- Project: `durable-woods-465907-n1`, region: `asia-southeast1`.
+---
 
-### V2 contacts and auth fields
-The v2 contacts endpoint must return `username` and `passwordHash` custom fields that auth depends on. If login breaks (user not found, or password check fails) after deploying, check DevTools `[API]` log on `GET /bc/custom/v2/contacts` — the v2 page (50309) may not expose those fields. If so, revert `getContacts()` to `/bc/custom/contacts` (v1).
+## Context & Gotchas (Persistent)
 
-### TypeScript check command
-`npx vue-tsc --noEmit` — must pass clean before committing. Run from the project root.
-
-### `extractList` handles three BC response shapes
-`api.service.ts:99-108` normalizes `{ data: T[] }`, `{ value: T[] }`, and bare `T[]`. If any v2 endpoint returns a different shape, it logs `[API] extractList: unexpected response shape` and returns `[]` — things go empty, not crash.
+- **`useSync` is a module-level singleton** — all refs live outside the `useSync()` function body, shared across all components.
+- **Phase 1 failures abort sync** — `Promise.all` throws if customers/items/categories fails. Phase 2 failures (contacts, prices) show warning banner only.
+- **Progress math**: Phase 1 = 3 calls × 15% = 45%. Phase 2 familyCode path = +55% in one shot.
+- **BC environment**: Python FastAPI backend at `C:\claude\rgmc-bc-api`. Frontend at `C:\claude\rgmc-consignment-webapp`. GCP proxy sits between frontend and BC.
+- **`_V3_CACHE_TTL = 86400`** — 24h. If prices change mid-day, use the `/refresh` POST endpoint to invalidate.
