@@ -151,10 +151,10 @@
             >
               <ion-icon v-if="loginState === 'success' && !isSyncing" :icon="checkmarkCircleOutline" slot="start" />
               <ion-spinner v-else-if="isLoading || isSyncing" name="crescent" slot="start" />
-              <span>{{
+              <span :key="isLoading ? loginLoadingText : undefined" class="cycling-text">{{
                 loginState === 'success' && !isSyncing ? 'Signed in' :
                 isSyncing  ? syncBtnLabel :
-                isLoading  ? 'Signing in…' :
+                isLoading  ? loginLoadingText :
                              'Sign In'
               }}</span>
             </ion-button>
@@ -165,7 +165,7 @@
                 <ion-spinner name="dots" class="sync-status-dots" />
                 <div class="sync-status-text">
                   <div class="sync-status-top">
-                    <span class="sync-status-label">{{ syncPhase || 'Syncing…' }}</span>
+                    <span :key="syncHeaderText" class="sync-status-label cycling-text">{{ syncHeaderText }}</span>
                     <span class="sync-status-pct">{{ syncProgress }}%</span>
                   </div>
                   <!-- Per-table rows — shown for all phases -->
@@ -197,7 +197,7 @@
                   <div class="sync-progress-track">
                     <div class="sync-progress-fill" :style="{ width: syncProgress + '%' }" />
                   </div>
-                  <span class="sync-status-sub">Preparing your workspace for offline use</span>
+                  <span :key="syncSubCycleText" class="sync-status-sub cycling-text">{{ syncSubCycleText }}</span>
                 </div>
               </div>
             </Transition>
@@ -232,6 +232,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { ApiService, setApiCompany } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 import { useSync } from '@/composables/useSync';
+import { useLoadingText } from '@/composables/useLoadingText';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import SetPasswordModal from '@/components/SetPasswordModal.vue';
 import { useTheme } from '@/composables/useTheme';
@@ -268,6 +269,26 @@ watch([username, password], () => {
 
 const isLoading = computed(() => authStore.isLoading);
 const { isSyncing, syncPhase, syncProgress, syncSubTasks, sync } = useSync();
+
+const loginLoadingText = useLoadingText(
+  ['Signing in…', 'Verifying credentials…', 'Checking permissions…', 'Almost there…'],
+  isLoading,
+);
+const syncHeaderText = useLoadingText(
+  ['Syncing data…', 'Fetching customer list…', 'Loading product catalog…', 'Retrieving contacts…', 'Getting latest prices…', 'Almost done…'],
+  isSyncing,
+);
+const syncSubCycleText = useLoadingText(
+  [
+    'Preparing your workspace for offline use',
+    'Building local data cache…',
+    'Setting up offline mode…',
+    'Optimizing for your session…',
+    'Caching for offline access…',
+  ],
+  isSyncing,
+  3200,
+);
 
 onUnmounted(() => {
   if (syncSlowTimer) { clearTimeout(syncSlowTimer); syncSlowTimer = null; }
@@ -859,12 +880,24 @@ async function handleLogin() {
   transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* ── Cycling loading text fade-in ── */
+@keyframes text-appear {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.cycling-text {
+  display: inline-block;
+  animation: text-appear 0.3s ease;
+}
+
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   .login-card--shake,
   .login-card--success,
   .login-progress-strip::after,
-  .login-btn--loading {
+  .login-btn--loading,
+  .cycling-text {
     animation: none !important;
   }
   .login-progress-strip {

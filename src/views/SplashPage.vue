@@ -20,7 +20,7 @@
           <div v-if="loadPhase === 'companies' && !hasError" class="phase-wrap">
             <div class="loading-row">
               <ion-spinner name="crescent" class="phase-spinner" />
-              <span class="phase-label">Connecting to server…</span>
+              <span :key="connectingText" class="phase-label cycling-text">{{ connectingText }}</span>
             </div>
           </div>
         </Transition>
@@ -69,7 +69,7 @@
                 <ion-icon v-else-if="step.status === 'error'" :icon="closeCircleOutline"     class="icon-error" />
                 <span v-else class="step__dot" />
               </span>
-              <span class="step__label">{{ step.label }}</span>
+              <span :key="stepLabel(step)" class="step__label cycling-text">{{ stepLabel(step) }}</span>
             </div>
 
             <div class="progress-track">
@@ -97,7 +97,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { IonPage, IonContent, IonIcon, IonSpinner, IonButton, IonSelect, IonSelectOption } from '@ionic/vue';
 import {
@@ -110,6 +110,7 @@ import { ApiService, setApiCompany } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 import { useAuthStore } from '@/stores/auth.store';
 import { useTheme } from '@/composables/useTheme';
+import { useLoadingText } from '@/composables/useLoadingText';
 import type { Company } from '@/types';
 
 const { theme } = useTheme();
@@ -149,6 +150,44 @@ const progressPct = computed(() => {
   const done = steps.value.filter((s) => s.status === 'done').length;
   return Math.round((done / steps.value.length) * 100);
 });
+
+// Cycling text for the "Connecting to server…" phase
+const isConnecting = computed(() => loadPhase.value === 'companies' && !hasError.value);
+const connectingText = useLoadingText(
+  ['Connecting to server…', 'Establishing API connection…', 'Fetching available companies…', 'Reaching RGMC API…'],
+  isConnecting,
+);
+
+// Per-step cycling messages while a step is in 'loading' state
+const stepMessages: Record<string, string[]> = {
+  'brands':        ['Loading company data',   'Fetching brand catalog',   'Reading brand settings', 'Mapping brand data'],
+  'item-families': ['Matching item families', 'Linking brand families',   'Resolving family codes', 'Mapping item groups'],
+  'contacts':      ['Loading user directory', 'Fetching contact records', 'Syncing user accounts',  'Building user list'],
+};
+const stepCycleIdx = ref(0);
+let stepCycleTimer: ReturnType<typeof setInterval> | null = null;
+
+watch(
+  () => steps.value.some((s) => s.status === 'loading'),
+  (active) => {
+    if (active) {
+      stepCycleIdx.value = 0;
+      stepCycleTimer = setInterval(() => { stepCycleIdx.value++; }, 2500);
+    } else {
+      if (stepCycleTimer) { clearInterval(stepCycleTimer); stepCycleTimer = null; }
+    }
+  },
+);
+
+onUnmounted(() => {
+  if (stepCycleTimer) clearInterval(stepCycleTimer);
+});
+
+function stepLabel(step: LoadStep): string {
+  if (step.status !== 'loading') return step.label;
+  const msgs = stepMessages[step.key] ?? [step.label];
+  return msgs[stepCycleIdx.value % msgs.length];
+}
 
 function setStep(key: string, status: StepStatus) {
   const s = steps.value.find((s) => s.key === key);
@@ -583,6 +622,21 @@ onMounted(async () => {
 }
 .phase-leave-to {
   opacity: 0;
+}
+
+/* ── Cycling loading text ── */
+@keyframes text-appear {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.cycling-text {
+  display: inline-block;
+  animation: text-appear 0.3s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cycling-text { animation: none !important; }
 }
 
 /* ── Error block transition ── */

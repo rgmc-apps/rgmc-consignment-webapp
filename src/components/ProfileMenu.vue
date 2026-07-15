@@ -49,10 +49,10 @@
           :class="{ 'pop-icon--spinning': isSyncing }"
         />
         <div class="pop-item-text">
-          <span class="pop-item-label">
-            {{ isSyncing ? `Syncing… ${syncProgress}%` : 'Sync Data' }}
+          <span :key="isSyncing ? syncPrefixText : undefined" class="pop-item-label cycling-text">
+            {{ isSyncing ? `${syncPrefixText} ${syncProgress}%` : 'Sync Data' }}
           </span>
-          <span class="pop-item-sub">{{ isSyncing ? 'Fetching latest data…' : lastSyncLabel }}</span>
+          <span :key="isSyncing ? syncSubCycleText : lastSyncLabel" class="pop-item-sub cycling-text">{{ isSyncing ? syncSubCycleText : lastSyncLabel }}</span>
         </div>
       </button>
 
@@ -159,6 +159,7 @@ import {
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSync } from '@/composables/useSync';
+import { useLoadingText } from '@/composables/useLoadingText';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import { useTheme } from '@/composables/useTheme';
 import ProfileModal from '@/components/ProfileModal.vue';
@@ -167,6 +168,16 @@ import UserAvatar from '@/components/UserAvatar.vue';
 const router = useRouter();
 const authStore = useAuthStore();
 const { isSyncing, syncProgress, syncSubTasks, lastSyncLabel, sync } = useSync();
+
+const syncPrefixText = useLoadingText(
+  ['Syncing…', 'Fetching data…', 'Updating cache…', 'Loading latest…'],
+  isSyncing,
+);
+const syncSubCycleText = useLoadingText(
+  ['Fetching latest data…', 'Updating your catalog…', 'Downloading customers…', 'Getting item prices…', 'Almost done…'],
+  isSyncing,
+  3000,
+);
 const { isOnline } = useNetworkStatus();
 const { theme, setTheme } = useTheme();
 
@@ -466,6 +477,21 @@ async function onLogout() {
   color: var(--app-gold);
   flex-shrink: 0;
   margin-left: auto;
+}
+
+/* ── Cycling loading text ── */
+@keyframes text-appear {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.cycling-text {
+  display: inline-block;
+  animation: text-appear 0.3s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cycling-text { animation: none !important; }
 }
 
 /* ── Slide-in / slide-out transition ── */
