@@ -85,15 +85,25 @@ export function useSync() {
       StorageService.setSyncTimestamp('itemCategories');
 
       // Phase 2 — items + prices from the single v3 item-prices endpoint (30 → 85%).
-      // Items and their prices are now one call. Abort on failure.
-      const { items, priceMap } = await ApiService.getItemsForDate(today, brandCode, undefined, SYNC_MS)
+      // Non-fatal if cached items exist: falls back to last-synced data and surfaces a
+      // warning so the user knows prices may be stale. Throws only when there is no
+      // cached fallback (first ever sync with no prior data).
+      const itemResult = await ApiService.getItemsForDate(today, brandCode, undefined, SYNC_MS)
         .then((r) => { syncProgress.value = Math.min(85, syncProgress.value + 55); syncSubTasks.value[2].status = 'done'; return r; })
-        .catch((e) => { syncSubTasks.value[2].status = 'error'; throw e; });
+        .catch((e) => {
+          syncSubTasks.value[2].status = 'error';
+          const hasCached = StorageService.getCachedItems().length > 0;
+          if (!hasCached) throw e;  // No fallback — fail hard so the user knows.
+          syncProgress.value = 85;
+          return null;              // Signal: use cached data.
+        });
 
-      StorageService.setCachedItems(items);
-      StorageService.setSyncTimestamp('items');
-      StorageService.setCachedItemPrices(today, priceMap);
-      StorageService.applyPriceMapToItems(priceMap);
+      if (itemResult !== null) {
+        StorageService.setCachedItems(itemResult.items);
+        StorageService.setSyncTimestamp('items');
+        StorageService.setCachedItemPrices(today, itemResult.priceMap);
+        StorageService.applyPriceMapToItems(itemResult.priceMap);
+      }
 
       // Phase 3 — contacts (85 → 100%). Non-critical: failure falls back to cached data
       // and surfaces a warning banner. Item families are fetched live by LoginPage/SplashPage.
@@ -107,7 +117,10 @@ export function useSync() {
         .filter((t) => t.status === 'error')
         .map((t) => t.label);
       if (failedTasks.length) {
-        syncWarning.value = `Some data failed to load: ${failedTasks.join(', ')}. Please sync again when ready.`;
+        const itemsFailed = itemResult === null;
+        syncWarning.value = itemsFailed
+          ? `Item prices couldn't be refreshed — showing last synced prices.${failedTasks.length > 1 ? ` Also failed: ${failedTasks.filter((l) => l !== 'Items & Prices').join(', ')}.` : ''} Tap sync to retry.`
+          : `Some data failed to load: ${failedTasks.join(', ')}. Please sync again when ready.`;
       }
 
       const contacts = contactsResult.status === 'fulfilled'

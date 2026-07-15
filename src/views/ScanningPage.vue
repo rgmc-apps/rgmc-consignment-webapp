@@ -203,7 +203,7 @@
 
             <!-- Fields below only visible once item is selected -->
             <Transition name="form-fields">
-            <div v-if="form.itemId" class="form-fields-group">
+            <div v-if="form.itemNumber" class="form-fields-group">
               <!-- Description -->
               <ion-item lines="inset" class="form-row form-row--readonly">
                 <ion-label>Description</ion-label>
@@ -215,7 +215,10 @@
                 <ion-label>SRP</ion-label>
                 <ion-note slot="end" class="readonly-val readonly-val--gold">
                   <ion-spinner v-if="fetchingPrice" name="dots" style="width:16px;height:16px;vertical-align:middle" />
-                  <template v-else>{{ formatCurrency(form.srp) }}</template>
+                  <template v-else>
+                    {{ formatCurrency(form.srp) }}
+                    <span v-if="form.priceListCode" class="price-list-code">{{ form.priceListCode }}</span>
+                  </template>
                 </ion-note>
               </ion-item>
               <p class="srp-date-hint">
@@ -331,6 +334,7 @@
                     {{ line.itemNumber }} &bull;
                     Qty {{ line.quantity }} &times;
                     <span :class="{ 'price-stale': isUpdatingLinePrices }">{{ formatCurrency(line.srp) }}</span>
+                    <span v-if="line.priceListCode" class="price-list-code">{{ line.priceListCode }}</span>
                   </p>
                   <p>
                     Disc: {{ formatDiscount(line.discountType, line.discountValue) }}
@@ -488,6 +492,7 @@
               </template>
               <template v-else>
                 {{ formatCurrency(confirmedSrp) }} <span class="conf-srp-label">SRP</span>
+                <span v-if="confirmedPriceListCode" class="price-list-code">{{ confirmedPriceListCode }}</span>
               </template>
             </p>
           </div>
@@ -776,7 +781,7 @@ watch(isSyncing, (active) => {
           sessionStore.updateLineSrp(line.id, type, price);
         }
       }
-      if (form.itemId && priceCache.prices[form.itemNumber] !== undefined) {
+      if (form.itemNumber && priceCache.prices[form.itemNumber] !== undefined) {
         const price = priceCache.prices[form.itemNumber];
         form.srp = price;
         confirmedSrp.value = price;
@@ -827,11 +832,11 @@ const activeTab = ref<'sales' | 'returns'>('sales');
 
 interface ScanForm {
   categoryCode: string;
-  itemId: string;
   itemNumber: string;
   itemName: string;
   description: string;
   srp: number;
+  priceListCode: string;
   quantity: number;
   discountType: DiscountType;
   discountValue: number;
@@ -839,11 +844,11 @@ interface ScanForm {
 
 const form = reactive<ScanForm>({
   categoryCode: '',
-  itemId: '',
   itemNumber: '',
   itemName: '',
   description: '',
   srp: 0,
+  priceListCode: '',
   quantity: 1,
   discountType: 'percent',
   discountValue: 0,
@@ -876,6 +881,7 @@ const confirmDiscountType = ref<DiscountType>('percent');
 const confirmDiscountValue = ref(0);
 
 const confirmedSrp = ref(0);
+const confirmedPriceListCode = ref('');
 const fetchingPrice = ref(false);
 const isUpdatingLinePrices = ref(false);
 
@@ -888,22 +894,26 @@ const confirmTotal = computed(() =>
   ),
 );
 
-// Returns price from API when online; falls back to the cached price-map when offline.
-async function lookupPrice(itemNumber: string, onDate: string): Promise<number | null> {
+// Returns price + priceListCode from API when online; falls back to cached map when offline.
+async function lookupPrice(itemNumber: string, onDate: string): Promise<{ price: number | null; priceListCode: string | null }> {
   if (isOnline.value) {
     return ApiService.getActiveItemPrice(itemNumber, onDate);
   }
   const cached = StorageService.getCachedItemPrices();
-  return cached?.prices[itemNumber] ?? null;
+  return { price: cached?.prices[itemNumber] ?? null, priceListCode: null };
 }
 
 async function fetchActivePrice(itemNumber: string, onDate: string): Promise<void> {
   fetchingPrice.value = true;
   try {
-    const price = await lookupPrice(itemNumber, onDate);
+    const { price, priceListCode } = await lookupPrice(itemNumber, onDate);
     const resolved = price ?? confirmItem.value?.unitPriceIncVAT ?? 0;
     confirmedSrp.value = resolved;
     form.srp = resolved;
+    if (priceListCode !== null) {
+      form.priceListCode = priceListCode;
+      confirmedPriceListCode.value = priceListCode;
+    }
     if (price !== null && isOnline.value) {
       StorageService.patchCachedItemPrice(itemNumber, price);
     }
@@ -921,7 +931,7 @@ watch(orderDateValue, async (newDate) => {
     ...sessionStore.salesOrders.map((l) => ({ line: l, type: 'sales' as const })),
     ...sessionStore.returnOrders.map((l) => ({ line: l, type: 'returns' as const })),
   ];
-  const hasFormItem = !!form.itemId;
+  const hasFormItem = !!form.itemNumber;
   if (!allLines.length && !hasFormItem) return;
 
   // Offline: apply cached prices immediately — no network call, no loading state.
@@ -992,7 +1002,7 @@ watch(isOnline, async (online, wasOnline) => {
     ...sessionStore.salesOrders.map((l) => ({ line: l, type: 'sales' as const })),
     ...sessionStore.returnOrders.map((l) => ({ line: l, type: 'returns' as const })),
   ];
-  if (!allLines.length && !form.itemId) return;
+  if (!allLines.length && !form.itemNumber) return;
   const alert = await alertController.create({
     header: 'Connection Restored',
     message: 'Update item prices to their current rates?',
@@ -1001,7 +1011,7 @@ watch(isOnline, async (online, wasOnline) => {
       {
         text: 'Update Prices',
         handler: async () => {
-          const hasFormItem = !!form.itemId;
+          const hasFormItem = !!form.itemNumber;
           const lineNos = allLines.map(({ line }) => line.itemNumber);
           const allNos = [...new Set(hasFormItem ? [form.itemNumber, ...lineNos] : lineNos)];
           const priceMap = await ApiService.getAllItemPricesForDate(orderDateValue.value, allNos);
@@ -1028,11 +1038,11 @@ watch(isOnline, async (online, wasOnline) => {
 });
 
 function onItemSelected(item: Item) {
-  form.itemId = item.id;
   form.itemNumber = item.number;
   form.itemName = item.displayName;
   form.description = item.description || item.displayName;
   form.srp = item.unitPriceIncVAT;
+  form.priceListCode = item.priceListCode ?? '';
   form.categoryCode = item.itemCategoryCode || form.categoryCode;
   form.quantity = 1;
   form.discountType = 'percent';
@@ -1040,6 +1050,7 @@ function onItemSelected(item: Item) {
   showItemModal.value = false;
   confirmItem.value = item;
   confirmedSrp.value = item.unitPriceIncVAT;
+  confirmedPriceListCode.value = item.priceListCode ?? '';
   confirmQty.value = 1;
   confirmDiscountType.value = 'percent';
   confirmDiscountValue.value = 0;
@@ -1065,11 +1076,11 @@ function doConfirm(orderType: 'sales' | 'returns') {
   if (!confirmItem.value || !selectedCustomer.value) return;
   const item = confirmItem.value;
   const line = {
-    itemId: item.id,
     itemNumber: item.number,
     itemName: item.displayName,
     description: item.description || item.displayName,
     srp: confirmedSrp.value,
+    priceListCode: confirmedPriceListCode.value || undefined,
     quantity: Math.max(1, confirmQty.value || 1),
     discountType: confirmDiscountType.value,
     discountValue: Math.max(0, confirmDiscountValue.value || 0),
@@ -1094,13 +1105,13 @@ function doConfirm(orderType: 'sales' | 'returns') {
 
 /* ─── Add lines ─── */
 async function addToSales() {
-  if (!form.itemId || !selectedCustomer.value) return;
+  if (!form.itemNumber || !selectedCustomer.value) return;
   sessionStore.addSalesOrder({
-    itemId: form.itemId,
     itemNumber: form.itemNumber,
     itemName: form.itemName,
     description: form.description,
     srp: form.srp,
+    priceListCode: form.priceListCode || undefined,
     quantity: Math.max(1, form.quantity),
     discountType: form.discountType,
     discountValue: Math.max(0, form.discountValue),
@@ -1112,13 +1123,13 @@ async function addToSales() {
 }
 
 async function addToReturn() {
-  if (!form.itemId || !selectedCustomer.value) return;
+  if (!form.itemNumber || !selectedCustomer.value) return;
   sessionStore.addReturnOrder({
-    itemId: form.itemId,
     itemNumber: form.itemNumber,
     itemName: form.itemName,
     description: form.description,
     srp: form.srp,
+    priceListCode: form.priceListCode || undefined,
     quantity: Math.max(1, form.quantity),
     discountType: form.discountType,
     discountValue: Math.max(0, form.discountValue),
@@ -1139,11 +1150,11 @@ function deleteActiveLine(lineId: string) {
 
 function resetItemForm() {
   /* Keep category; clear item-specific fields */
-  form.itemId = '';
   form.itemNumber = '';
   form.itemName = '';
   form.description = '';
   form.srp = 0;
+  form.priceListCode = '';
   form.quantity = 1;
   form.discountType = 'percent';
   form.discountValue = 0;
@@ -1464,6 +1475,20 @@ async function toast(message: string, color: string) {
   justify-content: flex-end;
 }
 .line-price-spinner { width: 16px; height: 16px; }
+
+.price-list-code {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(var(--ion-color-medium-rgb), 0.12);
+  color: var(--ion-color-medium);
+  font-size: 0.68em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  vertical-align: middle;
+  white-space: nowrap;
+}
 
 .price-stale {
   opacity: 0.35;

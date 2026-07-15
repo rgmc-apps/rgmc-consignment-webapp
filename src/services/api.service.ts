@@ -259,27 +259,43 @@ export const ApiService = {
         familyCode:           (row['familyCode'] as string | undefined) ?? undefined,
         baseUnitOfMeasure:    (row['baseUnitOfMeasure'] ?? row['baseUnitOfMeasureCode'] ?? '') as string,
         unitPriceIncVAT:      (row['unitPriceIncVAT'] ?? row['unitPrice'] ?? row['unit_price'] ?? 0) as number,
+        priceListCode:        (row['priceListCode'] as string | undefined) ?? undefined,
         lastModifiedDateTime: (row['lastModifiedDateTime'] ?? '') as string,
       };
     };
 
-    const res = await apiClient.get('/bc/custom/v3/item-prices', {
-      params: { on_date: date, ...(familyCode ? { family_code: familyCode } : {}) },
-      signal,
-      timeout: timeout ?? 300_000,
-    });
-    const rows = extractList<Record<string, unknown>>(res.data);
-    const items: Item[] = [];
-    const priceMap: Record<string, number> = {};
-    const seen = new Set<string>();
-    for (const row of rows) {
-      const item = mapRow(row);
-      if (!item.number || seen.has(item.number)) continue;
-      seen.add(item.number);
-      items.push(item);
-      priceMap[item.number] = item.unitPriceIncVAT;
+    const RETRIES = 2;
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= RETRIES; attempt++) {
+      try {
+        const res = await apiClient.get('/bc/custom/v3/item-prices', {
+          params: { on_date: date, ...(familyCode ? { family_code: familyCode } : {}) },
+          signal,
+          timeout: timeout ?? 300_000,
+        });
+        const rows = extractList<Record<string, unknown>>(res.data);
+        const items: Item[] = [];
+        const priceMap: Record<string, number> = {};
+        const seen = new Set<string>();
+        for (const row of rows) {
+          const item = mapRow(row);
+          if (!item.number || seen.has(item.number)) continue;
+          seen.add(item.number);
+          items.push(item);
+          priceMap[item.number] = item.unitPriceIncVAT;
+        }
+        return { items, priceMap };
+      } catch (err) {
+        if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
+        const status = err instanceof ApiError ? err.status : undefined;
+        if (status && status >= 400 && status < 500) throw err;
+        lastErr = err;
+        if (attempt < RETRIES) {
+          await new Promise<void>((r) => setTimeout(r, Math.min(5000 * 2 ** attempt, 20000)));
+        }
+      }
     }
-    return { items, priceMap };
+    throw lastErr;
   },
 
   async getItemCategories(timeout?: number): Promise<ItemCategory[]> {
@@ -293,17 +309,20 @@ export const ApiService = {
     return items.map((t) => t.brandCode as string).filter(Boolean);
   },
 
-  async getActiveItemPrice(productNo: string, onDate: string): Promise<number | null> {
+  async getActiveItemPrice(productNo: string, onDate: string): Promise<{ price: number | null; priceListCode: string | null }> {
     try {
       const res = await apiClient.get('/bc/custom/v3/item-prices', {
         params: { product_no: productNo, on_date: onDate },
       });
       const rows = extractList<Record<string, unknown>>(res.data);
       const d = rows[0];
-      const price = d?.unitPriceIncVAT ?? d?.unitPrice ?? d?.unit_price ?? d?.price;
-      return typeof price === 'number' ? price : null;
+      const raw = d?.unitPriceIncVAT ?? d?.unitPrice ?? d?.unit_price ?? d?.price;
+      return {
+        price: typeof raw === 'number' ? raw : null,
+        priceListCode: (d?.priceListCode as string | undefined) ?? null,
+      };
     } catch {
-      return null;
+      return { price: null, priceListCode: null };
     }
   },
 

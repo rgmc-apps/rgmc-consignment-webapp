@@ -72,6 +72,7 @@ export interface Item {
   familyCode?: string;
   baseUnitOfMeasure: string;
   unitPriceIncVAT: number;
+  priceListCode?: string;
   lastModifiedDateTime: string;
 }
 
@@ -87,11 +88,11 @@ export type SessionStatus = 'draft' | 'submitted' | 'failed';
 
 export interface OrderLine {
   id: string;
-  itemId: string;
   itemNumber: string;
   itemName: string;
   description: string;
   srp: number;
+  priceListCode?: string;
   quantity: number;
   discountType: DiscountType;
   discountValue: number;
