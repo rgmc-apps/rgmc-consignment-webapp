@@ -61,6 +61,14 @@
             <span>No item found for barcode <strong>{{ lastScannedBarcode }}</strong>. Showing search results.</span>
           </div>
 
+          <!-- Price-fetch bar -->
+          <Transition name="price-bar-fade">
+            <div v-if="isFetchingPrices" class="price-fetch-bar">
+              <ion-spinner name="dots" class="price-fetch-spinner" />
+              <span>Updating prices for {{ lookupDate }}…</span>
+            </div>
+          </Transition>
+
           <!-- Results header -->
           <p class="results-label">
             {{ displayItems.length }} of {{ filteredItems.length }} items
@@ -86,7 +94,11 @@
                 </p>
               </ion-label>
               <ion-note slot="end" color="dark" class="item-price">
-                {{ formatCurrency(livePrices[item.number] ?? item.unitPriceIncVAT) }}
+                <span
+                  v-if="isFetchingPrices && livePrices[item.number] === undefined"
+                  class="price-skeleton"
+                />
+                <template v-else>{{ formatCurrency(livePrices[item.number] ?? item.unitPriceIncVAT) }}</template>
               </ion-note>
             </ion-item>
           </ion-list>
@@ -200,6 +212,7 @@ import {
   IonNote,
   IonChip,
   IonInput,
+  IonSpinner,
 } from '@ionic/vue';
 import {
   closeOutline,
@@ -262,23 +275,23 @@ const displayItems = computed(() => filteredItems.value.slice(0, DISPLAY_LIMIT))
 /* ─── Live prices ─── */
 // Keyed by item.number; seeded from the sync price-map, then filled on-demand.
 const livePrices = ref<Record<string, number>>({});
+const isFetchingPrices = ref(false);
 
 const lookupDate = computed(() => props.onDate ?? new Date().toISOString().split('T')[0]);
 
 onMounted(() => {
-  const today = new Date().toISOString().split('T')[0];
   const cached = StorageService.getCachedItemPrices();
-  if (cached?.date === today) livePrices.value = { ...cached.prices };
+  if (cached?.date === lookupDate.value) livePrices.value = { ...cached.prices };
 });
 
 let priceTimer: ReturnType<typeof setTimeout> | null = null;
 
-watch(displayItems, (items) => {
+async function fetchMissingPrices(items: typeof displayItems.value) {
   if (!props.isOnline) return;
-  if (priceTimer) clearTimeout(priceTimer);
-  priceTimer = setTimeout(async () => {
-    const missing = items.filter((i) => livePrices.value[i.number] === undefined);
-    if (!missing.length) return;
+  const missing = items.filter((i) => livePrices.value[i.number] === undefined);
+  if (!missing.length) return;
+  isFetchingPrices.value = true;
+  try {
     const priceMap = await ApiService.getAllItemPricesForDate(
       lookupDate.value,
       missing.map((i) => i.number),
@@ -290,7 +303,20 @@ watch(displayItems, (items) => {
         StorageService.patchCachedItemPrice(item.number, price);
       }
     }
-  }, 300);
+  } finally {
+    isFetchingPrices.value = false;
+  }
+}
+
+watch(displayItems, (items) => {
+  if (priceTimer) clearTimeout(priceTimer);
+  priceTimer = setTimeout(() => fetchMissingPrices(items), 300);
+});
+
+watch(lookupDate, () => {
+  livePrices.value = {};
+  if (priceTimer) clearTimeout(priceTimer);
+  priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 300);
 });
 
 watch(
@@ -496,6 +522,7 @@ function resolveBarcode(code: string) {
 onUnmounted(() => {
   stopCamera();
   if (priceTimer) clearTimeout(priceTimer);
+  isFetchingPrices.value = false;
 });
 </script>
 
@@ -817,6 +844,58 @@ onUnmounted(() => {
 
 .single-confirm-btn {
   margin-bottom: 8px;
+}
+
+/* ── Price fetch bar ── */
+.price-fetch-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  background: color-mix(in srgb, var(--ion-color-primary) 10%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--ion-color-primary) 22%, transparent);
+  font-size: 12px;
+  color: var(--ion-color-primary);
+  font-weight: 500;
+}
+.price-fetch-spinner { width: 14px; height: 14px; flex-shrink: 0; }
+
+.price-bar-fade-enter-active,
+.price-bar-fade-leave-active {
+  transition: opacity 0.2s ease, max-height 0.25s ease;
+  overflow: hidden;
+  max-height: 40px;
+}
+.price-bar-fade-enter-from,
+.price-bar-fade-leave-to { opacity: 0; max-height: 0; }
+
+/* ── Price skeleton shimmer ── */
+.price-skeleton {
+  display: inline-block;
+  width: 54px;
+  height: 13px;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--app-border) 25%,
+    var(--app-surface-alt) 50%,
+    var(--app-border) 75%
+  );
+  background-size: 200% 100%;
+  animation: price-shimmer 1.4s ease-in-out infinite;
+  vertical-align: middle;
+}
+
+@keyframes price-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .price-skeleton {
+    animation: none;
+    background: var(--app-border);
+  }
 }
 
 /* ── Minimalist theme overrides ── */

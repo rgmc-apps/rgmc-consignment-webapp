@@ -149,6 +149,14 @@
                   @change="(e) => { orderDateValue = (e.target as HTMLInputElement).value }"
                   class="order-date-input"
                 />
+                <Transition name="net-notice-fade">
+                  <ion-spinner
+                    v-if="isPreloadingItemPrices"
+                    name="dots"
+                    class="date-price-spinner"
+                    title="Loading prices for this date…"
+                  />
+                </Transition>
               </div>
             </div>
 
@@ -329,11 +337,12 @@
                   <h3>{{ line.itemName }}</h3>
                   <p>
                     {{ line.itemNumber }} &bull;
-                    Qty {{ line.quantity }} &times; {{ formatCurrency(line.srp) }}
+                    Qty {{ line.quantity }} &times;
+                    <span :class="{ 'price-stale': isUpdatingLinePrices }">{{ formatCurrency(line.srp) }}</span>
                   </p>
                   <p>
                     Disc: {{ formatDiscount(line.discountType, line.discountValue) }}
-                    &bull; Total: {{ formatCurrency(line.totalAmount) }}
+                    &bull; Total: <span :class="{ 'price-stale': isUpdatingLinePrices }">{{ formatCurrency(line.totalAmount) }}</span>
                   </p>
                 </ion-label>
                 <ion-note
@@ -341,7 +350,8 @@
                   :color="activeTab === 'sales' ? 'primary' : 'danger'"
                   class="line-total"
                 >
-                  {{ formatCurrency(line.totalAmount) }}
+                  <ion-spinner v-if="isUpdatingLinePrices" name="dots" class="line-price-spinner" />
+                  <template v-else>{{ formatCurrency(line.totalAmount) }}</template>
                 </ion-note>
               </ion-item>
               <ion-item-options side="end">
@@ -711,6 +721,15 @@ onMounted(async () => {
   }
   if (cachedItems.value.length === 0 && isOnline.value) {
     await sync();
+  } else if (isOnline.value) {
+    // If the posting date differs from the cached price date (e.g. a draft restored with a
+    // past date, or the price cache is from a previous day) pre-fetch prices now so the
+    // item modal shows the right prices the moment it opens — watch(orderDateValue) only
+    // fires on *changes*, not on the initial value.
+    const cached = StorageService.getCachedItemPrices();
+    if (cached?.date !== orderDateValue.value) {
+      void preFetchAllItemPrices(orderDateValue.value);
+    }
   }
 });
 
@@ -876,6 +895,7 @@ const confirmDiscountValue = ref(0);
 const confirmedSrp = ref(0);
 const fetchingPrice = ref(false);
 const isUpdatingLinePrices = ref(false);
+const isPreloadingItemPrices = ref(false);
 
 const confirmTotal = computed(() =>
   computeTotal(
@@ -912,6 +932,34 @@ async function fetchActivePrice(itemNumber: string, onDate: string): Promise<voi
 
 let _dateWatchAbort: AbortController | null = null;
 
+// Fetches ALL item prices for the given date, applies them to _itemsMemory and the price
+// cache so the item modal shows correct prices the moment it opens.
+async function preFetchAllItemPrices(
+  date: string,
+  signal?: AbortSignal,
+): Promise<Record<string, number> | null> {
+  if (!isOnline.value || !date) return null;
+  const brandCode = authStore.brand?.code;
+  isPreloadingItemPrices.value = true;
+  try {
+    const priceMap = brandCode
+      ? await ApiService.getAllItemPricesForDate(date, [], signal, undefined, brandCode)
+      : await ApiService.getAllItemPricesForDate(
+          date,
+          cachedItems.value.map((i) => i.number),
+          signal,
+        );
+    StorageService.applyPriceMapToItems(priceMap);
+    StorageService.setCachedItemPrices(date, priceMap);
+    return priceMap;
+  } catch (err) {
+    if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
+    return null;
+  } finally {
+    isPreloadingItemPrices.value = false;
+  }
+}
+
 watch(orderDateValue, async (newDate) => {
   if (!newDate) return;
 
@@ -920,7 +968,6 @@ watch(orderDateValue, async (newDate) => {
     ...sessionStore.returnOrders.map((l) => ({ line: l, type: 'returns' as const })),
   ];
   const hasFormItem = !!form.itemId;
-  if (!allLines.length && !hasFormItem) return;
 
   // Offline: apply cached prices immediately — no network call, no loading state.
   if (!isOnline.value) {
@@ -941,29 +988,25 @@ watch(orderDateValue, async (newDate) => {
   _dateWatchAbort = new AbortController();
   const { signal } = _dateWatchAbort;
 
-  const lineNos = allLines.map(({ line }) => line.itemNumber);
-  const allNos = [...new Set(hasFormItem ? [form.itemNumber, ...lineNos] : lineNos)];
+  if (allLines.length > 0 || hasFormItem) isUpdatingLinePrices.value = true;
 
-  isUpdatingLinePrices.value = true;
-  let updatedCount = 0;
   try {
-    const priceMap = await ApiService.getAllItemPricesForDate(newDate, allNos, signal);
+    // Pre-fetch ALL item prices so the item modal sees correct prices immediately on open.
+    // The same price map is then applied to current session lines — one API call does both.
+    const priceMap = await preFetchAllItemPrices(newDate, signal);
+    if (!priceMap) return;
 
     if (hasFormItem) {
       const price = priceMap[form.itemNumber] ?? null;
-      if (price !== null) {
-        confirmedSrp.value = price;
-        form.srp = price;
-        StorageService.patchCachedItemPrice(form.itemNumber, price);
-      }
+      if (price !== null) { confirmedSrp.value = price; form.srp = price; }
     }
 
+    let updatedCount = 0;
     for (const { line, type } of allLines) {
       const price = priceMap[line.itemNumber] ?? null;
       if (price !== null) {
         sessionStore.updateLineSrp(line.id, type, price);
         updatedCount++;
-        StorageService.patchCachedItemPrice(line.itemNumber, price);
       }
     }
 
@@ -1453,7 +1496,29 @@ async function toast(message: string, color: string) {
   padding: 0 5px;
 }
 
-.line-total { font-size: 14px; font-weight: 700; }
+.line-total {
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  min-width: 56px;
+  justify-content: flex-end;
+}
+.line-price-spinner { width: 16px; height: 16px; }
+
+.price-stale {
+  opacity: 0.35;
+  animation: price-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes price-pulse {
+  0%, 100% { opacity: 0.35; }
+  50%       { opacity: 0.65; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .price-stale { animation: none; }
+}
 
 .subtotal-row {
   --background: var(--app-surface-alt);
@@ -1856,6 +1921,7 @@ async function toast(message: string, color: string) {
 }
 
 .order-date-icon { font-size: 18px; flex-shrink: 0; }
+.date-price-spinner { width: 16px; height: 16px; flex-shrink: 0; color: var(--app-gold); }
 
 .order-date-input {
   flex: 1;
