@@ -161,8 +161,8 @@ export const ApiService = {
     return extractList<Brand>(res.data);
   },
 
-  async getContacts(): Promise<Contact[]> {
-    const res = await apiClient.get('/bc/custom/v2/contacts');
+  async getContacts(timeout?: number): Promise<Contact[]> {
+    const res = await apiClient.get('/bc/custom/v2/contacts', { timeout });
     const raw = extractList<Record<string, unknown>>(res.data);
     // Normalise field-name variations the BC API may return
     return raw.map((c) => ({
@@ -213,9 +213,10 @@ export const ApiService = {
     });
   },
 
-  async getCustomers(brandCode?: string): Promise<Customer[]> {
+  async getCustomers(brandCode?: string, timeout?: number): Promise<Customer[]> {
     const res = await apiClient.get('/bc/custom/v2/customers', {
       params: brandCode ? { brand: brandCode } : undefined,
+      timeout,
     });
     const raw = extractList<Record<string, unknown>>(res.data);
     return raw.map((c) => ({
@@ -232,14 +233,15 @@ export const ApiService = {
     })) as Customer[];
   },
 
-  async getItemFamilies(): Promise<ItemFamily[]> {
-    const res = await apiClient.get('/bc/custom/v2/item-families');
+  async getItemFamilies(timeout?: number): Promise<ItemFamily[]> {
+    const res = await apiClient.get('/bc/custom/v2/item-families', { timeout });
     return extractList<ItemFamily>(res.data);
   },
 
-  async getItems(familyCode?: string): Promise<Item[]> {
+  async getItems(familyCode?: string, timeout?: number): Promise<Item[]> {
     const res = await apiClient.get('/bc/custom/v2/items', {
       params: familyCode ? { family_code: familyCode } : undefined,
+      timeout,
     });
     const raw = extractList<Record<string, unknown>>(res.data);
     return raw.map((i) => ({
@@ -249,8 +251,8 @@ export const ApiService = {
     })) as Item[];
   },
 
-  async getItemCategories(): Promise<ItemCategory[]> {
-    const res = await apiClient.get('/bc/item-categories');
+  async getItemCategories(timeout?: number): Promise<ItemCategory[]> {
+    const res = await apiClient.get('/bc/item-categories', { timeout });
     return extractList<ItemCategory>(res.data);
   },
 

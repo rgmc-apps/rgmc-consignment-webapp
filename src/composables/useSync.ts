@@ -35,6 +35,9 @@ export function useSync() {
     syncError.value = null;
     syncWarning.value = null;
 
+    // Generous timeout for all sync calls — BC list endpoints can take 60-120 s.
+    const SYNC_MS = 180_000;
+
     // All tables shown up-front so the user sees every task from the moment sync starts.
     syncSubTasks.value = [
       { label: 'Customers',       status: 'pending' },
@@ -53,13 +56,13 @@ export function useSync() {
       // Phase 1 — critical master data (0 → 45%). Any failure aborts the whole sync.
       const bump1 = () => { syncProgress.value = Math.min(45, syncProgress.value + 15); };
       const [customers, rawItems, categories] = await Promise.all([
-        ApiService.getCustomers(brandCode)
+        ApiService.getCustomers(brandCode, SYNC_MS)
           .then((r) => { bump1(); syncSubTasks.value[0].status = 'done'; return r; })
           .catch((e) => { syncSubTasks.value[0].status = 'error'; throw e; }),
-        ApiService.getItems(brandCode)
+        ApiService.getItems(brandCode, SYNC_MS)
           .then((r) => { bump1(); syncSubTasks.value[1].status = 'done'; return r; })
           .catch((e) => { syncSubTasks.value[1].status = 'error'; throw e; }),
-        ApiService.getItemCategories()
+        ApiService.getItemCategories(SYNC_MS)
           .then((r) => { bump1(); syncSubTasks.value[2].status = 'done'; return r; })
           .catch((e) => { syncSubTasks.value[2].status = 'error'; throw e; }),
       ]);
@@ -89,13 +92,13 @@ export function useSync() {
       }
 
       const [contactsResult, pricesResult, familiesResult] = await Promise.allSettled([
-        ApiService.getContacts()
+        ApiService.getContacts(SYNC_MS)
           .then((r) => { syncSubTasks.value[3].status = 'done'; return r; })
           .catch((e) => { syncSubTasks.value[3].status = 'error'; throw e; }),
         pricesCall
           .then((r) => { syncSubTasks.value[4].status = 'done'; return r; })
           .catch((e) => { syncSubTasks.value[4].status = 'error'; throw e; }),
-        ApiService.getItemFamilies()
+        ApiService.getItemFamilies(SYNC_MS)
           .then((r) => { syncSubTasks.value[5].status = 'done'; return r; })
           .catch((e) => { syncSubTasks.value[5].status = 'error'; throw e; }),
       ]);
