@@ -47,7 +47,7 @@
               class="cat-chip"
             >All</ion-chip>
             <ion-chip
-              v-for="cat in categories"
+              v-for="cat in effectiveCategories"
               :key="cat.code"
               :color="selectedCat === cat.code ? 'primary' : 'medium'"
               @click="selectedCat = cat.code"
@@ -60,6 +60,14 @@
             <ion-icon :icon="alertCircleOutline" color="warning" />
             <span>No item found for barcode <strong>{{ lastScannedBarcode }}</strong>. Showing search results.</span>
           </div>
+
+          <!-- Online mode: item loading state -->
+          <Transition name="price-bar-fade">
+            <div v-if="isLoadingOnline" class="price-fetch-bar">
+              <ion-spinner name="dots" class="price-fetch-spinner" />
+              <span>Loading items from server…</span>
+            </div>
+          </Transition>
 
           <!-- Price-fetch bar -->
           <Transition name="price-bar-fade">
@@ -227,12 +235,17 @@ import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 import { formatCurrency } from '@/utils/format';
 import { useTheme } from '@/composables/useTheme';
+import { useAppModeStore } from '@/stores/app-mode.store';
 import type { Item, ItemCategory } from '@/types';
 
 const { theme } = useTheme();
 const isMinimalist = computed(() => theme.value === 'minimalist');
+const { mode } = useAppModeStore();
 
 const DISPLAY_LIMIT = 100;
+
+const onlineItems = ref<Item[]>([]);
+const isLoadingOnline = ref(false);
 
 const props = defineProps<{
   items: Item[];
@@ -240,6 +253,7 @@ const props = defineProps<{
   initialCategoryCode?: string;
   isOnline?: boolean;
   onDate?: string;
+  familyCode?: string;
 }>();
 
 const emit = defineEmits<{
@@ -253,8 +267,20 @@ const selectedCat = ref(props.initialCategoryCode ?? '');
 const barcodeNotFound = ref(false);
 const lastScannedBarcode = ref('');
 
+const effectiveItems = computed(() => mode.value === 'online' ? onlineItems.value : props.items);
+
+const effectiveCategories = computed<ItemCategory[]>(() => {
+  if (mode.value === 'online' && onlineItems.value.length > 0) {
+    const seen = new Set<string>();
+    return onlineItems.value
+      .filter((i) => i.itemCategoryCode && !seen.has(i.itemCategoryCode) && seen.add(i.itemCategoryCode))
+      .map((i) => ({ id: i.itemCategoryCode, code: i.itemCategoryCode, displayName: i.itemCategoryCode, lastModifiedDateTime: '' }));
+  }
+  return props.categories;
+});
+
 const filteredItems = computed(() => {
-  let src = props.items;
+  let src = effectiveItems.value;
   if (selectedCat.value) {
     src = src.filter((i) => i.itemCategoryCode === selectedCat.value);
   }
@@ -279,14 +305,27 @@ const isFetchingPrices = ref(false);
 
 const lookupDate = computed(() => props.onDate ?? new Date().toISOString().split('T')[0]);
 
-onMounted(() => {
+onMounted(async () => {
+  if (mode.value === 'online') {
+    // Online mode: load items directly from the API (no prior sync required).
+    isLoadingOnline.value = true;
+    try {
+      const result = await ApiService.getItemsPage(lookupDate.value, props.familyCode);
+      onlineItems.value = result.items;
+      livePrices.value = result.priceMap;
+    } catch (err) {
+      console.warn('[ItemSelectorModal] online item load failed:', err);
+    } finally {
+      isLoadingOnline.value = false;
+    }
+    return;
+  }
+
+  // Offline mode: use cached prices and batch-fetch any missing ones.
   const cached = StorageService.getCachedItemPrices();
   if (cached?.date === lookupDate.value) {
     livePrices.value = { ...cached.prices };
   }
-  // Batch-load prices for all items in the catalog so every search result has a price
-  // ready without waiting for the user to scroll or filter. fetchMissingPrices skips
-  // items that are already in livePrices, so this is a no-op when cache fully covers them.
   if (priceTimer) clearTimeout(priceTimer);
   priceTimer = setTimeout(() => fetchMissingPrices(props.items), 100);
 });

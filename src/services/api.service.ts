@@ -139,6 +139,24 @@ async function fetchPriceChunk(
   return [];
 }
 
+function mapItemRow(row: Record<string, unknown>): Item {
+  const number = (row['productNo'] ?? '') as string;
+  return {
+    id:                   (row['systemId'] ?? row['id'] ?? number) as string,
+    number,
+    displayName:          (row['displayName'] ?? row['description'] ?? number) as string,
+    description:          (row['description'] ?? row['displayName'] ?? '') as string,
+    type:                 (row['type'] ?? '') as string,
+    itemCategoryId:       (row['itemCategoryId'] ?? '') as string,
+    itemCategoryCode:     (row['itemCategoryCode'] ?? '') as string,
+    familyCode:           (row['familyCode'] as string | undefined) ?? undefined,
+    baseUnitOfMeasure:    (row['baseUnitOfMeasure'] ?? row['baseUnitOfMeasureCode'] ?? '') as string,
+    unitPriceIncVAT:      (row['unitPriceIncVAT'] ?? row['unitPrice'] ?? row['unit_price'] ?? 0) as number,
+    priceListCode:        (row['priceListCode'] as string | undefined) ?? undefined,
+    lastModifiedDateTime: (row['lastModifiedDateTime'] ?? '') as string,
+  };
+}
+
 export const ApiService = {
   async getCompanies(): Promise<Company[]> {
     const res = await apiClient.get('/bc/custom/v2/company-settings');
@@ -246,24 +264,6 @@ export const ApiService = {
     signal?: AbortSignal,
     timeout?: number,
   ): Promise<{ items: Item[]; priceMap: Record<string, number> }> {
-    const mapRow = (row: Record<string, unknown>): Item => {
-      const number = (row['productNo'] ?? '') as string;
-      return {
-        id:                   (row['systemId'] ?? row['id'] ?? number) as string,
-        number,
-        displayName:          (row['displayName'] ?? row['description'] ?? number) as string,
-        description:          (row['description'] ?? row['displayName'] ?? '') as string,
-        type:                 (row['type'] ?? '') as string,
-        itemCategoryId:       (row['itemCategoryId'] ?? '') as string,
-        itemCategoryCode:     (row['itemCategoryCode'] ?? '') as string,
-        familyCode:           (row['familyCode'] as string | undefined) ?? undefined,
-        baseUnitOfMeasure:    (row['baseUnitOfMeasure'] ?? row['baseUnitOfMeasureCode'] ?? '') as string,
-        unitPriceIncVAT:      (row['unitPriceIncVAT'] ?? row['unitPrice'] ?? row['unit_price'] ?? 0) as number,
-        priceListCode:        (row['priceListCode'] as string | undefined) ?? undefined,
-        lastModifiedDateTime: (row['lastModifiedDateTime'] ?? '') as string,
-      };
-    };
-
     const RETRIES = 2;
     let lastErr: unknown;
     for (let attempt = 0; attempt <= RETRIES; attempt++) {
@@ -278,7 +278,7 @@ export const ApiService = {
         const priceMap: Record<string, number> = {};
         const seen = new Set<string>();
         for (const row of rows) {
-          const item = mapRow(row);
+          const item = mapItemRow(row);
           if (!item.number || seen.has(item.number)) continue;
           seen.add(item.number);
           items.push(item);
@@ -296,6 +296,41 @@ export const ApiService = {
       }
     }
     throw lastErr;
+  },
+
+  async getItemsPage(
+    date: string,
+    familyCode?: string,
+    skip = 0,
+    limit = 0,
+    signal?: AbortSignal,
+  ): Promise<{ items: Item[]; priceMap: Record<string, number>; total: number }> {
+    const res = await apiClient.get('/bc/custom/v3/item-prices', {
+      params: {
+        on_date: date,
+        ...(familyCode ? { family_code: familyCode } : {}),
+        ...(skip > 0 ? { skip } : {}),
+        ...(limit > 0 ? { limit } : {}),
+      },
+      signal,
+      timeout: 300_000,
+    });
+    const body = res.data as Record<string, unknown>;
+    const rows: Record<string, unknown>[] = Array.isArray(body.data)
+      ? (body.data as Record<string, unknown>[])
+      : extractList<Record<string, unknown>>(body);
+    const total = typeof body.total === 'number' ? (body.total as number) : rows.length;
+    const items: Item[] = [];
+    const priceMap: Record<string, number> = {};
+    const seen = new Set<string>();
+    for (const row of rows) {
+      const item = mapItemRow(row);
+      if (!item.number || seen.has(item.number)) continue;
+      seen.add(item.number);
+      items.push(item);
+      priceMap[item.number] = item.unitPriceIncVAT;
+    }
+    return { items, priceMap, total };
   },
 
   async getItemCategories(timeout?: number): Promise<ItemCategory[]> {

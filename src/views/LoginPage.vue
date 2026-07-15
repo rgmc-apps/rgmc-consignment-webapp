@@ -97,6 +97,32 @@
               </div>
             </Transition>
 
+            <!-- App mode toggle -->
+            <div class="mode-toggle-row">
+              <div class="mode-toggle-icon-wrap">
+                <ion-icon :icon="mode === 'offline' ? cloudOfflineOutline : wifiOutline" class="mode-toggle-icon" />
+              </div>
+              <div class="mode-toggle-labels">
+                <span class="mode-toggle-title">{{ mode === 'offline' ? 'Offline Mode' : 'Online Mode' }}</span>
+                <span class="mode-toggle-hint">
+                  <template v-if="mode === 'offline'">
+                    <span v-if="offlineReady" class="mode-ready-tag">
+                      <ion-icon :icon="cloudDoneOutline" />ready
+                    </span>
+                    <span v-else class="mode-sync-tag">sync required</span>
+                    &mdash; slower startup
+                  </template>
+                  <template v-else>loads data on demand</template>
+                </span>
+              </div>
+              <ion-toggle
+                :checked="mode === 'offline'"
+                :disabled="isLoading || isSyncing"
+                @ion-change="onModeToggle"
+                class="mode-toggle"
+              />
+            </div>
+
             <!-- Username -->
             <ion-item lines="full" :class="['login-field', { 'login-field--error': loginState === 'error' }]">
               <ion-label position="stacked">Username</ion-label>
@@ -159,12 +185,13 @@
               }}</span>
             </ion-button>
 
-            <!-- Sync status panel — shown after login success while data loads -->
+            <!-- Sync status panel — shown after login success in offline mode while data loads -->
             <Transition name="sync-status-fade">
-              <div v-if="loginState === 'success' && isSyncing" class="login-sync-status">
+              <div v-if="loginState === 'success' && isSyncing && mode === 'offline'" class="login-sync-status">
                 <ion-spinner name="dots" class="sync-status-dots" />
                 <div class="sync-status-text">
                   <div class="sync-status-top">
+                    <span class="sync-status-mode-label">Preparing offline mode</span>
                     <span :key="syncHeaderText" class="sync-status-label cycling-text">{{ syncHeaderText }}</span>
                     <span class="sync-status-pct">{{ syncProgress }}%</span>
                   </div>
@@ -226,12 +253,14 @@ import {
   IonButton,
   IonIcon,
   IonSpinner,
+  IonToggle,
 } from '@ionic/vue';
-import { eyeOutline, eyeOffOutline, alertCircleOutline, cloudOfflineOutline, warningOutline, pricetagOutline, checkmarkCircleOutline } from 'ionicons/icons';
+import { eyeOutline, eyeOffOutline, alertCircleOutline, cloudOfflineOutline, warningOutline, pricetagOutline, checkmarkCircleOutline, wifiOutline, cloudDoneOutline } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { ApiService, setApiCompany } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 import { useSync } from '@/composables/useSync';
+import { useAppModeStore } from '@/stores/app-mode.store';
 import { useLoadingText } from '@/composables/useLoadingText';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import SetPasswordModal from '@/components/SetPasswordModal.vue';
@@ -269,6 +298,11 @@ watch([username, password], () => {
 
 const isLoading = computed(() => authStore.isLoading);
 const { isSyncing, syncPhase, syncProgress, syncSubTasks, sync } = useSync();
+const { mode, offlineReady, setMode } = useAppModeStore();
+
+function onModeToggle(e: Event) {
+  setMode((e as CustomEvent).detail.checked ? 'offline' : 'online');
+}
 
 const loginLoadingText = useLoadingText(
   ['Signing in…', 'Verifying credentials…', 'Checking permissions…', 'Almost there…'],
@@ -405,9 +439,9 @@ async function handleLogin() {
 
   loginState.value = 'success';
 
-  /* Full offline prep — fetch all master data so the app works without a
-     network connection after this login. Failure is non-fatal. */
-  await sync();
+  if (mode.value === 'offline') {
+    await sync();
+  }
 
   router.replace('/app/home');
 }
@@ -599,6 +633,99 @@ async function handleLogin() {
 .net-notice-fade-leave-active { transition: opacity 0.3s ease, transform 0.3s ease; }
 .net-notice-fade-enter-from,
 .net-notice-fade-leave-to    { opacity: 0; transform: translateY(-6px); }
+
+/* ── App mode toggle ── */
+.mode-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--app-border);
+}
+
+.mode-toggle-icon-wrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.mode-toggle-icon {
+  font-size: 1.15rem;
+  color: var(--app-text-muted);
+}
+
+.mode-toggle-labels {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mode-toggle-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-fg);
+}
+
+.mode-toggle-hint {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.mode-ready-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: oklch(52% 0.15 145 / 0.15);
+  color: oklch(62% 0.15 145);
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.mode-ready-tag ion-icon {
+  font-size: 11px;
+}
+
+.mode-sync-tag {
+  display: inline-flex;
+  background: rgba(var(--ion-color-warning-rgb), 0.15);
+  color: var(--ion-color-warning-shade);
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.mode-toggle {
+  --track-background: var(--app-border);
+  --track-background-checked: var(--app-gold);
+  flex-shrink: 0;
+}
+
+/* ── Sync status mode label ── */
+.sync-status-mode-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: oklch(60% 0.10 145 / 0.7);
+  display: block;
+  margin-bottom: 4px;
+}
 
 /* ── Item family tag ── */
 .brand-family-tag {

@@ -462,6 +462,7 @@
       :initial-category-code="form.categoryCode"
       :is-online="isOnline"
       :on-date="orderDateValue"
+      :family-code="authStore.brand?.code"
       @select="onItemSelected"
       @close="showItemModal = false"
     />
@@ -661,6 +662,7 @@ import { useSessionStore, computeTotal } from '@/stores/session.store';
 import { useSync } from '@/composables/useSync';
 import { useCustomerFilter } from '@/composables/useCustomerFilter';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
+import { useAppModeStore } from '@/stores/app-mode.store';
 import { useTheme } from '@/composables/useTheme';
 import { useGoldAccent } from '@/composables/useGoldAccent';
 import { StorageService } from '@/services/storage.service';
@@ -677,6 +679,7 @@ const authStore = useAuthStore();
 const sessionStore = useSessionStore();
 const { isSyncing, syncError, lastSyncDate, lastSyncLabel, sync } = useSync();
 const { isOnline, isSlowConnection } = useNetworkStatus();
+const { mode: appMode } = useAppModeStore();
 const { theme } = useTheme();
 const isMinimalist = computed(() => theme.value === 'minimalist');
 const headerLogoSrc = computed(() =>
@@ -716,7 +719,7 @@ onMounted(async () => {
   if (!sessionStore.currentSession && authStore.brand && authStore.user) {
     sessionStore.startNewSession(authStore.brand, authStore.user);
   }
-  if (cachedItems.value.length === 0 && isOnline.value) {
+  if (cachedItems.value.length === 0 && isOnline.value && appMode.value === 'offline') {
     await sync();
   }
 });
