@@ -283,15 +283,12 @@ onMounted(() => {
   const cached = StorageService.getCachedItemPrices();
   if (cached?.date === lookupDate.value) {
     livePrices.value = { ...cached.prices };
-    // Fetch any items that weren't in the cache (e.g. new items added after last sync)
-    if (priceTimer) clearTimeout(priceTimer);
-    priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 300);
-  } else {
-    // No matching cache for this date — start fetching immediately.
-    // (Pre-fetch in ScanningPage may still be in flight, or date has no cached prices yet.)
-    if (priceTimer) clearTimeout(priceTimer);
-    priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 100);
   }
+  // Batch-load prices for all items in the catalog so every search result has a price
+  // ready without waiting for the user to scroll or filter. fetchMissingPrices skips
+  // items that are already in livePrices, so this is a no-op when cache fully covers them.
+  if (priceTimer) clearTimeout(priceTimer);
+  priceTimer = setTimeout(() => fetchMissingPrices(props.items), 100);
 });
 
 let priceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -326,7 +323,7 @@ watch(displayItems, (items) => {
 watch(lookupDate, () => {
   livePrices.value = {};
   if (priceTimer) clearTimeout(priceTimer);
-  priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 300);
+  priceTimer = setTimeout(() => fetchMissingPrices(props.items), 300);
 });
 
 watch(

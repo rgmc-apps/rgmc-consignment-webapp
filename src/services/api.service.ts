@@ -313,15 +313,16 @@ export const ApiService = {
     }
 
     if (!productNos.length) return {};
-    // Chunk into batches of 50 to stay well under BC's URL length limit.
-    const CHUNK = 50;
+    // Chunk into batches of 150 — item numbers are short (≤15 chars) so 150 per request
+    // stays well within BC's URL length limit while reducing round-trip count 3×.
+    const CHUNK = 150;
     const chunks: string[][] = [];
     for (let i = 0; i < productNos.length; i += CHUNK) {
       chunks.push(productNos.slice(i, i + CHUNK));
     }
-    // Two concurrent chunks at a time — conservative enough to stay clear of BC's
-    // per-tenant concurrency limit while still overlapping round-trip latency.
-    const CONCURRENCY = 2;
+    // Three concurrent chunks at a time — BC allows up to ~6 concurrent tenant requests;
+    // 3 gives good throughput without crowding out other in-flight calls.
+    const CONCURRENCY = 3;
     const allRows: Record<string, unknown>[] = [];
     for (let i = 0; i < chunks.length; i += CONCURRENCY) {
       const batch = chunks.slice(i, i + CONCURRENCY);
