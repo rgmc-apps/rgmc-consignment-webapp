@@ -337,6 +337,18 @@ export const ApiService = {
     return buildMap(allRows);
   },
 
+  async getApiStatus(company?: string): Promise<{ warming_up: boolean; active_bc_requests: number; busy: boolean }> {
+    try {
+      const res = await apiClient.get('/bc/status', {
+        params: company ? { company } : undefined,
+        timeout: 5000,
+      });
+      return res.data;
+    } catch {
+      return { warming_up: false, active_bc_requests: 0, busy: false };
+    }
+  },
+
   async submitSalesOrder(payload: SalesOrderPayload): Promise<unknown> {
     const res = await apiClient.post('/bc/sales-orders', payload);
     return res.data;

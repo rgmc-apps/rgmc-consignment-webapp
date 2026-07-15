@@ -42,7 +42,7 @@
         </div>
       </div>
 
-      <!-- Sync warning banner -->
+      <!-- Sync warning / error banner (syncWarning or syncError set by useSync) -->
       <Transition name="sync-warn-fade">
         <div
           v-if="syncNotice"
@@ -52,6 +52,7 @@
           <span class="sync-warn-text">{{ syncNotice }}</span>
           <div class="sync-warn-actions">
             <ion-button
+              v-if="!syncError"
               fill="clear"
               size="small"
               class="sync-warn-btn"
@@ -62,6 +63,17 @@
               <span v-else>Sync Now</span>
             </ion-button>
             <ion-button
+              v-if="syncError"
+              fill="clear"
+              size="small"
+              class="sync-warn-btn"
+              :disabled="isSyncing"
+              @click="doSync"
+            >
+              <ion-spinner v-if="isSyncing" name="crescent" class="sync-warn-spinner" />
+              <span v-else>Try Again</span>
+            </ion-button>
+            <ion-button
               fill="clear"
               size="small"
               class="sync-warn-dismiss"
@@ -70,6 +82,21 @@
               <ion-icon :icon="closeOutline" slot="icon-only" />
             </ion-button>
           </div>
+        </div>
+      </Transition>
+
+      <!-- Server warmup / busy notice (independent of sync state) -->
+      <Transition name="sync-warn-fade">
+        <div
+          v-if="!syncNotice && (isWarmingUp || isBusy)"
+          :class="['sync-warn-banner', isBusy ? 'sync-warn-banner--error' : 'sync-warn-banner--info']"
+        >
+          <ion-icon :icon="warningOutline" class="sync-warn-icon" />
+          <span class="sync-warn-text">
+            {{ isBusy
+              ? 'Server is under high load. Syncing may fail or be slower than usual.'
+              : 'Server is refreshing its data cache. Item prices may take a moment to load.' }}
+          </span>
         </div>
       </Transition>
 
@@ -196,6 +223,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
 import { StorageService } from '@/services/storage.service';
 import { useSync } from '@/composables/useSync';
+import { useServerStatus } from '@/composables/useServerStatus';
 import { useCustomerFilter } from '@/composables/useCustomerFilter';
 import { useTheme } from '@/composables/useTheme';
 import type { Customer, ScanSession } from '@/types';
@@ -205,6 +233,7 @@ const authStore = useAuthStore();
 const sessionStore = useSessionStore();
 const { theme } = useTheme();
 const { isSyncing, syncError, syncWarning, sync, clearSyncWarning } = useSync();
+const { isWarmingUp, isBusy } = useServerStatus();
 
 const syncNotice = computed(() => syncError.value || syncWarning.value);
 
@@ -554,6 +583,16 @@ async function confirmDeleteDraft(id: string) {
 .sync-warn-banner--warn {
   background: rgba(var(--ion-color-warning-rgb), 0.12);
   border: 1px solid rgba(var(--ion-color-warning-rgb), 0.3);
+}
+
+.sync-warn-banner--info {
+  background: color-mix(in srgb, var(--app-gold) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--app-gold) 25%, transparent);
+}
+
+.sync-warn-banner--info .sync-warn-icon {
+  color: var(--app-gold);
+  opacity: 0.8;
 }
 
 .sync-warn-banner--error {

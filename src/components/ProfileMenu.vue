@@ -39,21 +39,32 @@
       <!-- Sync -->
       <button
         class="pop-item"
-        :class="{ 'pop-item--syncing': isSyncing, 'pop-item--disabled': !isSyncing && !isOnline }"
+        :class="{
+          'pop-item--syncing': isSyncing,
+          'pop-item--disabled': !isSyncing && !isOnline,
+          'pop-item--busy': !isSyncing && isBusy,
+        }"
         :disabled="isSyncing || !isOnline"
         @click="onSync"
       >
         <ion-icon
           :icon="syncOutline"
           class="pop-icon"
-          :class="{ 'pop-icon--spinning': isSyncing }"
+          :class="{ 'pop-icon--spinning': isSyncing, 'pop-icon--warn': !isSyncing && (isWarmingUp || isBusy) }"
         />
         <div class="pop-item-text">
           <span :key="isSyncing ? syncPrefixText : undefined" class="pop-item-label cycling-text">
             {{ isSyncing ? `${syncPrefixText} ${syncProgress}%` : 'Sync Data' }}
           </span>
-          <span :key="isSyncing ? syncSubCycleText : lastSyncLabel" class="pop-item-sub cycling-text">{{ isSyncing ? syncSubCycleText : lastSyncLabel }}</span>
+          <span :key="isSyncing ? syncSubCycleText : lastSyncLabel" class="pop-item-sub cycling-text">
+            {{ isSyncing ? syncSubCycleText : lastSyncLabel }}
+          </span>
         </div>
+        <!-- Warmup / busy indicator chip (shown when idle) -->
+        <Transition name="status-chip-fade">
+          <span v-if="!isSyncing && isBusy" class="pop-status-chip pop-status-chip--busy">Busy</span>
+          <span v-else-if="!isSyncing && isWarmingUp" class="pop-status-chip pop-status-chip--warm">Warming up</span>
+        </Transition>
       </button>
 
       <!-- Inline per-table progress — slides in while sync is running -->
@@ -160,6 +171,7 @@ import {
 import { useAuthStore } from '@/stores/auth.store';
 import { useSync } from '@/composables/useSync';
 import { useLoadingText } from '@/composables/useLoadingText';
+import { useServerStatus } from '@/composables/useServerStatus';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import { useTheme } from '@/composables/useTheme';
 import ProfileModal from '@/components/ProfileModal.vue';
@@ -168,6 +180,7 @@ import UserAvatar from '@/components/UserAvatar.vue';
 const router = useRouter();
 const authStore = useAuthStore();
 const { isSyncing, syncProgress, syncSubTasks, lastSyncLabel, sync } = useSync();
+const { isWarmingUp, isBusy } = useServerStatus();
 
 const syncPrefixText = useLoadingText(
   ['Syncing…', 'Fetching data…', 'Updating cache…', 'Loading latest…'],
@@ -478,6 +491,42 @@ async function onLogout() {
   flex-shrink: 0;
   margin-left: auto;
 }
+
+/* ── Server status chip (warmup / busy) ── */
+.pop-status-chip {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 20px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.pop-status-chip--busy {
+  background: rgba(var(--ion-color-danger-rgb), 0.12);
+  color: var(--ion-color-danger);
+  border: 1px solid rgba(var(--ion-color-danger-rgb), 0.25);
+}
+
+.pop-status-chip--warm {
+  background: rgba(var(--ion-color-warning-rgb), 0.12);
+  color: var(--ion-color-warning-shade);
+  border: 1px solid rgba(var(--ion-color-warning-rgb), 0.25);
+}
+
+.pop-icon--warn {
+  color: var(--ion-color-warning-shade) !important;
+}
+
+.pop-item--busy .pop-icon {
+  color: var(--ion-color-danger) !important;
+}
+
+.status-chip-fade-enter-active { transition: opacity 0.2s ease; }
+.status-chip-fade-leave-active { transition: opacity 0.15s ease; }
+.status-chip-fade-enter-from, .status-chip-fade-leave-to { opacity: 0; }
 
 /* ── Cycling loading text ── */
 @keyframes text-appear {

@@ -2,6 +2,7 @@ import { ref, computed } from 'vue';
 import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 import { useAuthStore } from '@/stores/auth.store';
+import { useServerStatus } from '@/composables/useServerStatus';
 
 // Module-level singleton so all components share the same sync state
 const isSyncing = ref(false);
@@ -29,11 +30,27 @@ export function useSync() {
   async function sync(): Promise<void> {
     if (isSyncing.value) return;
     if (!navigator.onLine) return;
+
+    // Check server load before committing to a full sync.
+    const { checkStatus, isBusy, isWarmingUp } = useServerStatus();
+    await checkStatus().catch(() => {});
+
+    if (isBusy.value) {
+      syncWarning.value =
+        'The server is handling too many requests right now. Please try syncing again in a few minutes.';
+      return;
+    }
+
     isSyncing.value = true;
     syncPhase.value = 'Syncing…';
     syncProgress.value = 0;
     syncError.value = null;
     syncWarning.value = null;
+
+    if (isWarmingUp.value) {
+      syncWarning.value =
+        'Server is refreshing its price cache. Item prices may take a little longer to load.';
+    }
 
     // Generous timeout for all sync calls — BC list endpoints can take 60-120 s.
     const SYNC_MS = 180_000;
