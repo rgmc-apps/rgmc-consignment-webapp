@@ -165,14 +165,12 @@
                 <ion-spinner name="dots" class="sync-status-dots" />
                 <div class="sync-status-text">
                   <div class="sync-status-top">
-                    <Transition name="sync-label-swap" mode="out-in">
-                      <span :key="syncPhase" class="sync-status-label">{{ syncPhase || 'Syncing…' }}</span>
-                    </Transition>
-                    <span v-if="!syncSubTasks.length" class="sync-status-pct">{{ syncProgress }}%</span>
+                    <span class="sync-status-label">{{ syncPhase || 'Syncing…' }}</span>
+                    <span class="sync-status-pct">{{ syncProgress }}%</span>
                   </div>
-                  <!-- Per-task rows during Phase 2 -->
+                  <!-- Per-table rows — shown for all phases -->
                   <div v-if="syncSubTasks.length" class="sync-subtasks">
-                    <div v-for="task in syncSubTasks" :key="task.label" class="sync-subtask-row">
+                    <div v-for="(task, i) in syncSubTasks" :key="task.label" class="sync-subtask-row">
                       <ion-icon
                         v-if="task.status === 'done'"
                         :icon="checkmarkCircleOutline"
@@ -191,7 +189,8 @@
                           'subtask-label--error': task.status === 'error',
                         }"
                       >{{ task.label }}</span>
-                      <span v-if="task.status === 'pending' && task.label === 'Item Prices'" class="subtask-pct">{{ syncProgress }}%</span>
+                      <!-- Show live % next to Item Prices while it's loading -->
+                      <span v-if="task.status === 'pending' && i === 4" class="subtask-pct">{{ syncProgress }}%</span>
                       <span v-if="task.status === 'error'" class="subtask-err-note">Failed</span>
                     </div>
                   </div>
@@ -766,13 +765,7 @@ async function handleLogin() {
 .sync-status-fade-enter-from   { opacity: 0; transform: translateY(-6px); }
 .sync-status-fade-leave-to     { opacity: 0; }
 
-/* Cycling label swap */
-.sync-label-swap-enter-active { transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
-.sync-label-swap-leave-active { transition: opacity 0.15s ease; }
-.sync-label-swap-enter-from   { opacity: 0; transform: translateY(5px); }
-.sync-label-swap-leave-to     { opacity: 0; }
-
-/* ── Sync sub-tasks (Phase 2) ── */
+/* ── Sync sub-tasks ── */
 .sync-subtasks {
   display: flex;
   flex-direction: column;

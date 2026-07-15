@@ -30,22 +30,38 @@ export function useSync() {
     if (isSyncing.value) return;
     if (!navigator.onLine) return;
     isSyncing.value = true;
-    syncPhase.value = 'Fetching items & customers…';
+    syncPhase.value = 'Syncing…';
     syncProgress.value = 0;
     syncError.value = null;
     syncWarning.value = null;
+
+    // All tables shown up-front so the user sees every task from the moment sync starts.
+    syncSubTasks.value = [
+      { label: 'Customers',       status: 'pending' },
+      { label: 'Items',           status: 'pending' },
+      { label: 'Item Categories', status: 'pending' },
+      { label: 'Contacts',        status: 'pending' },
+      { label: 'Item Prices',     status: 'pending' },
+      { label: 'Item Families',   status: 'pending' },
+    ];
 
     try {
       const authStore = useAuthStore();
       const brandCode = authStore.brand?.code ?? StorageService.getAuth()?.brand?.code;
       const today = new Date().toISOString().split('T')[0];
 
-      // Phase 1 — critical master data (0 → 45%).
+      // Phase 1 — critical master data (0 → 45%). Any failure aborts the whole sync.
       const bump1 = () => { syncProgress.value = Math.min(45, syncProgress.value + 15); };
       const [customers, rawItems, categories] = await Promise.all([
-        ApiService.getCustomers(brandCode).then((r) => { bump1(); return r; }),
-        ApiService.getItems(brandCode).then((r) => { bump1(); return r; }),
-        ApiService.getItemCategories().then((r) => { bump1(); return r; }),
+        ApiService.getCustomers(brandCode)
+          .then((r) => { bump1(); syncSubTasks.value[0].status = 'done'; return r; })
+          .catch((e) => { syncSubTasks.value[0].status = 'error'; throw e; }),
+        ApiService.getItems(brandCode)
+          .then((r) => { bump1(); syncSubTasks.value[1].status = 'done'; return r; })
+          .catch((e) => { syncSubTasks.value[1].status = 'error'; throw e; }),
+        ApiService.getItemCategories()
+          .then((r) => { bump1(); syncSubTasks.value[2].status = 'done'; return r; })
+          .catch((e) => { syncSubTasks.value[2].status = 'error'; throw e; }),
       ]);
 
       const items = brandCode
@@ -59,16 +75,8 @@ export function useSync() {
       StorageService.setSyncTimestamp('items');
       StorageService.setSyncTimestamp('itemCategories');
 
-      // Phase 2 — contacts, families, and item prices run in parallel (45 → 100%).
-      // All three are non-critical: failures fall back to cached data.
-      syncPhase.value = 'Fetching…';
-      syncSubTasks.value = [
-        { label: 'Contacts', status: 'pending' },
-        { label: 'Item Prices', status: 'pending' },
-      ];
-
-      // When a brandCode is available use the familyCode filter — one BC call instead
-      // of N/50 chunked calls. Fall back to chunked product-number batches otherwise.
+      // Phase 2 — contacts, item prices, and item families in parallel (45 → 100%).
+      // Non-critical: failures fall back to cached data and set a warning banner.
       let pricesCall: Promise<Record<string, number>>;
       if (brandCode) {
         const bumpPrice = () => { syncProgress.value = Math.min(99, syncProgress.value + 55); };
@@ -80,14 +88,16 @@ export function useSync() {
         pricesCall = ApiService.getAllItemPricesForDate(today, items.map((i) => i.number), undefined, bumpPrice);
       }
 
-      const [familiesResult, contactsResult, pricesResult] = await Promise.allSettled([
-        ApiService.getItemFamilies(),
+      const [contactsResult, pricesResult, familiesResult] = await Promise.allSettled([
         ApiService.getContacts()
-          .then((r) => { syncSubTasks.value[0].status = 'done'; return r; })
-          .catch((e) => { syncSubTasks.value[0].status = 'error'; throw e; }),
+          .then((r) => { syncSubTasks.value[3].status = 'done'; return r; })
+          .catch((e) => { syncSubTasks.value[3].status = 'error'; throw e; }),
         pricesCall
-          .then((r) => { syncSubTasks.value[1].status = 'done'; return r; })
-          .catch((e) => { syncSubTasks.value[1].status = 'error'; throw e; }),
+          .then((r) => { syncSubTasks.value[4].status = 'done'; return r; })
+          .catch((e) => { syncSubTasks.value[4].status = 'error'; throw e; }),
+        ApiService.getItemFamilies()
+          .then((r) => { syncSubTasks.value[5].status = 'done'; return r; })
+          .catch((e) => { syncSubTasks.value[5].status = 'error'; throw e; }),
       ]);
 
       const failedTasks = syncSubTasks.value
