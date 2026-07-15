@@ -238,17 +238,48 @@ export const ApiService = {
     return extractList<ItemFamily>(res.data);
   },
 
-  async getItems(familyCode?: string, timeout?: number): Promise<Item[]> {
-    const res = await apiClient.get('/bc/custom/v2/items', {
-      params: familyCode ? { family_code: familyCode } : undefined,
-      timeout,
+  // Items and their prices are now served from the same v3 item-prices endpoint.
+  // One call returns both the item catalogue and the effective prices for the given date.
+  async getItemsForDate(
+    date: string,
+    familyCode?: string,
+    signal?: AbortSignal,
+    timeout?: number,
+  ): Promise<{ items: Item[]; priceMap: Record<string, number> }> {
+    const mapRow = (row: Record<string, unknown>): Item => {
+      const number = (row['productNo'] ?? '') as string;
+      return {
+        id:                   (row['systemId'] ?? row['id'] ?? number) as string,
+        number,
+        displayName:          (row['displayName'] ?? row['description'] ?? number) as string,
+        description:          (row['description'] ?? row['displayName'] ?? '') as string,
+        type:                 (row['type'] ?? '') as string,
+        itemCategoryId:       (row['itemCategoryId'] ?? '') as string,
+        itemCategoryCode:     (row['itemCategoryCode'] ?? '') as string,
+        familyCode:           (row['familyCode'] as string | undefined) ?? undefined,
+        baseUnitOfMeasure:    (row['baseUnitOfMeasure'] ?? row['baseUnitOfMeasureCode'] ?? '') as string,
+        unitPriceIncVAT:      (row['unitPriceIncVAT'] ?? row['unitPrice'] ?? row['unit_price'] ?? 0) as number,
+        lastModifiedDateTime: (row['lastModifiedDateTime'] ?? '') as string,
+      };
+    };
+
+    const res = await apiClient.get('/bc/custom/v3/item-prices', {
+      params: { on_date: date, ...(familyCode ? { family_code: familyCode } : {}) },
+      signal,
+      timeout: timeout ?? 300_000,
     });
-    const raw = extractList<Record<string, unknown>>(res.data);
-    return raw.map((i) => ({
-      ...i,
-      displayName:    (i['displayName']    ?? i['description'] ?? i['number']     ?? '')  as string,
-      unitPriceIncVAT:(i['unitPriceIncVAT']?? i['unitPrice']   ?? i['unit_price'] ?? 0)   as number,
-    })) as Item[];
+    const rows = extractList<Record<string, unknown>>(res.data);
+    const items: Item[] = [];
+    const priceMap: Record<string, number> = {};
+    const seen = new Set<string>();
+    for (const row of rows) {
+      const item = mapRow(row);
+      if (!item.number || seen.has(item.number)) continue;
+      seen.add(item.number);
+      items.push(item);
+      priceMap[item.number] = item.unitPriceIncVAT;
+    }
+    return { items, priceMap };
   },
 
   async getItemCategories(timeout?: number): Promise<ItemCategory[]> {

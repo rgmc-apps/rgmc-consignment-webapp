@@ -58,11 +58,9 @@ export function useSync() {
     // All tables shown up-front so the user sees every task from the moment sync starts.
     syncSubTasks.value = [
       { label: 'Customers',       status: 'pending' },
-      { label: 'Items',           status: 'pending' },
       { label: 'Item Categories', status: 'pending' },
+      { label: 'Items & Prices',  status: 'pending' },
       { label: 'Contacts',        status: 'pending' },
-      { label: 'Item Prices',     status: 'pending' },
-      { label: 'Item Families',   status: 'pending' },
     ];
 
     try {
@@ -70,54 +68,39 @@ export function useSync() {
       const brandCode = authStore.brand?.code ?? StorageService.getAuth()?.brand?.code;
       const today = new Date().toISOString().split('T')[0];
 
-      // Phase 1 — critical master data (0 → 45%). Any failure aborts the whole sync.
-      const bump1 = () => { syncProgress.value = Math.min(45, syncProgress.value + 15); };
-      const [customers, rawItems, categories] = await Promise.all([
+      // Phase 1 — customers + categories in parallel (0 → 30%). Abort on failure.
+      const bump1 = () => { syncProgress.value = Math.min(30, syncProgress.value + 15); };
+      const [customers, categories] = await Promise.all([
         ApiService.getCustomers(brandCode, SYNC_MS)
           .then((r) => { bump1(); syncSubTasks.value[0].status = 'done'; return r; })
           .catch((e) => { syncSubTasks.value[0].status = 'error'; throw e; }),
-        ApiService.getItems(brandCode, SYNC_MS)
+        ApiService.getItemCategories(SYNC_MS)
           .then((r) => { bump1(); syncSubTasks.value[1].status = 'done'; return r; })
           .catch((e) => { syncSubTasks.value[1].status = 'error'; throw e; }),
-        ApiService.getItemCategories(SYNC_MS)
-          .then((r) => { bump1(); syncSubTasks.value[2].status = 'done'; return r; })
-          .catch((e) => { syncSubTasks.value[2].status = 'error'; throw e; }),
       ]);
 
-      const items = brandCode
-        ? rawItems.filter((i) => i.familyCode === brandCode)
-        : rawItems;
-
       StorageService.setCachedCustomers(customers);
-      StorageService.setCachedItems(items);
       StorageService.setCachedItemCategories(categories);
       StorageService.setSyncTimestamp('customers');
-      StorageService.setSyncTimestamp('items');
       StorageService.setSyncTimestamp('itemCategories');
 
-      // Phase 2 — contacts, item prices, and item families in parallel (45 → 100%).
-      // Non-critical: failures fall back to cached data and set a warning banner.
-      let pricesCall: Promise<Record<string, number>>;
-      if (brandCode) {
-        const bumpPrice = () => { syncProgress.value = Math.min(99, syncProgress.value + 55); };
-        pricesCall = ApiService.getAllItemPricesForDate(today, [], undefined, bumpPrice, brandCode);
-      } else {
-        const totalChunks = Math.max(1, Math.ceil(items.length / 50));
-        const priceStep = Math.round(55 / totalChunks);
-        const bumpPrice = () => { syncProgress.value = Math.min(99, syncProgress.value + priceStep); };
-        pricesCall = ApiService.getAllItemPricesForDate(today, items.map((i) => i.number), undefined, bumpPrice);
-      }
+      // Phase 2 — items + prices from the single v3 item-prices endpoint (30 → 85%).
+      // Items and their prices are now one call. Abort on failure.
+      const { items, priceMap } = await ApiService.getItemsForDate(today, brandCode, undefined, SYNC_MS)
+        .then((r) => { syncProgress.value = Math.min(85, syncProgress.value + 55); syncSubTasks.value[2].status = 'done'; return r; })
+        .catch((e) => { syncSubTasks.value[2].status = 'error'; throw e; });
 
-      const [contactsResult, pricesResult, familiesResult] = await Promise.allSettled([
+      StorageService.setCachedItems(items);
+      StorageService.setSyncTimestamp('items');
+      StorageService.setCachedItemPrices(today, priceMap);
+      StorageService.applyPriceMapToItems(priceMap);
+
+      // Phase 3 — contacts (85 → 100%). Non-critical: failure falls back to cached data
+      // and surfaces a warning banner. Item families are fetched live by LoginPage/SplashPage.
+      const [contactsResult] = await Promise.allSettled([
         ApiService.getContacts(SYNC_MS)
           .then((r) => { syncSubTasks.value[3].status = 'done'; return r; })
           .catch((e) => { syncSubTasks.value[3].status = 'error'; throw e; }),
-        pricesCall
-          .then((r) => { syncSubTasks.value[4].status = 'done'; return r; })
-          .catch((e) => { syncSubTasks.value[4].status = 'error'; throw e; }),
-        ApiService.getItemFamilies(SYNC_MS)
-          .then((r) => { syncSubTasks.value[5].status = 'done'; return r; })
-          .catch((e) => { syncSubTasks.value[5].status = 'error'; throw e; }),
       ]);
 
       const failedTasks = syncSubTasks.value
@@ -139,17 +122,6 @@ export function useSync() {
         if (authUser.username)     patch['username']     = authUser.username;
         if (authUser.passwordHash) patch['passwordHash'] = authUser.passwordHash;
         if (Object.keys(patch).length) StorageService.patchContact(authUser.id, patch);
-      }
-
-      // Apply today's prices to the item cache.
-      if (pricesResult.status === 'fulfilled') {
-        const priceMap = pricesResult.value;
-        const finalPriceMap: Record<string, number> = {};
-        for (const item of items) {
-          finalPriceMap[item.number] = priceMap[item.number] ?? item.unitPriceIncVAT;
-        }
-        StorageService.setCachedItemPrices(today, finalPriceMap);
-        StorageService.applyPriceMapToItems(finalPriceMap);
       }
 
       syncProgress.value = 100;
