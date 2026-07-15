@@ -281,7 +281,17 @@ const lookupDate = computed(() => props.onDate ?? new Date().toISOString().split
 
 onMounted(() => {
   const cached = StorageService.getCachedItemPrices();
-  if (cached?.date === lookupDate.value) livePrices.value = { ...cached.prices };
+  if (cached?.date === lookupDate.value) {
+    livePrices.value = { ...cached.prices };
+    // Fetch any items that weren't in the cache (e.g. new items added after last sync)
+    if (priceTimer) clearTimeout(priceTimer);
+    priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 300);
+  } else {
+    // No matching cache for this date — start fetching immediately.
+    // (Pre-fetch in ScanningPage may still be in flight, or date has no cached prices yet.)
+    if (priceTimer) clearTimeout(priceTimer);
+    priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 100);
+  }
 });
 
 let priceTimer: ReturnType<typeof setTimeout> | null = null;
