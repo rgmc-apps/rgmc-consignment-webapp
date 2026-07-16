@@ -8,7 +8,7 @@
       <div class="login-container">
         <!-- Logo block -->
         <div class="login-logo-block">
-          <img :src="logoSrc" alt="RGMC Consignment" class="login-logo" />
+          <img :src="logoSrc" alt="RGMC Consignment" :class="['login-logo', { 'login-logo--loading': companiesLoading || brandsLoading }]" />
           <h1 class="login-title">RGMC Consignment</h1>
           <p class="login-subtitle">Web App</p>
         </div>
@@ -41,53 +41,71 @@
             </Transition>
             <p class="login-form-heading">Sign In</p>
 
-            <!-- Company dropdown -->
-            <ion-item lines="full" class="login-field">
-              <ion-label position="stacked">Company</ion-label>
-              <ion-select
-                v-model="selectedCompanyId"
-                placeholder="Select company"
-                interface="action-sheet"
-                :disabled="isLoading || companiesLoading"
-              >
-                <ion-select-option
-                  v-for="c in companies"
-                  :key="c.id"
-                  :value="c.id"
-                >
-                  {{ c.displayName }}
-                </ion-select-option>
-              </ion-select>
-              <Transition name="spin-fade">
-                <ion-spinner v-if="companiesLoading" slot="end" name="crescent" />
-              </Transition>
-            </ion-item>
+            <!-- Gateway skeleton — replaces the two dropdowns while companies are fetching -->
+            <Transition name="gateway-fade">
+              <div v-if="companiesLoading" class="login-gateway">
+                <div class="login-gateway-field">
+                  <div class="skel-bone gateway-label-bone" />
+                  <div class="skel-bone gateway-value-bone" />
+                </div>
+                <div class="login-gateway-field">
+                  <div class="skel-bone gateway-label-bone" />
+                  <div class="skel-bone gateway-value-bone gateway-value-bone--narrow" />
+                </div>
+                <div class="login-gateway-status">
+                  <ion-spinner name="dots" class="gateway-spinner" />
+                  <span>Connecting to server…</span>
+                </div>
+              </div>
+            </Transition>
 
-            <!-- Brand dropdown -->
-            <ion-item
-              lines="full"
-              class="login-field"
-              :class="{ 'login-field--unlocking': selectedCompanyId && !brandsLoading }"
-            >
-              <ion-label position="stacked">Brand</ion-label>
-              <ion-select
-                v-model="selectedBrandId"
-                placeholder="Select brand"
-                interface="action-sheet"
-                :disabled="isLoading || brandsLoading || !selectedCompanyId"
-              >
-                <ion-select-option
-                  v-for="b in brands"
-                  :key="b.id"
-                  :value="b.id"
+            <!-- Company dropdown -->
+            <Transition name="fields-reveal">
+              <div v-if="!companiesLoading" class="login-selects">
+                <ion-item lines="full" class="login-field login-field--stagger-1">
+                  <ion-label position="stacked">Company</ion-label>
+                  <ion-select
+                    v-model="selectedCompanyId"
+                    placeholder="Select company"
+                    interface="action-sheet"
+                    :disabled="isLoading || companiesLoading"
+                  >
+                    <ion-select-option
+                      v-for="c in companies"
+                      :key="c.id"
+                      :value="c.id"
+                    >
+                      {{ c.displayName }}
+                    </ion-select-option>
+                  </ion-select>
+                </ion-item>
+
+                <!-- Brand dropdown -->
+                <ion-item
+                  lines="full"
+                  :class="['login-field', 'login-field--stagger-2', { 'login-field--unlocking': selectedCompanyId && !brandsLoading }]"
                 >
-                  {{ b.displayName }}
-                </ion-select-option>
-              </ion-select>
-              <Transition name="spin-fade">
-                <ion-spinner v-if="brandsLoading" slot="end" name="crescent" />
-              </Transition>
-            </ion-item>
+                  <ion-label position="stacked">Brand</ion-label>
+                  <ion-select
+                    v-model="selectedBrandId"
+                    placeholder="Select brand"
+                    interface="action-sheet"
+                    :disabled="isLoading || brandsLoading || !selectedCompanyId"
+                  >
+                    <ion-select-option
+                      v-for="b in brands"
+                      :key="b.id"
+                      :value="b.id"
+                    >
+                      {{ b.displayName }}
+                    </ion-select-option>
+                  </ion-select>
+                  <Transition name="spin-fade">
+                    <ion-spinner v-if="brandsLoading" slot="end" name="crescent" />
+                  </Transition>
+                </ion-item>
+              </div>
+            </Transition>
 
             <!-- Item family code for selected brand -->
             <Transition name="family-fade">
@@ -98,7 +116,7 @@
             </Transition>
 
             <!-- App mode toggle -->
-            <div class="mode-toggle-row">
+            <div class="mode-toggle-row login-field--stagger-3">
               <div class="mode-toggle-icon-wrap">
                 <ion-icon :icon="mode === 'offline' ? cloudOfflineOutline : wifiOutline" class="mode-toggle-icon" />
               </div>
@@ -124,7 +142,7 @@
             </div>
 
             <!-- Username -->
-            <ion-item lines="full" :class="['login-field', { 'login-field--error': loginState === 'error' }]">
+            <ion-item lines="full" :class="['login-field', 'login-field--stagger-4', { 'login-field--error': loginState === 'error' }]">
               <ion-label position="stacked">Username</ion-label>
               <ion-input
                 v-model="username"
@@ -137,7 +155,7 @@
             </ion-item>
 
             <!-- Password -->
-            <ion-item lines="full" :class="['login-field', { 'login-field--error': loginState === 'error' }]">
+            <ion-item lines="full" :class="['login-field', 'login-field--stagger-5', { 'login-field--error': loginState === 'error' }]">
               <ion-label position="stacked">Password</ion-label>
               <ion-input
                 v-model="password"
@@ -1018,13 +1036,117 @@ async function handleLogin() {
   animation: text-appear 0.3s ease;
 }
 
+/* ── Gateway skeleton (while companies are loading) ── */
+.login-gateway {
+  padding: 6px 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.login-gateway-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.gateway-label-bone {
+  height: 10px;
+  width: 68px;
+}
+
+.gateway-value-bone {
+  height: 16px;
+  width: 100%;
+  border-radius: 6px;
+}
+
+.gateway-value-bone--narrow {
+  width: 55%;
+}
+
+.login-gateway-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  padding-top: 2px;
+}
+
+.gateway-spinner {
+  width: 16px;
+  height: 16px;
+  color: var(--app-gold);
+}
+
+/* Dark-mode shimmer bones */
+.login-page .skel-bone,
+.login-page .gateway-label-bone,
+.login-page .gateway-value-bone {
+  background: linear-gradient(
+    90deg,
+    oklch(30% 0.02 74 / 0.3) 0%,
+    oklch(35% 0.02 74 / 0.5) 50%,
+    oklch(30% 0.02 74 / 0.3) 100%
+  );
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.6s ease-in-out infinite;
+}
+
+/* Gateway fade */
+.gateway-fade-enter-active { transition: opacity 0.22s ease, transform 0.22s var(--ease-out-quart); }
+.gateway-fade-leave-active { transition: opacity 0.18s ease; }
+.gateway-fade-enter-from   { opacity: 0; transform: translateY(-4px); }
+.gateway-fade-leave-to     { opacity: 0; }
+
+/* Fields reveal after skeleton leaves */
+.fields-reveal-enter-active {
+  transition: opacity 0.28s ease, transform 0.28s var(--ease-out-quart);
+}
+.fields-reveal-leave-active { transition: opacity 0.15s ease; }
+.fields-reveal-enter-from   { opacity: 0; transform: translateY(6px); }
+.fields-reveal-leave-to     { opacity: 0; }
+
+/* Staggered field entrance (runs once on mount / after selects reveal) */
+.login-field--stagger-1 { animation: fade-slide-up 0.3s var(--ease-out-quart) 0.02s both; }
+.login-field--stagger-2 { animation: fade-slide-up 0.3s var(--ease-out-quart) 0.07s both; }
+.login-field--stagger-3 { animation: fade-slide-up 0.3s var(--ease-out-quart) 0.13s both; }
+.login-field--stagger-4 { animation: fade-slide-up 0.3s var(--ease-out-quart) 0.18s both; }
+.login-field--stagger-5 { animation: fade-slide-up 0.3s var(--ease-out-quart) 0.23s both; }
+
+/* Logo loading pulse — gentle gold aura while server data is fetching */
+@keyframes logo-loading-pulse {
+  0%, 100% { filter: drop-shadow(0 0 0px oklch(53% 0.11 74 / 0)); }
+  50%       { filter: drop-shadow(0 0 10px oklch(53% 0.11 74 / 0.55)); }
+}
+
+.login-logo--loading {
+  animation: logo-loading-pulse 2s ease-in-out infinite;
+}
+
+/* Remove the two selects from "stagger" on a complete re-render
+   (when gateway leaves, .login-selects reveals as a block) */
+.login-selects .login-field--stagger-1 { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.02s both; }
+.login-selects .login-field--stagger-2 { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.08s both; }
+
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   .login-card--shake,
   .login-card--success,
   .login-progress-strip::after,
   .login-btn--loading,
-  .cycling-text {
+  .cycling-text,
+  .login-logo--loading,
+  .gateway-label-bone,
+  .gateway-value-bone,
+  .login-field--stagger-1,
+  .login-field--stagger-2,
+  .login-field--stagger-3,
+  .login-field--stagger-4,
+  .login-field--stagger-5 {
     animation: none !important;
   }
   .login-progress-strip {

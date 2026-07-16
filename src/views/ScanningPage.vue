@@ -109,11 +109,37 @@
         </ion-button>
       </div>
 
-      <!-- Syncing state -->
-      <div v-else-if="isSyncing" class="state-card">
-        <ion-spinner name="crescent" />
-        <p>{{ syncMainMsg }}</p>
-        <p class="state-sub">{{ syncSubMsg }}</p>
+      <!-- Syncing skeleton — mirrors the form layout so the user sees what's loading -->
+      <div v-else-if="isSyncing" class="scan-skeleton">
+        <!-- Skeleton: Customer card -->
+        <div class="skel-form-card">
+          <div class="skel-eyebrow skel-bone" />
+          <div class="skel-cust-block">
+            <div class="skel-cust-name skel-bone" />
+            <div class="skel-cust-sub skel-bone" />
+          </div>
+          <div class="skel-divider" />
+          <div class="skel-date-block">
+            <div class="skel-date-label skel-bone" />
+            <div class="skel-date-value skel-bone" />
+          </div>
+        </div>
+        <!-- Skeleton: Item form card -->
+        <div class="skel-form-card skel-form-card--delay">
+          <div class="skel-eyebrow skel-bone" />
+          <div v-for="n in 3" :key="n" class="skel-field-row">
+            <div class="skel-field-label skel-bone" />
+            <div class="skel-field-value skel-bone" />
+          </div>
+        </div>
+        <!-- Sync status message at the bottom -->
+        <div class="skel-sync-status">
+          <ion-spinner name="dots" class="skel-sync-spinner" />
+          <div class="skel-sync-text">
+            <span :key="syncMainMsg" class="skel-sync-main cycling-text">{{ syncMainMsg }}</span>
+            <span :key="syncSubMsg" class="skel-sync-sub cycling-text">{{ syncSubMsg }}</span>
+          </div>
+        </div>
       </div>
 
       <!-- Sync error -->
@@ -129,7 +155,7 @@
         <ion-card class="form-card">
           <ion-card-content>
             <p class="field-label">CUSTOMER</p>
-            <div class="customer-tap" @click="showCustomerModal = true">
+            <div :class="['customer-tap', { 'customer-tap--flash': customerFlash }]" @click="showCustomerModal = true">
               <div v-if="selectedCustomer" class="customer-info">
                 <p class="cust-name">{{ selectedCustomer.displayName }}</p>
                 <p class="cust-sub">{{ selectedCustomer.number }} &bull; {{ selectedCustomer.city }}</p>
@@ -323,6 +349,7 @@
           </ion-segment>
 
           <ion-list class="order-list" lines="full">
+            <TransitionGroup name="order-item">
             <ion-item-sliding
               v-for="line in activeOrders"
               :key="line.id"
@@ -356,6 +383,7 @@
                 </ion-item-option>
               </ion-item-options>
             </ion-item-sliding>
+            </TransitionGroup>
 
             <!-- Subtotal row -->
             <ion-item lines="none" class="subtotal-row">
@@ -487,14 +515,16 @@
               </span>
             </div>
             <p class="conf-item-srp">
-              <template v-if="fetchingPrice">
-                <ion-spinner name="dots" class="srp-spinner" />
-                <span class="conf-srp-label">Fetching price…</span>
-              </template>
-              <template v-else>
-                {{ formatCurrency(confirmedSrp) }} <span class="conf-srp-label">SRP</span>
-                <span v-if="confirmedPriceListCode" class="price-list-code">{{ confirmedPriceListCode }}</span>
-              </template>
+              <Transition name="price-reveal" mode="out-in">
+                <span v-if="fetchingPrice" key="loading" class="conf-srp-loading">
+                  <ion-spinner name="dots" class="srp-spinner" />
+                  <span class="conf-srp-label">Fetching price…</span>
+                </span>
+                <span v-else :key="priceRevealKey" class="conf-srp-value">
+                  {{ formatCurrency(confirmedSrp) }} <span class="conf-srp-label">SRP</span>
+                  <span v-if="confirmedPriceListCode" class="price-list-code">{{ confirmedPriceListCode }}</span>
+                </span>
+              </Transition>
             </p>
           </div>
 
@@ -818,6 +848,7 @@ const networkNotice = computed<'offline' | 'slow' | null>(() => {
 /* ─── Customer modal ─── */
 const showCustomerModal = ref(false);
 const customerSearch = ref('');
+const customerFlash = ref(false);
 
 const allCustomersRef = computed(() => cachedCustomers.value);
 const customerSearchRef = computed(() => customerSearch.value);
@@ -834,6 +865,8 @@ function selectCustomer(c: Customer) {
   sessionStore.setCustomer(c);
   showCustomerModal.value = false;
   customerSearch.value = '';
+  customerFlash.value = true;
+  setTimeout(() => { customerFlash.value = false; }, 450);
 }
 
 /* ─── Item form ─── */
@@ -894,6 +927,7 @@ const confirmedSrp = ref(0);
 const confirmedPriceListCode = ref('');
 const fetchingPrice = ref(false);
 const isUpdatingLinePrices = ref(false);
+const priceRevealKey = ref(0);
 
 const confirmTotal = computed(() =>
   computeTotal(
@@ -920,6 +954,7 @@ async function fetchActivePrice(itemNumber: string, onDate: string): Promise<voi
     const resolved = price ?? confirmItem.value?.unitPriceIncVAT ?? 0;
     confirmedSrp.value = resolved;
     form.srp = resolved;
+    priceRevealKey.value++;
     if (priceListCode !== null) {
       form.priceListCode = priceListCode;
       confirmedPriceListCode.value = priceListCode;
@@ -1511,7 +1546,21 @@ async function toast(message: string, color: string) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .price-stale { animation: none; }
+  .price-stale,
+  .customer-tap--flash,
+  .skel-form-card,
+  .skel-form-card--delay,
+  .skel-sync-status,
+  .cycling-text {
+    animation: none !important;
+  }
+  .order-item-enter-active,
+  .order-item-leave-active,
+  .order-item-move,
+  .price-reveal-enter-active,
+  .price-reveal-leave-active {
+    transition: none !important;
+  }
 }
 
 .subtotal-row {
@@ -1588,11 +1637,147 @@ async function toast(message: string, color: string) {
 .submit-bar-enter-from   { opacity: 0; transform: translateY(100%); }
 .submit-bar-leave-to     { opacity: 0; transform: translateY(100%); }
 
+/* ── Syncing skeleton ── */
+.scan-skeleton {
+  padding: 0;
+}
+
+.skel-form-card {
+  margin: 10px 12px 0;
+  background: var(--app-surface);
+  border-radius: var(--app-radius-lg);
+  border: 1px solid var(--app-border);
+  padding: 16px;
+  box-shadow: var(--app-shadow);
+  animation: fade-slide-up 0.32s var(--ease-out-quart) both;
+}
+
+.skel-form-card--delay {
+  animation-delay: 0.09s;
+}
+
+.skel-eyebrow {
+  height: 9px;
+  width: 70px;
+  margin-bottom: 14px;
+  border-radius: 4px;
+}
+
+.skel-cust-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 14px;
+}
+
+.skel-cust-name {
+  height: 16px;
+  width: 70%;
+  border-radius: 6px;
+}
+
+.skel-cust-sub {
+  height: 11px;
+  width: 45%;
+  border-radius: 4px;
+}
+
+.skel-divider {
+  height: 1px;
+  background: var(--app-border);
+  margin: 4px 0 14px;
+}
+
+.skel-date-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skel-date-label {
+  height: 9px;
+  width: 80px;
+  border-radius: 4px;
+}
+
+.skel-date-value {
+  height: 15px;
+  width: 50%;
+  border-radius: 5px;
+}
+
+.skel-field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.skel-field-label {
+  height: 12px;
+  width: 80px;
+  border-radius: 4px;
+}
+
+.skel-field-value {
+  height: 12px;
+  width: 100px;
+  border-radius: 4px;
+}
+
+.skel-sync-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 12px 0;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--ion-color-primary) 8%, transparent);
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--ion-color-primary) 20%, transparent);
+  animation: fade-in 0.35s ease 0.18s both;
+}
+
+.skel-sync-spinner {
+  flex-shrink: 0;
+  color: var(--app-gold);
+}
+
+.skel-sync-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.skel-sync-main {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-fg);
+  display: block;
+}
+
+.skel-sync-sub {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  display: block;
+}
+
 /* ── Customer tap press feedback ── */
+@keyframes customer-flash {
+  0%   { background: var(--app-gold-pale); border-radius: 8px; }
+  60%  { background: oklch(85% 0.065 74 / 0.55); }
+  100% { background: transparent; border-radius: 0px; }
+}
+
 .customer-tap {
   transition: background 0.14s ease, border-radius 0.14s ease;
 }
 .customer-tap:active { background: var(--app-gold-pale); border-radius: 6px; }
+
+.customer-tap--flash {
+  animation: customer-flash 0.42s var(--ease-out-expo) both;
+}
 
 /* ── Action button press ── */
 .action-btns ion-button {
@@ -1609,13 +1794,20 @@ async function toast(message: string, color: string) {
 .order-segment { animation: fade-in 0.28s ease 0.04s both; }
 .empty-orders  { animation: fade-in 0.28s ease both; }
 
-/* ── Order list stagger ── */
-.order-list ion-item-sliding:nth-child(1) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.02s both; }
-.order-list ion-item-sliding:nth-child(2) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.05s both; }
-.order-list ion-item-sliding:nth-child(3) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.08s both; }
-.order-list ion-item-sliding:nth-child(4) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.11s both; }
-.order-list ion-item-sliding:nth-child(5) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.14s both; }
-.order-list ion-item-sliding:nth-child(6) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.17s both; }
+/* ── Order list: TransitionGroup item enter/leave ── */
+.order-item-enter-active {
+  transition: opacity 0.22s var(--ease-out-quart), transform 0.22s var(--ease-out-quart);
+}
+.order-item-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease-in;
+  position: absolute;
+  width: 100%;
+}
+.order-item-enter-from { opacity: 0; transform: translateX(-10px); }
+.order-item-leave-to  { opacity: 0; transform: translateX(12px); }
+.order-item-move {
+  transition: transform 0.22s var(--ease-out-quart);
+}
 
 /* ── Customer modal internals ── */
 .modal-brand-tag {
@@ -1781,6 +1973,35 @@ async function toast(message: string, color: string) {
 
 .conf-btn {
   margin-bottom: 10px;
+}
+
+/* ── Confirm sheet SRP price reveal ── */
+.conf-srp-loading,
+.conf-srp-value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.srp-spinner { margin-right: 4px; vertical-align: middle; }
+
+.price-reveal-enter-active {
+  transition: opacity 0.22s ease, transform 0.22s var(--ease-out-quart);
+}
+.price-reveal-leave-active {
+  transition: opacity 0.12s ease;
+}
+.price-reveal-enter-from { opacity: 0; transform: translateY(4px); }
+.price-reveal-leave-to   { opacity: 0; }
+
+/* ── Cycling text (shared pattern used by skeleton sync status) ── */
+@keyframes text-appear {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.cycling-text {
+  animation: text-appear 0.3s ease both;
 }
 
 /* ─── Responsive layout ─────────────────────────────────────────────────── */
