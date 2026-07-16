@@ -65,7 +65,7 @@
           <Transition name="price-bar-fade">
             <div v-if="isLoadingOnline" class="price-fetch-bar">
               <ion-spinner name="dots" class="price-fetch-spinner" />
-              <span>Loading items from server…</span>
+              <span>{{ onlineItems.length > 0 ? 'Refreshing items…' : 'Loading items from server…' }}</span>
             </div>
           </Transition>
 
@@ -307,14 +307,45 @@ const lookupDate = computed(() => props.onDate ?? new Date().toISOString().split
 
 onMounted(async () => {
   if (mode.value === 'online') {
-    // Online mode: load items directly from the API (no prior sync required).
-    isLoadingOnline.value = true;
+    // Seed from previously loaded items immediately (stale-while-revalidate).
+    // This makes search work instantly on repeat opens without a loading wait.
+    const allCached = StorageService.getCachedItems();
+    const seedItems = props.familyCode
+      ? allCached.filter((i) => i.familyCode === props.familyCode)
+      : allCached;
+    if (seedItems.length > 0) {
+      onlineItems.value = seedItems;
+      const cachedPrices = StorageService.getCachedItemPrices();
+      if (cachedPrices?.date === lookupDate.value) {
+        livePrices.value = { ...cachedPrices.prices };
+      }
+    }
+
+    // Always fetch fresh data — only show the loading bar when no seed exists.
+    isLoadingOnline.value = seedItems.length === 0;
     try {
       const result = await ApiService.getItemsPage(lookupDate.value, props.familyCode);
       onlineItems.value = result.items;
       livePrices.value = result.priceMap;
+
+      // Persist to storage so the next open is instant.
+      // Merge by familyCode so items from other families aren't overwritten.
+      const existing = StorageService.getCachedItems();
+      const others = props.familyCode
+        ? existing.filter((i) => i.familyCode !== props.familyCode)
+        : [];
+      StorageService.setCachedItems([...others, ...result.items]);
+
+      const existingPrices = StorageService.getCachedItemPrices();
+      StorageService.setCachedItemPrices(
+        lookupDate.value,
+        existingPrices?.date === lookupDate.value
+          ? { ...existingPrices.prices, ...result.priceMap }
+          : result.priceMap,
+      );
     } catch (err) {
-      console.warn('[ItemSelectorModal] online item load failed:', err);
+      console.warn('[ItemSelectorModal] online item refresh failed:', err);
+      // Keep showing seed items if the API call fails.
     } finally {
       isLoadingOnline.value = false;
     }

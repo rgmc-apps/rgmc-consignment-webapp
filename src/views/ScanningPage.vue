@@ -464,7 +464,7 @@
       :on-date="orderDateValue"
       :family-code="authStore.brand?.code"
       @select="onItemSelected"
-      @close="showItemModal = false"
+      @close="onItemModalClose"
     />
 
     <!-- ══════════ Confirm Add Sheet ══════════ -->
@@ -709,6 +709,13 @@ function refreshCache() {
     ? allItems.filter((i) => i.familyCode === brandCode)
     : allItems;
   categories.value = StorageService.getCachedItemCategories();
+}
+
+function onItemModalClose() {
+  showItemModal.value = false;
+  // In online mode the modal may have saved freshly fetched items to storage.
+  // Refresh so cachedItems reflects what was just persisted.
+  if (appMode.value === 'online') refreshCache();
 }
 
 onMounted(async () => {
