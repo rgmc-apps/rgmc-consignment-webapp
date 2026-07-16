@@ -313,22 +313,28 @@ onMounted(async () => {
     const seedItems = props.familyCode
       ? allCached.filter((i) => i.familyCode === props.familyCode)
       : allCached;
+    const cachedPrices = StorageService.getCachedItemPrices();
     if (seedItems.length > 0) {
       onlineItems.value = seedItems;
-      const cachedPrices = StorageService.getCachedItemPrices();
       if (cachedPrices?.date === lookupDate.value) {
         livePrices.value = { ...cachedPrices.prices };
       }
     }
 
-    // Always fetch fresh data — only show the loading bar when no seed exists.
+    // Cache hit: items loaded and prices match the posting date — no API call needed.
+    if (seedItems.length > 0 && cachedPrices?.date === lookupDate.value) {
+      isLoadingOnline.value = false;
+      return;
+    }
+
+    // Cache miss (no items) or date mismatch — fetch from API.
     isLoadingOnline.value = seedItems.length === 0;
     try {
       const result = await ApiService.getItemsPage(lookupDate.value, props.familyCode);
       onlineItems.value = result.items;
       livePrices.value = result.priceMap;
 
-      // Persist to storage so the next open is instant.
+      // Persist so the next open at the same date is instant.
       // Merge by familyCode so items from other families aren't overwritten.
       const existing = StorageService.getCachedItems();
       const others = props.familyCode

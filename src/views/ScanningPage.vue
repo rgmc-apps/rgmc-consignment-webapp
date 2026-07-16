@@ -938,12 +938,15 @@ const confirmTotal = computed(() =>
   ),
 );
 
-// Returns price + priceListCode from API when online; falls back to cached map when offline.
+// Returns price + priceListCode — cache-first, API only when date isn't cached.
 async function lookupPrice(itemNumber: string, onDate: string): Promise<{ price: number | null; priceListCode: string | null }> {
+  const cached = StorageService.getCachedItemPrices();
+  if (cached?.date === onDate && itemNumber in cached.prices) {
+    return { price: cached.prices[itemNumber], priceListCode: null };
+  }
   if (isOnline.value) {
     return ApiService.getActiveItemPrice(itemNumber, onDate);
   }
-  const cached = StorageService.getCachedItemPrices();
   return { price: cached?.prices[itemNumber] ?? null, priceListCode: null };
 }
 
@@ -993,7 +996,22 @@ watch(orderDateValue, async (newDate) => {
     return;
   }
 
-  // Online: cancel any previous in-flight fetch, then load from API.
+  // Online: check cache first — prices for this date may already be loaded.
+  const cachedForDate = StorageService.getCachedItemPrices();
+  if (cachedForDate?.date === newDate) {
+    const priceMap = cachedForDate.prices;
+    if (hasFormItem) {
+      const price = priceMap[form.itemNumber] ?? null;
+      if (price !== null) { confirmedSrp.value = price; form.srp = price; }
+    }
+    for (const { line, type } of allLines) {
+      const price = priceMap[line.itemNumber] ?? null;
+      if (price !== null) sessionStore.updateLineSrp(line.id, type, price);
+    }
+    return;
+  }
+
+  // No cached prices for this date — fetch from API.
   _dateWatchAbort?.abort();
   _dateWatchAbort = new AbortController();
   const { signal } = _dateWatchAbort;
