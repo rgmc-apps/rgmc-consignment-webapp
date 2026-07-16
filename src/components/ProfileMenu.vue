@@ -99,6 +99,21 @@
         </div>
       </Transition>
 
+      <!-- Server load notice — shown near sync when server is busy or warming up -->
+      <Transition name="server-notice-fade">
+        <div
+          v-if="!isSyncing && (isBusy || isWarmingUp)"
+          :class="['pop-server-notice', isBusy ? 'pop-server-notice--busy' : 'pop-server-notice--warm']"
+        >
+          <ion-icon :icon="warningOutline" class="pop-notice-icon" />
+          <span class="pop-notice-text">
+            {{ isBusy
+              ? 'Server is under high load. Syncing may fail or be slower than usual.'
+              : 'Server is refreshing its data cache. Item prices may take a moment to load.' }}
+          </span>
+        </div>
+      </Transition>
+
       <div class="pop-divider" />
 
       <!-- Theme selector -->
@@ -167,6 +182,7 @@ import {
   removeOutline,
   checkmarkCircleOutline,
   alertCircleOutline,
+  warningOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSync } from '@/composables/useSync';
@@ -491,6 +507,52 @@ async function onLogout() {
   flex-shrink: 0;
   margin-left: auto;
 }
+
+/* ── Server load notice (below sync panel) ── */
+.pop-server-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 16px 10px;
+}
+
+.pop-server-notice--busy {
+  background: rgba(var(--ion-color-danger-rgb), 0.07);
+}
+
+.pop-server-notice--warm {
+  background: rgba(var(--ion-color-warning-rgb), 0.07);
+}
+
+.pop-notice-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.pop-server-notice--busy .pop-notice-icon { color: var(--ion-color-danger); }
+.pop-server-notice--warm .pop-notice-icon { color: var(--ion-color-warning-shade); }
+
+.pop-notice-text {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--app-fg);
+  line-height: 1.45;
+  opacity: 0.85;
+}
+
+.server-notice-fade-enter-active {
+  transition: opacity 0.22s ease, max-height 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+.server-notice-fade-leave-active {
+  transition: opacity 0.15s ease, max-height 0.2s ease;
+  overflow: hidden;
+}
+.server-notice-fade-enter-from,
+.server-notice-fade-leave-to { opacity: 0; max-height: 0 !important; }
+.server-notice-fade-enter-to,
+.server-notice-fade-leave-from { opacity: 1; max-height: 80px; }
 
 /* ── Server status chip (warmup / busy) ── */
 .pop-status-chip {
