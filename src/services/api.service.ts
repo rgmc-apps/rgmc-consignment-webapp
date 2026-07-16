@@ -265,17 +265,17 @@ export const ApiService = {
     signal?: AbortSignal,
     timeout?: number,
   ): Promise<{ items: Item[]; priceMap: Record<string, number> }> {
-    // 8 retries × 15 s flat (matching the server's Retry-After: 15 hint) = 120 s total
-    // coverage — comfortably clears the ~90 s BC catalog warmup window on a cold start.
-    // 503 uses the flat 15 s delay; other transient 5xx keep exponential backoff.
-    const RETRIES = 8;
+    // The backend blocks internally until the catalog is ready (up to 40 s), so a
+    // single request normally succeeds on first try even from a cold start.
+    // Keep 3 retries with short backoff as a safety net for genuine transient errors.
+    const RETRIES = 3;
     let lastErr: unknown;
     for (let attempt = 0; attempt <= RETRIES; attempt++) {
       try {
         const res = await apiClient.get('/bc/custom/v3/item-prices', {
           params: { on_date: date, ...(familyCode ? { family_code: familyCode } : {}) },
           signal,
-          timeout: timeout ?? 300_000,
+          timeout: timeout ?? 120_000,
         });
         const rows = extractList<Record<string, unknown>>(res.data);
         const items: Item[] = [];
@@ -295,8 +295,7 @@ export const ApiService = {
         if (status && status >= 400 && status < 500) throw err;
         lastErr = err;
         if (attempt < RETRIES) {
-          const delay = status === 503 ? 15000 : Math.min(5000 * 2 ** Math.min(attempt, 3), 30000);
-          await new Promise<void>((r) => setTimeout(r, delay));
+          await new Promise<void>((r) => setTimeout(r, Math.min(3000 * 2 ** attempt, 15000)));
         }
       }
     }
@@ -343,9 +342,10 @@ export const ApiService = {
       } catch (err) {
         if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
         const status = err instanceof ApiError ? err.status : undefined;
-        if (status === 503 && attempt < RETRIES) {
+        if (status && status >= 400 && status < 500) throw err;
+        if (attempt < RETRIES) {
           lastErr = err;
-          await new Promise<void>((r) => setTimeout(r, 15000));
+          await new Promise<void>((r) => setTimeout(r, Math.min(3000 * 2 ** attempt, 15000)));
           continue;
         }
         throw err;
