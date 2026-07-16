@@ -265,10 +265,10 @@ export const ApiService = {
     signal?: AbortSignal,
     timeout?: number,
   ): Promise<{ items: Item[]; priceMap: Record<string, number> }> {
-    // 5 retries with exponential backoff capped at 30 s covers the ~90 s catalog warmup
-    // window: the backend returns 503 with Retry-After: 15 while loading, so up to 6
-    // attempts (0…5) with 5s/10s/20s/30s/30s delays totals ~95 s of retry coverage.
-    const RETRIES = 5;
+    // 8 retries × 15 s flat (matching the server's Retry-After: 15 hint) = 120 s total
+    // coverage — comfortably clears the ~90 s BC catalog warmup window on a cold start.
+    // 503 uses the flat 15 s delay; other transient 5xx keep exponential backoff.
+    const RETRIES = 8;
     let lastErr: unknown;
     for (let attempt = 0; attempt <= RETRIES; attempt++) {
       try {
@@ -295,7 +295,8 @@ export const ApiService = {
         if (status && status >= 400 && status < 500) throw err;
         lastErr = err;
         if (attempt < RETRIES) {
-          await new Promise<void>((r) => setTimeout(r, Math.min(5000 * 2 ** Math.min(attempt, 3), 30000)));
+          const delay = status === 503 ? 15000 : Math.min(5000 * 2 ** Math.min(attempt, 3), 30000);
+          await new Promise<void>((r) => setTimeout(r, delay));
         }
       }
     }

@@ -95,9 +95,10 @@ export function useSync() {
         .catch((e) => {
           syncSubTasks.value[2].status = 'error';
           const hasCached = StorageService.getCachedItems().length > 0;
-          if (!hasCached) throw e;  // No fallback — fail hard so the user knows.
+          const is503 = e instanceof Error && (e as { status?: number }).status === 503;
+          if (!hasCached && !is503) throw e;  // Unknown error with no fallback — fail hard.
           syncProgress.value = 85;
-          return null;              // Signal: use cached data.
+          return null;              // Signal: use cached data (or warn user to retry).
         });
 
       if (itemResult !== null) {
@@ -120,8 +121,11 @@ export function useSync() {
         .map((t) => t.label);
       if (failedTasks.length) {
         const itemsFailed = itemResult === null;
+        const hasCachedItems = StorageService.getCachedItems().length > 0;
         syncWarning.value = itemsFailed
-          ? `Item prices couldn't be refreshed — showing last synced prices.${failedTasks.length > 1 ? ` Also failed: ${failedTasks.filter((l) => l !== 'Items & Prices').join(', ')}.` : ''} Tap sync to retry.`
+          ? hasCachedItems
+            ? `Item prices couldn't be refreshed — showing last synced prices.${failedTasks.length > 1 ? ` Also failed: ${failedTasks.filter((l) => l !== 'Items & Prices').join(', ')}.` : ''} Tap sync to retry.`
+            : 'The server is still loading item prices. Please wait a moment and tap sync to retry.'
           : `Some data failed to load: ${failedTasks.join(', ')}. Please sync again when ready.`;
       }
 

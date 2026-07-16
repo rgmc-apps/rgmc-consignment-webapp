@@ -27,10 +27,10 @@
           v-model="remarks"
           class="rm-textarea"
           placeholder="Add any notes for this submission…"
-          maxlength="250"
+          maxlength="35"
           rows="4"
         />
-        <p class="rm-char-count">{{ remarks.length }}&thinsp;/&thinsp;250</p>
+        <p class="rm-char-count" :class="{ 'rm-char-count--warn': remarks.length >= 30 }">{{ remarks.length }}&thinsp;/&thinsp;35</p>
       </div>
 
       <!-- Action row -->
@@ -201,7 +201,9 @@ function onDismiss() {
   color: rgba(255, 255, 255, 0.22);
   text-align: right;
   margin: 5px 0 0;
+  transition: color 0.2s;
 }
+.rm-char-count--warn { color: var(--ion-color-danger); }
 
 /* ── Action row ──────────────────────────────────────────────────────────── */
 .rm-actions {
@@ -265,6 +267,7 @@ function onDismiss() {
   box-shadow: 0 0 0 3px rgba(85, 85, 85, 0.07);
 }
 .rm-minimalist .rm-char-count { color: rgba(0, 0, 0, 0.3); }
+.rm-minimalist .rm-char-count--warn { color: var(--ion-color-danger); }
 .rm-minimalist .rm-btn--cancel {
   background: #f0f0f0;
   border-color: #e0e0e0;
