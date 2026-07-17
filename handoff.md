@@ -2,7 +2,7 @@
 
 ## Goal
 
-Maintain and improve the RGMC Consignment Web App — an Ionic/Vue 3 PWA used by sales reps to scan and submit sales/return orders against a Business Central (BC) backend via a Python FastAPI proxy (`rgmc-bc-api`). Ongoing work stream: feature completeness, data accuracy, and reliability — correct item prices, stable sync, and responsive UI.
+Maintain and improve the RGMC Consignment Web App — an Ionic/Vue 3 PWA used by sales reps to scan and submit sales/return orders against a Business Central (BC) backend via a Python FastAPI proxy (`rgmc-bc-api`). Ongoing work stream: feature completeness, data accuracy, and reliability — correct item prices, stable sync, responsive UI, clear loading feedback, and resilience against BC API rate limits.
 
 All changes must remain backward-compatible with existing draft sessions stored in localStorage/IndexedDB.
 
@@ -10,153 +10,135 @@ All changes must remain backward-compatible with existing draft sessions stored 
 
 ## Current State
 
-**Both repos are clean and committed on `master`. TypeScript passes (`vue-tsc --noEmit` zero errors). No broken state.**
+**Both repos are committed on `master`. All recent work is committed. `consignment-infra.md` in `rgmc-bc-api` is untracked and should be committed.**
 
-### What was done this session (4 tasks):
+### What was done this session:
 
-**Task 1 — Removed dead `getItemFamilies` fetch from sync**
-`useSync.ts` Phase 3 was fetching item families but never storing the result (no `setCachedItemFamilies` in StorageService). Removed the fetch and dropped 'Item Families' subtask. Sync now has 4 subtasks: Customers, Item Categories, Items & Prices, Contacts.
+**Task 7 — Removed high-network-activity alert from home page; moved to profile submenu**
+`LandingPage.vue` previously had a server-status alert that interrupted the home page layout. It was removed. `ProfileMenu.vue` received the equivalent `pop-server-notice` component directly below the sync panel, using `isBusy`/`isWarmingUp` from `useServerStatus`. The notice transitions in/out with `server-notice-fade`.
 
-**Task 2 — Removed `itemId` from `OrderLine` and form**
-`OrderLine.itemId` was storing `item.id` (a system GUID from `systemId ?? id ?? number`) but was only used as a presence/truthy check — `itemNumber` (BC product number) already served that purpose. Removed `itemId` from `types/index.ts`, `ScanForm` interface, form initialiser, `onItemSelected`, `doConfirm`, `addToSales`, `addToReturn`, and `resetItemForm`. All presence checks now use `form.itemNumber`.
+Commit: `2b6e71d`
 
-**Task 3 — Added `priceListCode` display across scan page**
-The v3 item-prices endpoint (`Pag50318`) already returns `priceListCode` on every row. Wired it end-to-end:
-- `Item.priceListCode?: string` and `OrderLine.priceListCode?: string` added to `types/index.ts`
-- `getItemsForDate` maps `row['priceListCode']`
-- `getActiveItemPrice` return type changed from `Promise<number | null>` to `Promise<{ price: number | null; priceListCode: string | null }>`
-- `lookupPrice` in ScanningPage updated to match; `fetchActivePrice` also sets `form.priceListCode` and `confirmedPriceListCode`
-- `onItemSelected` seeds `form.priceListCode` and `confirmedPriceListCode` immediately from item data (before async fetch resolves)
-- `doConfirm`, `addToSales`, `addToReturn` pass `priceListCode` into `OrderLine`
-- Template: small `.price-list-code` chip appears next to price in SRP form row, confirm modal, and order line list
+**Task 8 — Added loading animations to login and scan screen**
 
-**Task 4 — Fixed v3 item-prices endpoint timeout resilience**
+*LoginPage.vue:*
+- Logo loading pulse (`logo-loading-pulse` keyframe) while `companiesLoading || brandsLoading`
+- Gateway skeleton — full skeleton UI with shimmer bones replaces the dropdowns while companies load
+- Staggered field entrance (`login-field--stagger-1` through `--stagger-5`)
+- Progress strip at top of card while loading or syncing
+- Error card shake (`login-card--shake`)
+- Success card ring glow (`login-card--success`)
+- Button loading breathe animation + success state (green)
+- Cycling text on button label during login and sync
+- Per-table sync subtask panel with progress bar (shown after successful login in offline mode)
 
-*Backend (`bc_functions.py`):*
-- Added `_find_any_full_catalog_cache(company_name)` — finds any cached full catalog for a company regardless of `on_date` (used as stale fallback)
-- Added `_any_full_catalog_warming(company_name)` — checks if any background thread is fetching a full catalog for this company
-- Rewrote `rgmc_v3_list_item_prices` with 6-step cache strategy:
-  1. Exact key, fresh → return immediately
-  2. Exact key, stale → return + background refresh
-  3. Full-catalog path: check any date's catalog as stale fallback + trigger refresh
-  4. Warmup wait extended 30s → 90s; waits for any full-catalog warmup (not just exact date)
-  5. `product_no` single-item lookups check full-catalog cache first before going to BC
-  6. Synchronous BC fetch as last resort only
+*ScanningPage.vue:*
+- Syncing skeleton (`scan-skeleton`) mirroring the real form layout with shimmer bones
+- Animated sync status message below the skeleton with cycling text
+- `fetchingPrice` spinner inline in the SRP row while price is loading
+- Network notice banner (`net-notice`) for offline and slow connection states
+- Header pulse (`gold-online-pulse`) when first coming online
+- Form fields group animated entrance (`form-fields` transition)
 
-*Backend (`main.py`):*
-- `rgmc_v3_warmup` moved to run immediately after `warmup_company_id` (second in startup sequence, before all other list warmups) — the v3 price cache is the most critical and slowest; warming it first means it's ready sooner.
+Commit: `2870a8a`
 
-*Frontend (`api.service.ts`):*
-- `getItemsForDate` now retries up to 2× on 5xx/timeout errors (5s backoff, doubles to 20s max). Aborts on 4xx or AbortError.
+**Task 9 — Minor bug fixes**
+- `RemarksModal.vue` — char counter logic adjusted
+- `useSync.ts` — 503 handling tweaks
+- `api.service.ts` — retry/timeout tuning
+- `auth.store.ts` — minor fix
 
-*Frontend (`useSync.ts`):*
-- Phase 2 is now non-fatal when cached items exist. On failure: sets subtask to 'error', returns `null`, continues to Phase 3 (contacts). Warning message is shown. Only hard-fails when `StorageService.getCachedItems().length === 0` (first-ever sync on a fresh device).
+Commit: `defada7`
+
+**Task 10 — 503 error fix refinement**
+`api.service.ts` retry logic for 503 responses refined — consistent backoff applied across `getItemsPage` and `getItemsForDate`.
+
+Commit: `669f058`
+
+**Task 11 — Loading data fixes**
+- `ItemSelectorModal.vue` — fixed edge case where `onlineItems` didn't update correctly after cache-hit early return
+- `ScanningPage.vue` — fixed `orderDateValue` watcher to not re-trigger fetch when date change is programmatic
+
+Commit: `d9e2726`
+
+**Task 12 — GCP infra improvement document**
+Created `C:\claude\rgmc-bc-api\consignment-infra.md` — a 4-layer GCP hardening plan addressing BC 429 rate limits and 503 price-catalog failures:
+- **Layer 2A**: Cloud Run `max-instances=1`, `min-instances=1`, `concurrency=6` — forces single-instance so the in-process `_bc_semaphore(4)` acts as a true global BC connection limit. Free config change.
+- **Layer 2B**: Cloud Storage catalog backup — GCS bucket saves the full v3 catalog JSON so restarts/deploys warm from GCS instead of calling BC cold. Estimated ~$0.01/month.
+- **Layer 2C**: Cloud Scheduler daily 6 AM pre-warm — hits `/bc/custom/v3/item-prices/refresh` before work day starts. Free tier covers it.
+- **Layer 2D**: Cloud Tasks for order submissions (already covered in `gcp-implementation.md`).
+- **Total cost**: ~$2–3/month.
+
+File is **UNTRACKED** — needs to be committed.
+
+**Task 13 — Fixed ServiceWarmingError: "Price catalog unavailable — please retry in a moment."**
+
+Root cause was two bugs in `C:\claude\rgmc-bc-api\src\services\bc_functions.py`:
+
+**Bug 1 — `_block_until_v3_catalog_ready` exited immediately on fetch failure**
+The old polling loop broke out the moment `_any_full_catalog_warming()` returned False. When a background fetch failed, `_v3_refreshing.discard()` ran in `finally:`, making `_any_full_catalog_warming()` immediately False → loop exited with no cache → returned None → ServiceWarmingError. The function never waited the full timeout and never retried.
+
+**Fix**: Restructured to sleep-first, check for data each tick, re-trigger warmup when fetch fails (if >8s remain), only return None after deadline expires. Also raised `_V3_WARMUP_WAIT_S` from 40 to 55.
+
+**Bug 2 — `_fetch_v3_catalog_parallel` failed entirely if any single range failed**
+Old: `if errors: raise errors[0]` — one failing range out of three discarded all partial results.
+Fixed: `if errors and not all_records: raise errors[0]` — only raises if ALL ranges returned nothing. Partial results are accepted with a warning log.
+
+Commit: `3d2f502` in `C:\claude\rgmc-bc-api`
 
 ---
 
 ## Files Actively Being Edited
 
-All committed and stable. No mid-edit state.
+All committed and stable. One untracked file pending commit.
+
+**Backend (`C:\claude\rgmc-bc-api`):**
+- `src/services/bc_functions.py` — `_V3_WARMUP_WAIT_S` raised 40→55; `_block_until_v3_catalog_ready` rewritten to retry-on-failure; `_fetch_v3_catalog_parallel` changed to partial-success semantics
+- `consignment-infra.md` — **NEW, UNTRACKED** — GCP 4-layer hardening plan; needs `git add` and commit
 
 **Frontend (`C:\claude\rgmc-consignment-webapp\src`):**
-- `types/index.ts` — `Item.priceListCode?: string` added (line 75); `OrderLine.priceListCode?: string` added (line 95); `OrderLine.itemId` removed
-- `services/api.service.ts` — `getItemsForDate` retry loop; `priceListCode` mapped in `mapRow`; `getActiveItemPrice` returns `{ price, priceListCode }`
-- `composables/useSync.ts` — 4 subtasks; Phase 2 non-fatal with `null` return + cached fallback
-- `views/ScanningPage.vue` — `ScanForm.priceListCode: string`, `confirmedPriceListCode = ref('')`; `.price-list-code` chip CSS; all `form.itemId` / `itemId` references removed
-
-**Backend (`C:\claude\rgmc-bc-api\src`):**
-- `services/bc_functions.py` — `_find_any_full_catalog_cache`, `_any_full_catalog_warming` helpers; `rgmc_v3_list_item_prices` rewritten
-- `main.py` — v3 warmup order moved earlier
+- `stores/auth.store.ts` — line 179: `.name` → `.code` in password login path
+- `components/RemarksModal.vue` — maxlength 250→35, counter shows `/35`, warn class at ≥30
+- `services/api.service.ts` — retry/backoff tuning for item price endpoints
+- `composables/useSync.ts` — 503 non-fatal on first sync; improved user-facing error message
+- `views/LoginPage.vue` — full animation suite: skeleton, progress strip, shake, success ring, cycling text, subtask panel
+- `views/ScanningPage.vue` — skeleton loader, fetchingPrice spinner, network notice, cache-first watcher, programmatic date watcher fix
+- `components/ItemSelectorModal.vue` — cache-hit early return with `onlineItems` fix
+- `components/ProfileMenu.vue` — `pop-server-notice` added below sync panel
+- `views/LandingPage.vue` — removed high-network-activity alert block
 
 ---
 
 ## Failed Attempts
 
-No dead ends this session. From prior sessions (still relevant):
-- **OData OR filter with many product numbers** → HTTP 414 (URL too long); chunk approach used instead
-- **Loading all prices unfiltered in one call** → 60s Axios timeout; batching + caching solved it
-- **`watch(displayItems)` for initial price load in ItemSelectorModal** → Does NOT fire on initial render; `onMounted` explicit call required
-- **Pre-fetching all item prices before modal opens in ScanningPage** → Reverted (over-engineered); batching inside modal on mount with chunk size 150 is sufficient
-- **`familyCode` OData filter on BC temp-table page** → BC applies OData filters AFTER `OnOpenPage` builds the buffer, so `$filter=familyCode eq 'CODE'` doesn't reduce BC's work; fixed in AL (Pag50318) and backend filters in Python from full-catalog cache
+- **`setApiCompany(selectedCompany.name)` on password login** → caused BC 400 `Internal_InvalidTableRelation`. Fixed by using `.code`.
+- **Remarks maxlength=250** → caused BC 400 `Application_StringExceededLength` on submit (BC "External Document No." is 35 chars max). Fixed by changing maxlength to 35.
+- **Immediate 503 return on cold start** → frontend had to retry many times with delays. Fixed by replacing 503 with wait-and-serve in backend.
+- **`cachedPrices` declared inside `if (seedItems.length > 0)` block** → out-of-scope TypeScript error. Fixed by hoisting declaration.
+- **OData OR filter with many product numbers** → HTTP 414 (URL too long); chunk approach used instead.
+- **`familyCode` OData filter to BC** → BC rejects it with 400; BC applies OData filters after `OnOpenPage` builds the temp buffer. Backend always fetches full catalog and filters in Python.
+- **`_block_until_v3_catalog_ready` old logic** → exited immediately when background fetch failed because `_v3_refreshing` set was cleared by `finally:` before the loop checked it. Fixed by restructuring to deadline-based polling with re-trigger.
+- **`_fetch_v3_catalog_parallel` all-or-nothing failure** → any single range failure (BC 429 on one range) discarded all partial results, forcing the entire catalog to be unavailable. Fixed by accepting partial results.
 
 ---
 
 ## Next Step
 
-Online/Offline mode separation is implemented (see "What was done" below). Good verification steps:
+**Immediate (backend):** Commit the untracked `consignment-infra.md`:
+```powershell
+cd C:\claude\rgmc-bc-api
+git add consignment-infra.md
+git commit -m "add GCP infra hardening plan for BC rate limit resilience"
+```
 
-1. **Test mode toggle** — Open login page. Confirm toggle appears between brand dropdown and username. Toggle to Online → sync panel should NOT appear after login, user goes straight to app. Toggle to Offline → sync panel appears during login.
+**Then (GCP console — most impactful, free, no code):** Implement Layer 2A from `consignment-infra.md`:
+1. Go to Cloud Run → select the `rgmc-bc-api` service → Edit & Deploy New Revision
+2. Under "Capacity": set Max instances = 1, Min instances = 1, Concurrency = 6
+3. Deploy
 
-2. **Test offlineReady badge** — On a fresh device (no cache), confirm "sync required" tag shows in offline mode. After a full offline sync, confirm "ready" green badge appears.
+This makes the in-process `_bc_semaphore(4)` a true global BC connection limiter since there will only ever be one instance. This alone should eliminate most BC 429 errors.
 
-3. **Test online mode item selector** — Log in as Online mode, open the scan page, tap item selector. Confirm items load from API (spinner then list). Confirm categories auto-populate from loaded items.
-
-4. **Test pagination endpoint** — Call `GET /bc/custom/v3/item-prices?family_code=X&skip=0&limit=10` — should return `{ data: [...10 items], total: N, skip: 0, limit: 10 }`.
-
-5. **Test layer 2 (GCP queue)** — See `gcp-implementation.md` for full setup. Not yet implemented in code.
-
----
-
-## What Was Done This Session (5 tasks after layer 1):
-
-**Online/Offline Mode Separation:**
-
-*New file (`src/stores/app-mode.store.ts`):*
-- Module-level singleton: `mode: ref<'online' | 'offline'>` (default 'offline', persisted to `rgmc_app_mode` localStorage key)
-- `offlineReady: computed` — true when `getCachedItems().length > 0 && getCachedCustomers().length > 0`
-- `setMode(m)` function
-
-*`LoginPage.vue`:*
-- Added `IonToggle` import; added `wifiOutline`, `cloudDoneOutline` icons
-- Added `useAppModeStore()` — `mode`, `offlineReady`, `setMode`
-- Added `onModeToggle()` function
-- Mode toggle row in template (between brand dropdown and username): shows online/offline icon, title, hint with "ready" or "sync required" badge
-- Sync panel now gated with `mode === 'offline'`: `v-if="loginState === 'success' && isSyncing && mode === 'offline'"`
-- Added "Preparing offline mode" label above sync status header
-- `handleLogin()`: skips `await sync()` in online mode
-- New CSS: `.mode-toggle-row`, `.mode-ready-tag`, `.mode-sync-tag`, `.mode-toggle`, `.sync-status-mode-label`
-
-*`bc-api/src/routers/bc_routes/rgmc_item_price_v3_routes.py`:*
-- Added `from pydantic import BaseModel`
-- Added `ItemPricePage` Pydantic model (data, total, skip, limit)
-- Added `skip: int = Query(0, ge=0)` and `limit: int = Query(0, ge=0)` params to `list_item_prices`
-- Route now slices results: `records = records[skip:skip+limit]` when `limit > 0`
-- Response now always includes `total`, `skip`, `limit` alongside `data`
-
-*`api.service.ts`:*
-- Extracted `mapItemRow(row)` module-level helper (was inline in `getItemsForDate`)
-- `getItemsForDate` now uses `mapItemRow`
-- New `getItemsPage(date, familyCode?, skip=0, limit=0, signal?)` method → `{ items, priceMap, total }`; reads `body.total` for pagination metadata
-
-*`ItemSelectorModal.vue`:*
-- Added `familyCode?: string` prop
-- Added `useAppModeStore` import; `const { mode } = useAppModeStore()`
-- Added `onlineItems: ref<Item[]>([])` and `isLoadingOnline: ref(false)`
-- `effectiveItems` computed: `mode === 'online' ? onlineItems : props.items`
-- `effectiveCategories` computed: in online mode, derives categories from loaded item data; offline uses `props.categories`
-- `filteredItems` now filters against `effectiveItems` instead of `props.items`
-- Category chips now iterate `effectiveCategories`
-- `onMounted`: in online mode → calls `ApiService.getItemsPage(date, familyCode)` and populates `onlineItems` + `livePrices`; in offline mode → existing cache + `fetchMissingPrices` flow
-- Added "Loading items from server…" spinner banner for online mode
-
-*`ScanningPage.vue`:*
-- Added `useAppModeStore` import; `const { mode: appMode } = useAppModeStore()`
-- Passes `:family-code="authStore.brand?.code"` to `<item-selector-modal>`
-- Auto-sync on mount now gated: `cachedItems.length === 0 && isOnline && appMode === 'offline'`
-
----
-
----
-
-## Previous Verification Steps (still relevant)
-
-1. **Test `priceListCode` display** — Open scan page, select an item, confirm the price list code chip appears in: (a) the SRP form row, (b) the confirm modal, (c) after adding to the order line list. Also verify it shows after `fetchActivePrice` overwrites the initial seeded value.
-
-2. **Test sync fallback on items timeout** — Temporarily block the bc-api or kill it after Phase 1 completes to simulate Phase 2 failure. Confirm: sync completes to 100%, warning banner shows "Item prices couldn't be refreshed", item list is still populated from cache.
-
-3. **Test cross-date cache fallback (backend)** — After warmup with today's date, request `/bc/custom/v3/item-prices?on_date=YESTERDAY&family_code=CODE`. Should return stale data immediately (no BC call) and trigger a background refresh.
-
-4. **Deploy AL extension** if not already done — `C:\RGMC\AL\RGMC_ERAR_AL\source\RGMCItems\RGMCItemPriceAPIv3.Page.al` has the family pre-filter that makes BC-side queries faster. Backend caching already handles the common case, but the AL fix helps cold-start scenarios.
+**Then (Layer 2B — GCS catalog backup):** Create `gcs_catalog.py` and integrate it into `_rgmc_v3_fetch_and_cache` to persist the catalog to GCS so restarts don't hit BC cold.
 
 ---
 
@@ -164,33 +146,55 @@ Online/Offline mode separation is implemented (see "What was done" below). Good 
 
 ### Architecture
 - Two repos: frontend at `C:\claude\rgmc-consignment-webapp`, backend at `C:\claude\rgmc-bc-api`.
-- BC v3 item prices (`Pag50318`) uses an `OnOpenPage` trigger that scans all `Price List Line` records into a temp buffer — this is inherently slow (60–120s on cold BC). Backend caching is the primary mitigation.
+- BC v3 item prices (`Pag50318`) uses an `OnOpenPage` trigger that scans all `Price List Line` records into a temp buffer — inherently slow (was 60-120s cold, now 6-20s with optimizations). Backend in-memory caching is the primary mitigation.
 - `familyCode` is a temp-buffer field on `Pag50318` and **cannot be sent as an OData filter to BC** — BC rejects it with 400. The backend always fetches the full catalog and filters in Python.
 
-### v3 Cache Key Shape
-Full-catalog keys: `(company_name, None, None, None, on_date, None)`.
-`_find_any_full_catalog_cache` scans for keys matching `key[1] is None and key[2] is None and key[3] is None and key[5] is None` (ignoring `on_date` at index 4).
+### BC connection limit
+- BC enforces a hard limit of ~5 simultaneous connections per API user.
+- `_bc_semaphore = threading.Semaphore(4)` is **per-process**. If Cloud Run auto-scales to 2 instances, BC sees up to 8 concurrent connections → 429 errors.
+- **Fix**: `max-instances=1` in Cloud Run makes the semaphore a true global limiter. Documented in `consignment-infra.md` Layer 2A.
 
-### `OrderLine` no longer has `itemId`
-Completely removed. Item presence is tracked via `itemNumber` (BC product number like "ITEM-001"). Any future code that adds `itemId` back to OrderLine will be a type error.
+### `_block_until_v3_catalog_ready` behavior (post-fix)
+- Polls every 300ms, timeout 55s (under nginx 60s proxy_read_timeout)
+- Triggers refresh immediately on entry
+- If fetch fails (clears `_v3_refreshing`), re-triggers as long as >8s remain
+- Only returns None if deadline expires with no data in cache
+- If `None` returned → `ServiceWarmingError` raised → 503 (last resort)
 
-### `getActiveItemPrice` return type changed
-Previously `Promise<number | null>`. Now `Promise<{ price: number | null; priceListCode: string | null }>`. Only caller is `lookupPrice` in `ScanningPage.vue`. Any future callers must handle the new shape.
+### `_fetch_v3_catalog_parallel` behavior (post-fix)
+- Fetches 3 ranges: `(None,'H')`, `('H','Q')`, `('Q',None)` in parallel
+- If 1 or 2 ranges fail but at least some records returned: logs warning, returns partial set
+- Only raises if ALL ranges failed and zero records returned
 
-### Phase 2 fallback condition
-`useSync.ts` Phase 2 only hard-fails if `StorageService.getCachedItems().length === 0`. First-ever sync on a fresh device must succeed for items. Subsequent failures are silent (warning banner only).
+### v3 BC fetch optimization details
+- `_V3_SELECT_FIELDS` = 11 fields (down from 22)
+- `Prefer: odata.maxpagesize=500` — BC returns up to 500 per page vs default 100
+- 3 ranges: `< 'H'`, `'H' ≤ x < 'Q'`, `>= 'Q'`
+- Semaphore is 4 slots; 3 ranges consume 3 during warmup, leaving 1 for user traffic
+
+### `getCachedItemPrices()` is single-date
+Returns `{ date: string; prices: Record<string, number> } | null`. Only one date's prices in localStorage at a time. Cache-first checks `cached.date === onDate`.
 
 ### `useSync` is a module-level singleton
-All refs (`isSyncing`, `syncProgress`, etc.) live outside the `useSync()` function body and are shared across all components that call `useSync()`.
+All refs (`isSyncing`, `syncProgress`, etc.) live outside the `useSync()` function body and are shared across all components.
 
-### Price list code display
-`.price-list-code` CSS in `ScanningPage.vue` is a small inline chip (medium-color bg, 0.68em font, `vertical-align: middle`). Only shown when `priceListCode` is non-empty. In the order line list, it appears inside the first `<p>` tag after `{{ formatCurrency(line.srp) }}`.
-
-### AL source location
-`C:\RGMC\AL\RGMC_ERAR_AL\source\RGMCItems\RGMCItemPriceAPIv3.Page.al` — Pag50318 definition. Note: the AL page has a field called `itemId` (the item's system GUID from the `Item` table) — this is different from the `OrderLine.itemId` field that was removed from the frontend.
+### BC "External Document No." field
+35 characters max — base table limit. `RemarksModal.vue` enforces this with `maxlength="35"`.
 
 ### Backend warmup order (main.py)
-Startup sequence: `warmup_company_id` → `rgmc_v3_warmup` → `warmup_bc_lists` → `warmup_rgmc_lists` → `warmup_rgmc_v2_lists` → `warmup_dimension_lists` → `rgmc_v2_warmup_company_settings`. The v3 warmup is second because it's the most critical for the frontend sync.
+Startup sequence: `warmup_company_id` → `rgmc_v3_warmup` → `warmup_bc_lists` → `warmup_rgmc_lists` → `warmup_rgmc_v2_lists` → `warmup_dimension_lists` → `rgmc_v2_warmup_company_settings`.
 
 ### `_V3_CACHE_TTL = 86400` (24 hours)
-Prices change rarely. If updated mid-day, use `POST /bc/custom/v3/item-prices/refresh?company=...` to invalidate and re-warm.
+If prices change mid-day, use `POST /bc/custom/v3/item-prices/refresh?company=...` to invalidate and re-warm.
+
+### Hourly rewarm thread (main.py)
+`_hourly_rewarm()` runs in a daemon thread and calls `rgmc_v3_warmup(config.BC_COMPANY)` every 3600s to keep the date-keyed cache current across midnight without a restart.
+
+### AL source
+`C:\RGMC\AL\RGMC_ERAR_AL\source\RGMCItems\RGMCItemPriceAPIv3.Page.al` — Pag50318. The `itemId` field on this page is the Item table's `SystemId`.
+
+### Animation CSS variables added (variables.css)
+`--ease-out-expo`, `--ease-out-quart` vars and `fade-slide-up`, `skel-shimmer` keyframes are in the global stylesheet. Both LoginPage.vue and ScanningPage.vue rely on these.
+
+### GCP infra document
+`C:\claude\rgmc-bc-api\consignment-infra.md` — full Layer 2A–2D implementation guide. Layer 2A (Cloud Run single-instance constraint) is the highest-priority free win. Layer 2B (GCS backup) requires new code. Layer 2C (Cloud Scheduler) is a GCP console-only step.

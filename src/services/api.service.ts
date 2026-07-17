@@ -160,17 +160,37 @@ function mapItemRow(row: Record<string, unknown>): Item {
 
 export const ApiService = {
   async getCompanies(): Promise<Company[]> {
-    const res = await apiClient.get('/bc/custom/v2/company-settings');
-    const raw = extractList<Record<string, unknown>>(res.data);
-    return raw
-      .filter((c) => c['consignmentAppVisible'] === true)
-      .map((c) => ({
-        id:                   (c['id']                   ?? '') as string,
-        code:                 (c['code'] ?? c['companyName'] ?? c['name'] ?? '') as string,
-        name:                 (c['name'] ?? c['companyName'] ?? '') as string,
-        displayName:          (c['displayName']          ?? '') as string,
-        consignmentAppVisible: c['consignmentAppVisible'] as boolean | undefined,
-      }));
+    const RETRIES = 6;
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= RETRIES; attempt++) {
+      try {
+        const res = await apiClient.get('/bc/custom/v2/company-settings', { timeout: 180_000 });
+        const raw = extractList<Record<string, unknown>>(res.data);
+        return raw
+          .filter((c) => c['consignmentAppVisible'] === true)
+          .map((c) => ({
+            id:                   (c['id']                   ?? '') as string,
+            code:                 (c['code'] ?? c['companyName'] ?? c['name'] ?? '') as string,
+            name:                 (c['name'] ?? c['companyName'] ?? '') as string,
+            displayName:          (c['displayName']          ?? '') as string,
+            consignmentAppVisible: c['consignmentAppVisible'] as boolean | undefined,
+          }));
+      } catch (err) {
+        const status = err instanceof ApiError ? err.status : undefined;
+        // Retry on: no HTTP status (cancelled/network/timeout), 429, or any 5xx.
+        // Throw immediately on genuine client errors (400, 401, 403, 404, etc.).
+        const shouldRetry = !status || status === 429 || status >= 500;
+        if (shouldRetry && attempt < RETRIES) {
+          lastErr = err;
+          // Cancelled/network errors retry quickly; rate-limit/server errors use backoff.
+          const delay = !status ? 2000 : Math.min(4000 * 2 ** attempt, 60_000);
+          await new Promise<void>((r) => setTimeout(r, delay));
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastErr;
   },
 
   async getBrands(company?: string): Promise<Brand[]> {
