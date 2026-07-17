@@ -79,7 +79,7 @@
       </Transition>
 
       <!-- No cache state -->
-      <div v-if="!hasCache && !isSyncing" class="state-card">
+      <div v-if="!canScan && !isSyncing" class="state-card">
         <!-- Offline with no items — cannot scan -->
         <template v-if="!isOnline">
           <ion-icon :icon="cloudOfflineOutline" color="warning" />
@@ -148,7 +148,7 @@
         <span>{{ syncError }}</span>
       </div>
 
-      <template v-if="hasCache">
+      <template v-if="canScan">
         <div class="scan-panels">
         <div class="scan-form-col">
         <!-- ══ Customer Card ══ -->
@@ -729,6 +729,11 @@ const categories = ref<ItemCategory[]>([]);
    always return the initial false value and never update. */
 const hasCache = computed(
   () => cachedItems.value.length > 0 && cachedCustomers.value.length > 0 && categories.value.length > 0,
+);
+
+// In online mode, items are fetched live by ItemSelectorModal — no local cache required
+const canScan = computed(
+  () => hasCache.value || (appMode.value === 'online' && isOnline.value),
 );
 
 function refreshCache() {
