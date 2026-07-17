@@ -308,6 +308,7 @@ export const ApiService = {
     bcOffset = 0,
     bcLimit = 0,
     signal?: AbortSignal,
+    timeout?: number,
   ): Promise<{ items: Item[]; priceMap: Record<string, number>; total: number | null }> {
     const RETRIES = 3;
     let lastErr: unknown;
@@ -321,7 +322,7 @@ export const ApiService = {
             ...(bcLimit > 0 ? { bc_limit: bcLimit } : {}),
           },
           signal,
-          timeout: 300_000,
+          timeout: timeout ?? 300_000,
         });
         const body = res.data as Record<string, unknown>;
         const rows: Record<string, unknown>[] = Array.isArray(body.data)

@@ -2,15 +2,18 @@ import { ref, computed } from 'vue';
 import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 import { useAuthStore } from '@/stores/auth.store';
+import type { Item } from '@/types';
 
 // Module-level singleton so all components share the same sync state
 const isSyncing = ref(false);
 const syncPhase = ref('');
 const syncProgress = ref(0);
-const syncSubTasks = ref<{ label: string; status: 'pending' | 'done' | 'error' }[]>([]);
+const syncSubTasks = ref<{ label: string; status: 'pending' | 'done' | 'error'; detail?: string }[]>([]);
 const syncError = ref<string | null>(null);
 const syncWarning = ref<string | null>(null);
 const lastSyncDate = ref<Date | null>(StorageService.getLastSync());
+const syncItemsLoaded = ref(0);
+const syncItemsTotal = ref(0);
 
 export function useSync() {
 
@@ -37,6 +40,8 @@ export function useSync() {
     syncProgress.value = 0;
     syncError.value = null;
     syncWarning.value = null;
+    syncItemsLoaded.value = 0;
+    syncItemsTotal.value = 0;
 
     try {
       // Generous timeout for all sync calls — BC list endpoints can take 60-120 s.
@@ -70,20 +75,81 @@ export function useSync() {
       StorageService.setSyncTimestamp('customers');
       StorageService.setSyncTimestamp('itemCategories');
 
-      // Phase 2 — items + prices from the single v3 item-prices endpoint (30 → 85%).
-      // Non-fatal if cached items exist: falls back to last-synced data and surfaces a
-      // warning so the user knows prices may be stale. Throws only when there is no
-      // cached fallback (first ever sync with no prior data).
-      const itemResult = await ApiService.getItemsForDate(today, brandCode, undefined, SYNC_MS)
-        .then((r) => { syncProgress.value = Math.min(85, syncProgress.value + 55); syncSubTasks.value[2].status = 'done'; return r; })
-        .catch((e) => {
+      // Phase 2 — items + prices (30 → 85%).
+      // Uses BC-native pagination: first fetches the total count so we can show
+      // accurate per-item progress, then fetches pages in parallel pairs.
+      // Falls back to a single full-catalog call if the count endpoint fails.
+      const PAGE_SIZE = 500;
+      const PAGE_CONCURRENCY = 2;
+
+      // Quick count call — tells us total items expected and fills progress denominator.
+      const totalCount = await ApiService.getItemPriceCount(today, brandCode).catch(() => 0);
+      syncItemsTotal.value = totalCount;
+
+      let itemResult: { items: Item[]; priceMap: Record<string, number> } | null = null;
+
+      if (totalCount > 0) {
+        // Paginated path — progress updates after each batch of pages.
+        const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+        const accItems: Item[] = [];
+        const accPriceMap: Record<string, number> = {};
+        const seenNos = new Set<string>();
+
+        try {
+          for (let i = 0; i < totalPages; i += PAGE_CONCURRENCY) {
+            const batch = Array.from(
+              { length: Math.min(PAGE_CONCURRENCY, totalPages - i) },
+              (_, j) => i + j,
+            );
+            await Promise.all(batch.map(async (pageIdx) => {
+              const res = await ApiService.getItemsPage(
+                today, brandCode, pageIdx * PAGE_SIZE, PAGE_SIZE, undefined, SYNC_MS,
+              );
+              for (const item of res.items) {
+                if (!seenNos.has(item.number)) {
+                  seenNos.add(item.number);
+                  accItems.push(item);
+                  accPriceMap[item.number] = item.unitPriceIncVAT;
+                }
+              }
+              syncItemsLoaded.value = Math.min(seenNos.size, totalCount);
+              syncProgress.value = Math.round(30 + Math.min(syncItemsLoaded.value / totalCount, 1) * 55);
+              syncSubTasks.value[2] = {
+                ...syncSubTasks.value[2],
+                detail: `${syncItemsLoaded.value.toLocaleString()} / ${totalCount.toLocaleString()}`,
+              };
+            }));
+          }
+          if (seenNos.size > 0) {
+            itemResult = { items: accItems, priceMap: accPriceMap };
+            syncSubTasks.value[2].status = 'done';
+          } else {
+            syncSubTasks.value[2].status = 'error';
+          }
+        } catch (e) {
           syncSubTasks.value[2].status = 'error';
           const hasCached = StorageService.getCachedItems().length > 0;
-          const is503 = e instanceof Error && (e as { status?: number }).status === 503;
-          if (!hasCached && !is503) throw e;  // Unknown error with no fallback — fail hard.
-          syncProgress.value = 85;
-          return null;              // Signal: use cached data (or warn user to retry).
-        });
+          if (!hasCached) throw e;
+        }
+      } else {
+        // Count endpoint unavailable — fall back to single full-catalog call.
+        await ApiService.getItemsForDate(today, brandCode, undefined, SYNC_MS)
+          .then((r) => {
+            itemResult = r;
+            syncItemsLoaded.value = r.items.length;
+            syncItemsTotal.value = r.items.length;
+            syncProgress.value = 85;
+            syncSubTasks.value[2].status = 'done';
+            syncSubTasks.value[2] = { ...syncSubTasks.value[2], detail: `${r.items.length.toLocaleString()}` };
+          })
+          .catch((e) => {
+            syncSubTasks.value[2].status = 'error';
+            const hasCached = StorageService.getCachedItems().length > 0;
+            const is503 = e instanceof Error && (e as { status?: number }).status === 503;
+            if (!hasCached && !is503) throw e;
+            syncProgress.value = 85;
+          });
+      }
 
       if (itemResult !== null) {
         StorageService.setCachedItems(itemResult.items);
@@ -163,6 +229,8 @@ export function useSync() {
     syncWarning,
     lastSyncDate,
     lastSyncLabel,
+    syncItemsLoaded,
+    syncItemsTotal,
     sync,
     syncIfStale,
     clearSyncWarning,

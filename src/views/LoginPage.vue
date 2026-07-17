@@ -215,7 +215,7 @@
                   </div>
                   <!-- Per-table rows — shown for all phases -->
                   <div v-if="syncSubTasks.length" class="sync-subtasks">
-                    <div v-for="(task, i) in syncSubTasks" :key="task.label" class="sync-subtask-row">
+                    <div v-for="task in syncSubTasks" :key="task.label" class="sync-subtask-row">
                       <ion-icon
                         v-if="task.status === 'done'"
                         :icon="checkmarkCircleOutline"
@@ -234,8 +234,7 @@
                           'subtask-label--error': task.status === 'error',
                         }"
                       >{{ task.label }}</span>
-                      <!-- Show live % next to Item Prices while it's loading -->
-                      <span v-if="task.status === 'pending' && i === 4" class="subtask-pct">{{ syncProgress }}%</span>
+                      <span v-if="task.detail" :key="task.detail" class="subtask-detail cycling-text">{{ task.detail }}</span>
                       <span v-if="task.status === 'error'" class="subtask-err-note">Failed</span>
                     </div>
                   </div>
@@ -993,6 +992,15 @@ async function handleLogin() {
   font-weight: 700;
   color: oklch(70% 0.12 145);
   flex-shrink: 0;
+}
+
+.subtask-detail {
+  font-size: 11px;
+  font-weight: 600;
+  color: oklch(65% 0.10 145 / 0.8);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
 }
 
 /* ── Sync progress bar ── */

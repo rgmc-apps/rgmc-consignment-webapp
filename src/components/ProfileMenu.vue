@@ -68,7 +68,7 @@
             <div class="pop-progress-fill" :style="{ width: syncProgress + '%' }" />
           </div>
           <div class="pop-sync-tasks">
-            <div v-for="(task, i) in syncSubTasks" :key="task.label" class="pop-task-row">
+            <div v-for="task in syncSubTasks" :key="task.label" class="pop-task-row">
               <ion-icon
                 v-if="task.status === 'done'"
                 :icon="checkmarkCircleOutline"
@@ -87,7 +87,7 @@
                   'pop-task-label--error': task.status === 'error',
                 }"
               >{{ task.label }}</span>
-              <span v-if="task.status === 'pending' && i === 4" class="pop-task-pct">{{ syncProgress }}%</span>
+              <span v-if="task.detail" :key="task.detail" class="pop-task-detail cycling-text">{{ task.detail }}</span>
             </div>
           </div>
         </div>
@@ -482,6 +482,17 @@ async function onLogout() {
   color: var(--app-gold);
   flex-shrink: 0;
   margin-left: auto;
+}
+
+.pop-task-detail {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--app-gold);
+  flex-shrink: 0;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+  opacity: 0.85;
 }
 
 /* ── Server load notice (below sync panel) ── */
