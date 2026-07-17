@@ -93,7 +93,9 @@ export function useSync() {
       let itemResult: { items: Item[]; priceMap: Record<string, number> } | null = null;
 
       if (totalCount > 0) {
-        let pageSize   = 500;
+        // Split catalog evenly across all concurrent slots so the first batch
+        // covers the whole catalog in PAGE_CONCURRENCY requests.
+        let pageSize   = Math.max(50, Math.ceil(totalCount / PAGE_CONCURRENCY));
         let shrinkCount = 0;
         const accItems: Item[] = [];
         const accPriceMap: Record<string, number> = {};
