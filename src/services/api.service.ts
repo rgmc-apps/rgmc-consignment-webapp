@@ -305,10 +305,10 @@ export const ApiService = {
   async getItemsPage(
     date: string,
     familyCode?: string,
-    skip = 0,
-    limit = 0,
+    bcOffset = 0,
+    bcLimit = 0,
     signal?: AbortSignal,
-  ): Promise<{ items: Item[]; priceMap: Record<string, number>; total: number }> {
+  ): Promise<{ items: Item[]; priceMap: Record<string, number>; total: number | null }> {
     const RETRIES = 3;
     let lastErr: unknown;
     for (let attempt = 0; attempt <= RETRIES; attempt++) {
@@ -317,8 +317,8 @@ export const ApiService = {
           params: {
             on_date: date,
             ...(familyCode ? { family_code: familyCode } : {}),
-            ...(skip > 0 ? { skip } : {}),
-            ...(limit > 0 ? { limit } : {}),
+            ...(bcOffset > 0 ? { bc_offset: bcOffset } : {}),
+            ...(bcLimit > 0 ? { bc_limit: bcLimit } : {}),
           },
           signal,
           timeout: 300_000,
@@ -327,7 +327,7 @@ export const ApiService = {
         const rows: Record<string, unknown>[] = Array.isArray(body.data)
           ? (body.data as Record<string, unknown>[])
           : extractList<Record<string, unknown>>(body);
-        const total = typeof body.total === 'number' ? (body.total as number) : rows.length;
+        const total = typeof body.total === 'number' ? (body.total as number) : null;
         const items: Item[] = [];
         const priceMap: Record<string, number> = {};
         const seen = new Set<string>();
@@ -352,6 +352,24 @@ export const ApiService = {
       }
     }
     throw lastErr;
+  },
+
+  async getItemPriceCount(
+    date: string,
+    familyCode?: string,
+  ): Promise<number> {
+    try {
+      const res = await apiClient.get('/bc/custom/v3/item-prices/count', {
+        params: {
+          on_date: date,
+          ...(familyCode ? { family_code: familyCode } : {}),
+        },
+        timeout: 60_000,
+      });
+      return (res.data as Record<string, unknown>).totalCount as number ?? 0;
+    } catch {
+      return 0;
+    }
   },
 
   async getItemCategories(timeout?: number): Promise<ItemCategory[]> {
