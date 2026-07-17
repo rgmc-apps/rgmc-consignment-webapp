@@ -504,4 +504,24 @@ export const ApiService = {
     const res = await apiClient.post('/bc/custom/v2/sales-return-orders', payload, { timeout: 180_000 });
     return res.data;
   },
+
+  async getBCSalesOrders(date: string): Promise<unknown> {
+    const res = await apiClient.get('/bc/sales-orders', { params: { filter: `postingDate eq ${date}` } });
+    return res.data;
+  },
+
+  async getBCSalesReturnOrders(date: string): Promise<unknown> {
+    const res = await apiClient.get('/bc/custom/v2/sales-return-orders', { params: { filter: `postingDate eq ${date}` } });
+    return res.data;
+  },
+
+  async getBCSalesOrderLines(orderId: string): Promise<unknown> {
+    const res = await apiClient.get(`/bc/sales-orders/${orderId}/lines`);
+    return res.data;
+  },
+
+  async getBCSalesReturnOrderLines(orderId: string): Promise<unknown> {
+    const res = await apiClient.get(`/bc/custom/v2/sales-return-orders/${orderId}/lines`);
+    return res.data;
+  },
 };
