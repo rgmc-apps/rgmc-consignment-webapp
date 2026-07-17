@@ -496,12 +496,12 @@ export const ApiService = {
   },
 
   async submitSalesOrder(payload: SalesOrderPayload): Promise<unknown> {
-    const res = await apiClient.post('/bc/sales-orders', payload);
+    const res = await apiClient.post('/bc/sales-orders', payload, { timeout: 180_000 });
     return res.data;
   },
 
   async submitSalesReturnOrder(payload: SalesReturnOrderPayload): Promise<unknown> {
-    const res = await apiClient.post('/bc/custom/v2/sales-return-orders', payload);
+    const res = await apiClient.post('/bc/custom/v2/sales-return-orders', payload, { timeout: 180_000 });
     return res.data;
   },
 };
