@@ -76,11 +76,13 @@ export function useSync() {
       StorageService.setSyncTimestamp('itemCategories');
 
       // Phase 2 — items + prices (30 → 85%).
-      // Uses BC-native pagination: first fetches the total count so we can show
-      // accurate per-item progress, then fetches pages in parallel pairs.
+      // Adaptive paginated fetch: runs up to 6 pages concurrently.
+      // On any page failure the page size shrinks 20% and failed offsets are
+      // re-queued — up to 5 shrink steps before accepting partial results.
       // Falls back to a single full-catalog call if the count endpoint fails.
-      const PAGE_SIZE = 500;
-      const PAGE_CONCURRENCY = 2;
+      const PAGE_CONCURRENCY = 6;
+      const PAGE_SHRINK     = 0.8;
+      const MAX_SHRINKS     = 5;
 
       // Quick count call — tells us total items expected and fills progress denominator.
       // No family filter: Pag50319 only supports onDate, and the full-catalog count must
@@ -91,37 +93,63 @@ export function useSync() {
       let itemResult: { items: Item[]; priceMap: Record<string, number> } | null = null;
 
       if (totalCount > 0) {
-        // Paginated path — progress updates after each batch of pages.
-        const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+        let pageSize   = 500;
+        let shrinkCount = 0;
         const accItems: Item[] = [];
         const accPriceMap: Record<string, number> = {};
         const seenNos = new Set<string>();
 
+        // Build initial list of byte-offsets to fetch.
+        let pendingOffsets: number[] = [];
+        for (let o = 0; o < totalCount; o += pageSize) pendingOffsets.push(o);
+
         try {
-          for (let i = 0; i < totalPages; i += PAGE_CONCURRENCY) {
-            const batch = Array.from(
-              { length: Math.min(PAGE_CONCURRENCY, totalPages - i) },
-              (_, j) => i + j,
+          while (pendingOffsets.length > 0) {
+            const batch = pendingOffsets.splice(0, PAGE_CONCURRENCY);
+
+            const results = await Promise.allSettled(
+              batch.map((offset) =>
+                ApiService.getItemsPage(today, undefined, offset, pageSize, undefined, SYNC_MS),
+              ),
             );
-            await Promise.all(batch.map(async (pageIdx) => {
-              const res = await ApiService.getItemsPage(
-                today, undefined, pageIdx * PAGE_SIZE, PAGE_SIZE, undefined, SYNC_MS,
-              );
-              for (const item of res.items) {
-                if (!seenNos.has(item.number)) {
-                  seenNos.add(item.number);
-                  accItems.push(item);
-                  accPriceMap[item.number] = item.unitPriceIncVAT;
+
+            // Collect successes; track which offsets failed.
+            const failedOffsets: number[] = [];
+            batch.forEach((offset, idx) => {
+              const r = results[idx];
+              if (r.status === 'fulfilled') {
+                for (const item of r.value.items) {
+                  if (!seenNos.has(item.number)) {
+                    seenNos.add(item.number);
+                    accItems.push(item);
+                    accPriceMap[item.number] = item.unitPriceIncVAT;
+                  }
                 }
+              } else {
+                failedOffsets.push(offset);
               }
-              syncItemsLoaded.value = Math.min(seenNos.size, totalCount);
-              syncProgress.value = Math.round(30 + Math.min(syncItemsLoaded.value / totalCount, 1) * 55);
-              syncSubTasks.value[2] = {
-                ...syncSubTasks.value[2],
-                detail: `${syncItemsLoaded.value.toLocaleString()} / ${totalCount.toLocaleString()}`,
-              };
-            }));
+            });
+
+            // Update live progress after every batch.
+            syncItemsLoaded.value = Math.min(seenNos.size, totalCount);
+            syncProgress.value = Math.round(30 + Math.min(syncItemsLoaded.value / totalCount, 1) * 55);
+            syncSubTasks.value[2] = {
+              ...syncSubTasks.value[2],
+              detail: `${syncItemsLoaded.value.toLocaleString()} / ${totalCount.toLocaleString()}`,
+            };
+
+            if (failedOffsets.length > 0 && shrinkCount < MAX_SHRINKS) {
+              // Shrink page size 20% and rebuild pending from the earliest failed offset.
+              // seenNos deduplicates any items that overlap with already-fetched ranges.
+              shrinkCount++;
+              pageSize = Math.max(50, Math.floor(pageSize * PAGE_SHRINK));
+              const restartAt = Math.min(...failedOffsets);
+              pendingOffsets = [];
+              for (let o = restartAt; o < totalCount; o += pageSize) pendingOffsets.push(o);
+            }
+            // If MAX_SHRINKS reached, failed offsets are silently dropped and we continue.
           }
+
           if (seenNos.size > 0) {
             itemResult = { items: accItems, priceMap: accPriceMap };
             syncSubTasks.value[2].status = 'done';

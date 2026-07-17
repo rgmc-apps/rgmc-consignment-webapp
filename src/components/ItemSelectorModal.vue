@@ -79,10 +79,11 @@
 
           <!-- Results header -->
           <p class="results-label">
-            {{ displayItems.length }} of {{ filteredItems.length }} items
-            <span v-if="filteredItems.length > DISPLAY_LIMIT" class="more-hint">
-              — refine your search to see more
-            </span>
+            <template v-if="totalPages > 1">
+              {{ (currentPage - 1) * PAGE_SIZE + 1 }}–{{ Math.min(currentPage * PAGE_SIZE, filteredItems.length) }}
+              of {{ filteredItems.length }} items
+            </template>
+            <template v-else>{{ filteredItems.length }} items</template>
           </p>
 
           <!-- Item list -->
@@ -111,7 +112,28 @@
             </ion-item>
           </ion-list>
 
-          <div v-else class="empty-results">
+          <!-- Pagination controls -->
+          <div v-if="totalPages > 1" class="pagination-bar">
+            <ion-button
+              fill="clear"
+              size="small"
+              :disabled="currentPage <= 1"
+              @click="currentPage--"
+            >
+              <ion-icon :icon="chevronBackOutline" slot="icon-only" />
+            </ion-button>
+            <span class="pagination-label">{{ currentPage }} / {{ totalPages }}</span>
+            <ion-button
+              fill="clear"
+              size="small"
+              :disabled="currentPage >= totalPages"
+              @click="currentPage++"
+            >
+              <ion-icon :icon="chevronForwardOutline" slot="icon-only" />
+            </ion-button>
+          </div>
+
+          <div v-if="!displayItems.length" class="empty-results">
             <ion-icon :icon="searchOutline" />
             <p>No items found.<br />Try a different search term or category.</p>
           </div>
@@ -230,6 +252,8 @@ import {
   alertCircleOutline,
   refreshOutline,
   checkmarkCircleOutline,
+  chevronBackOutline,
+  chevronForwardOutline,
 } from 'ionicons/icons';
 import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
@@ -242,7 +266,8 @@ const { theme } = useTheme();
 const isMinimalist = computed(() => theme.value === 'minimalist');
 const { mode } = useAppModeStore();
 
-const DISPLAY_LIMIT = 100;
+const PAGE_SIZE = 100;
+const currentPage = ref(1);
 
 const onlineItems = ref<Item[]>([]);
 const isLoadingOnline = ref(false);
@@ -296,7 +321,15 @@ const filteredItems = computed(() => {
   return src;
 });
 
-const displayItems = computed(() => filteredItems.value.slice(0, DISPLAY_LIMIT));
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredItems.value.length / PAGE_SIZE)));
+
+const displayItems = computed(() => {
+  const start = (currentPage.value - 1) * PAGE_SIZE;
+  return filteredItems.value.slice(start, start + PAGE_SIZE);
+});
+
+// Reset to page 1 whenever the filtered set changes
+watch([searchQuery, selectedCat], () => { currentPage.value = 1; });
 
 /* ─── Live prices ─── */
 // Keyed by item.number; seeded from the sync price-map, then filled on-demand.
@@ -358,13 +391,13 @@ onMounted(async () => {
     return;
   }
 
-  // Offline mode: use cached prices and batch-fetch any missing ones.
+  // Offline mode: use cached prices and batch-fetch any missing ones for the current page.
   const cached = StorageService.getCachedItemPrices();
   if (cached?.date === lookupDate.value) {
     livePrices.value = { ...cached.prices };
   }
   if (priceTimer) clearTimeout(priceTimer);
-  priceTimer = setTimeout(() => fetchMissingPrices(props.items), 100);
+  priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 100);
 });
 
 let priceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -399,7 +432,8 @@ watch(displayItems, (items) => {
 watch(lookupDate, () => {
   livePrices.value = {};
   if (priceTimer) clearTimeout(priceTimer);
-  priceTimer = setTimeout(() => fetchMissingPrices(props.items), 300);
+  // Only fetch prices for the current page — page navigation triggers its own fetch.
+  priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 300);
 });
 
 watch(
@@ -664,6 +698,25 @@ onUnmounted(() => {
 .item-price {
   font-size: 14px;
   font-weight: 700;
+}
+
+/* ── Pagination ── */
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--app-border);
+}
+
+.pagination-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text-muted);
+  min-width: 56px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Empty state ── */
