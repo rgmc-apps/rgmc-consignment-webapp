@@ -42,7 +42,6 @@
         :class="{
           'pop-item--syncing': isSyncing,
           'pop-item--disabled': !isSyncing && !isOnline,
-          'pop-item--busy': !isSyncing && isBusy,
         }"
         :disabled="isSyncing || !isOnline"
         @click="onSync"
@@ -50,7 +49,7 @@
         <ion-icon
           :icon="syncOutline"
           class="pop-icon"
-          :class="{ 'pop-icon--spinning': isSyncing, 'pop-icon--warn': !isSyncing && (isWarmingUp || isBusy) }"
+          :class="{ 'pop-icon--spinning': isSyncing }"
         />
         <div class="pop-item-text">
           <span :key="isSyncing ? syncPrefixText : undefined" class="pop-item-label cycling-text">
@@ -60,11 +59,6 @@
             {{ isSyncing ? syncSubCycleText : lastSyncLabel }}
           </span>
         </div>
-        <!-- Warmup / busy indicator chip (shown when idle) -->
-        <Transition name="status-chip-fade">
-          <span v-if="!isSyncing && isBusy" class="pop-status-chip pop-status-chip--busy">Busy</span>
-          <span v-else-if="!isSyncing && isWarmingUp" class="pop-status-chip pop-status-chip--warm">Warming up</span>
-        </Transition>
       </button>
 
       <!-- Inline per-table progress — slides in while sync is running -->
@@ -96,21 +90,6 @@
               <span v-if="task.status === 'pending' && i === 4" class="pop-task-pct">{{ syncProgress }}%</span>
             </div>
           </div>
-        </div>
-      </Transition>
-
-      <!-- Server load notice — shown near sync when server is busy or warming up -->
-      <Transition name="server-notice-fade">
-        <div
-          v-if="!isSyncing && (isBusy || isWarmingUp)"
-          :class="['pop-server-notice', isBusy ? 'pop-server-notice--busy' : 'pop-server-notice--warm']"
-        >
-          <ion-icon :icon="warningOutline" class="pop-notice-icon" />
-          <span class="pop-notice-text">
-            {{ isBusy
-              ? 'Server is under high load. Syncing may fail or be slower than usual.'
-              : 'Server is refreshing its data cache. Item prices may take a moment to load.' }}
-          </span>
         </div>
       </Transition>
 
@@ -182,12 +161,10 @@ import {
   removeOutline,
   checkmarkCircleOutline,
   alertCircleOutline,
-  warningOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSync } from '@/composables/useSync';
 import { useLoadingText } from '@/composables/useLoadingText';
-import { useServerStatus } from '@/composables/useServerStatus';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import { useTheme } from '@/composables/useTheme';
 import ProfileModal from '@/components/ProfileModal.vue';
@@ -196,7 +173,6 @@ import UserAvatar from '@/components/UserAvatar.vue';
 const router = useRouter();
 const authStore = useAuthStore();
 const { isSyncing, syncProgress, syncSubTasks, lastSyncLabel, sync } = useSync();
-const { isWarmingUp, isBusy } = useServerStatus();
 
 const syncPrefixText = useLoadingText(
   ['Syncing…', 'Fetching data…', 'Updating cache…', 'Loading latest…'],

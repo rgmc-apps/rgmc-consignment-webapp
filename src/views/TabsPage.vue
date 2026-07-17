@@ -36,14 +36,8 @@ import {
   IonBadge,
   IonRouterOutlet,
 } from '@ionic/vue';
-import { onMounted, onUnmounted } from 'vue';
 import { homeOutline, scanOutline, timeOutline } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
-import { useServerStatus } from '@/composables/useServerStatus';
 
 const sessionStore = useSessionStore();
-const { startPolling, stopPolling } = useServerStatus();
-
-onMounted(startPolling);
-onUnmounted(stopPolling);
 </script>
