@@ -83,7 +83,9 @@ export function useSync() {
       const PAGE_CONCURRENCY = 2;
 
       // Quick count call — tells us total items expected and fills progress denominator.
-      const totalCount = await ApiService.getItemPriceCount(today, brandCode).catch(() => 0);
+      // No family filter: Pag50319 only supports onDate, and the full-catalog count must
+      // match what the unfiltered page fetches below will actually return.
+      const totalCount = await ApiService.getItemPriceCount(today).catch(() => 0);
       syncItemsTotal.value = totalCount;
 
       let itemResult: { items: Item[]; priceMap: Record<string, number> } | null = null;
@@ -103,7 +105,7 @@ export function useSync() {
             );
             await Promise.all(batch.map(async (pageIdx) => {
               const res = await ApiService.getItemsPage(
-                today, brandCode, pageIdx * PAGE_SIZE, PAGE_SIZE, undefined, SYNC_MS,
+                today, undefined, pageIdx * PAGE_SIZE, PAGE_SIZE, undefined, SYNC_MS,
               );
               for (const item of res.items) {
                 if (!seenNos.has(item.number)) {
@@ -133,7 +135,7 @@ export function useSync() {
         }
       } else {
         // Count endpoint unavailable — fall back to single full-catalog call.
-        await ApiService.getItemsForDate(today, brandCode, undefined, SYNC_MS)
+        await ApiService.getItemsForDate(today, undefined, undefined, SYNC_MS)
           .then((r) => {
             itemResult = r;
             syncItemsLoaded.value = r.items.length;
