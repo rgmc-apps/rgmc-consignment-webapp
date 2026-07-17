@@ -266,12 +266,7 @@ async function loadData(companyName?: string) {
 onMounted(async () => {
   await StorageService.init();
 
-  const hasLocalCache =
-    StorageService.getCachedCustomers().length > 0 &&
-    StorageService.getCachedItems().length > 0 &&
-    StorageService.getCachedItemCategories().length > 0;
-
-  if (authStore.isAuthenticated && hasLocalCache) {
+  if (authStore.isAuthenticated) {
     router.replace('/app/home');
     return;
   }
