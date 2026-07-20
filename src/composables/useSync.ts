@@ -53,18 +53,26 @@ export function useSync() {
       const brandCode = authStore.brand?.code ?? StorageService.getAuth()?.brand?.code;
       const today = new Date().toISOString().split('T')[0];
 
-      // All 4 tasks run in parallel. The backend blocks internally until the
-      // item catalog is warm (up to 55 s), so no frontend pagination needed.
+      // Tasks run sequentially to limit concurrent BC connections to 1 per user.
+      // Each task updates its subtask status and bumps progress as it completes.
       let done = 0;
       const bump = () => { syncProgress.value = Math.round((++done / 4) * 100); };
+      const settle = <T>(p: Promise<T>): Promise<PromiseSettledResult<T>> =>
+        p.then((value) => ({ status: 'fulfilled' as const, value }), (reason) => ({ status: 'rejected' as const, reason }));
 
-      const [customersResult, categoriesResult, itemsResult, contactsResult] = await Promise.allSettled([
+      const customersResult = await settle(
         ApiService.getCustomers(brandCode, TIMEOUT)
           .then((r) => { syncSubTasks.value[0].status = 'done'; bump(); return r; })
           .catch((e) => { syncSubTasks.value[0].status = 'error'; bump(); throw e; }),
+      );
+
+      const categoriesResult = await settle(
         ApiService.getItemCategories(TIMEOUT)
           .then((r) => { syncSubTasks.value[1].status = 'done'; bump(); return r; })
           .catch((e) => { syncSubTasks.value[1].status = 'error'; bump(); throw e; }),
+      );
+
+      const itemsResult = await settle(
         (async () => {
           const PAGE_SIZE = 500;
           const first = await ApiService.getItemsPaged(today, 0, PAGE_SIZE, undefined, TIMEOUT);
@@ -108,10 +116,13 @@ export function useSync() {
             return r;
           })
           .catch((e) => { syncSubTasks.value[2].status = 'error'; bump(); throw e; }),
+      );
+
+      const contactsResult = await settle(
         ApiService.getContacts(TIMEOUT)
           .then((r) => { syncSubTasks.value[3].status = 'done'; bump(); return r; })
           .catch((e) => { syncSubTasks.value[3].status = 'error'; bump(); throw e; }),
-      ]);
+      );
 
       if (customersResult.status === 'fulfilled') {
         StorageService.setCachedCustomers(customersResult.value);
