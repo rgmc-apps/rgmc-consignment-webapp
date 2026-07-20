@@ -383,7 +383,6 @@ onMounted(async () => {
           : result.priceMap,
       );
     } catch (err) {
-      console.warn('[ItemSelectorModal] online item refresh failed:', err);
       // Keep showing seed items if the API call fails.
     } finally {
       isLoadingOnline.value = false;

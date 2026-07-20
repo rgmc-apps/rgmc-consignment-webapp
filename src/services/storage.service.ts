@@ -38,7 +38,6 @@ function set<T>(key: string, value: T): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch (e) {
-    console.warn(`[Storage] Failed to write key "${key}":`, e);
   }
 }
 

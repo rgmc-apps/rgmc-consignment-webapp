@@ -54,22 +54,7 @@ apiClient.interceptors.request.use((config) => {
 });
 
 apiClient.interceptors.response.use(
-  (response) => {
-    /* Debug: log every list-endpoint response shape so we can confirm
-       the { data: [] } vs { value: [] } vs bare-array format in DevTools. */
-    if (response.config.url?.startsWith('/bc/')) {
-      const body = response.data;
-      console.info(
-        `[API] ${response.config.method?.toUpperCase()} ${response.config.url}`,
-        `status=${response.status}`,
-        Array.isArray(body)
-          ? `→ bare array, length=${body.length}`
-          : `→ keys=${Object.keys(body ?? {}).join(', ')}`,
-        body,
-      );
-    }
-    return response;
-  },
+  (response) => response,
   (error) => {
     const message: string =
       error.response?.data?.detail ||
@@ -104,7 +89,6 @@ function extractList<T>(body: unknown): T[] {
     if (Array.isArray(b['data']))  return b['data']  as T[];
     if (Array.isArray(b['value'])) return b['value'] as T[];
   }
-  console.warn('[API] extractList: unexpected response shape', body);
   return [];
 }
 
@@ -133,7 +117,6 @@ async function fetchPriceChunk(
         await new Promise<void>((r) => setTimeout(r, Math.min(500 * 2 ** attempt, 4000)));
         continue;
       }
-      console.warn(`[API] price chunk failed after ${attempt + 1} attempt(s):`, err);
       return [];
     }
   }
@@ -497,7 +480,6 @@ export const ApiService = {
         return buildMap(extractList<Record<string, unknown>>(res.data));
       } catch (err) {
         if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
-        console.warn('[API] familyCode price fetch failed:', err);
         return {};
       }
     }
