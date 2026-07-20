@@ -393,6 +393,51 @@ export const ApiService = {
     }
   },
 
+  async getItemsPaged(
+    date: string,
+    skip: number,
+    limit: number,
+    signal?: AbortSignal,
+    timeout?: number,
+  ): Promise<{ items: Item[]; priceMap: Record<string, number>; total: number }> {
+    const RETRIES = 3;
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= RETRIES; attempt++) {
+      try {
+        const res = await apiClient.get('/bc/custom/v3/item-prices', {
+          params: { on_date: date, skip, limit },
+          signal,
+          timeout: timeout ?? 120_000,
+        });
+        const body = res.data as Record<string, unknown>;
+        const rows = Array.isArray(body.data)
+          ? (body.data as Record<string, unknown>[])
+          : extractList<Record<string, unknown>>(body);
+        const total = typeof body.total === 'number' ? body.total : 0;
+        const items: Item[] = [];
+        const priceMap: Record<string, number> = {};
+        const seen = new Set<string>();
+        for (const row of rows) {
+          const item = mapItemRow(row);
+          if (!item.number || seen.has(item.number)) continue;
+          seen.add(item.number);
+          items.push(item);
+          priceMap[item.number] = item.unitPriceIncVAT;
+        }
+        return { items, priceMap, total };
+      } catch (err) {
+        if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
+        const status = err instanceof ApiError ? err.status : undefined;
+        if (status && status >= 400 && status < 500) throw err;
+        lastErr = err;
+        if (attempt < RETRIES) {
+          await new Promise<void>((r) => setTimeout(r, Math.min(3000 * 2 ** attempt, 15000)));
+        }
+      }
+    }
+    throw lastErr;
+  },
+
   async getItemCategories(timeout?: number): Promise<ItemCategory[]> {
     const res = await apiClient.get('/bc/item-categories', { timeout });
     return extractList<ItemCategory>(res.data);
