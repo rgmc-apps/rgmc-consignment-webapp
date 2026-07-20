@@ -184,25 +184,42 @@ export const ApiService = {
   },
 
   async getContacts(timeout?: number): Promise<Contact[]> {
-    const res = await apiClient.get('/bc/custom/v2/contacts', { timeout });
-    const raw = extractList<Record<string, unknown>>(res.data);
-    // Normalise field-name variations the BC API may return
-    return raw.map((c) => ({
-      ...c,
-      id:                 (c['id']                                                                          ?? '') as string,
-      number:             (c['number']           ?? c['companyNo']                                          ?? '') as string,
-      type:               (c['type']                                                                        ?? '') as string,
-      displayName:        (c['displayName']       ?? c['name']                                              ?? '') as string,
-      jobTitle:           (c['jobTitle']                                                                    ?? '') as string,
-      companyNumber:      (c['companyNumber']     ?? c['companyNo']                                         ?? '') as string,
-      companyName:        (c['companyName']                                                                 ?? '') as string,
-      phoneNumber:        (c['phoneNumber']       ?? c['phoneNo']                                           ?? '') as string,
-      mobilePhoneNumber:  (c['mobilePhoneNumber'] ?? c['mobilePhoneNo']                                    ?? '') as string,
-      email:              (c['email']                                                                       ?? '') as string,
-      lastModifiedDateTime: (c['lastModifiedDateTime']                                                      ?? '') as string,
-      username:           (c['username']          ?? c['userName']     ?? c['user_name']                    ?? undefined) as string | undefined,
-      passwordHash:       (c['passwordHash']      ?? c['passwordhash'] ?? c['password_hash'] ?? c['PasswordHash'] ?? undefined) as string | undefined,
-    })) as Contact[];
+    const RETRIES = 3;
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= RETRIES; attempt++) {
+      try {
+        const res = await apiClient.get('/bc/custom/v2/contacts', { timeout });
+        const raw = extractList<Record<string, unknown>>(res.data);
+        return raw.map((c) => ({
+          ...c,
+          id:                 (c['id']                                                                          ?? '') as string,
+          number:             (c['number']           ?? c['companyNo']                                          ?? '') as string,
+          type:               (c['type']                                                                        ?? '') as string,
+          displayName:        (c['displayName']       ?? c['name']                                              ?? '') as string,
+          jobTitle:           (c['jobTitle']                                                                    ?? '') as string,
+          companyNumber:      (c['companyNumber']     ?? c['companyNo']                                         ?? '') as string,
+          companyName:        (c['companyName']                                                                 ?? '') as string,
+          phoneNumber:        (c['phoneNumber']       ?? c['phoneNo']                                           ?? '') as string,
+          mobilePhoneNumber:  (c['mobilePhoneNumber'] ?? c['mobilePhoneNo']                                    ?? '') as string,
+          email:              (c['email']                                                                       ?? '') as string,
+          lastModifiedDateTime: (c['lastModifiedDateTime']                                                      ?? '') as string,
+          username:           (c['username']          ?? c['userName']     ?? c['user_name']                    ?? undefined) as string | undefined,
+          passwordHash:       (c['passwordHash']      ?? c['passwordhash'] ?? c['password_hash'] ?? c['PasswordHash'] ?? undefined) as string | undefined,
+        })) as Contact[];
+      } catch (err) {
+        if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
+        const status = err instanceof ApiError ? err.status : undefined;
+        if (status && status >= 400 && status < 500 && status !== 429) throw err;
+        lastErr = err;
+        if (attempt < RETRIES) {
+          const delay = status === 429
+            ? Math.min(5000 * 2 ** attempt, 30_000)
+            : Math.min(3000 * 2 ** attempt, 15_000);
+          await new Promise<void>((r) => setTimeout(r, delay));
+        }
+      }
+    }
+    throw lastErr;
   },
 
   async updateContact(id: string, data: ContactUpdatePayload): Promise<Contact> {
@@ -236,23 +253,41 @@ export const ApiService = {
   },
 
   async getCustomers(brandCode?: string, timeout?: number): Promise<Customer[]> {
-    const res = await apiClient.get('/bc/custom/v2/customers', {
-      params: brandCode ? { brand: brandCode } : undefined,
-      timeout,
-    });
-    const raw = extractList<Record<string, unknown>>(res.data);
-    return raw.map((c) => ({
-      ...c,
-      id:          (c['id']          ?? c['Id']                                         ?? '') as string,
-      number:      (c['number']      ?? c['no']       ?? c['customerNo']                ?? '') as string,
-      displayName: (c['name']        ?? c['displayName'] ?? c['customerName']           ?? '') as string,
-      city:        (c['city']        ?? c['City']     ?? c['addressCity']               ?? '') as string,
-      addressLine1:(c['addressLine1']?? c['address']  ?? c['address1']                  ?? '') as string,
-      country:     (c['country']     ?? c['countryRegionCode']                          ?? '') as string,
-      postalCode:  (c['postalCode']  ?? c['postCode'] ?? c['zip']                       ?? '') as string,
-      currencyCode:(c['currencyCode']?? c['currency']                                   ?? '') as string,
-      lastModifiedDateTime: (c['lastModifiedDateTime'] ?? '') as string,
-    })) as Customer[];
+    const RETRIES = 3;
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= RETRIES; attempt++) {
+      try {
+        const res = await apiClient.get('/bc/custom/v2/customers', {
+          params: brandCode ? { brand: brandCode } : undefined,
+          timeout,
+        });
+        const raw = extractList<Record<string, unknown>>(res.data);
+        return raw.map((c) => ({
+          ...c,
+          id:          (c['id']          ?? c['Id']                                         ?? '') as string,
+          number:      (c['number']      ?? c['no']       ?? c['customerNo']                ?? '') as string,
+          displayName: (c['name']        ?? c['displayName'] ?? c['customerName']           ?? '') as string,
+          city:        (c['city']        ?? c['City']     ?? c['addressCity']               ?? '') as string,
+          addressLine1:(c['addressLine1']?? c['address']  ?? c['address1']                  ?? '') as string,
+          country:     (c['country']     ?? c['countryRegionCode']                          ?? '') as string,
+          postalCode:  (c['postalCode']  ?? c['postCode'] ?? c['zip']                       ?? '') as string,
+          currencyCode:(c['currencyCode']?? c['currency']                                   ?? '') as string,
+          lastModifiedDateTime: (c['lastModifiedDateTime'] ?? '') as string,
+        })) as Customer[];
+      } catch (err) {
+        if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
+        const status = err instanceof ApiError ? err.status : undefined;
+        if (status && status >= 400 && status < 500 && status !== 429) throw err;
+        lastErr = err;
+        if (attempt < RETRIES) {
+          const delay = status === 429
+            ? Math.min(5000 * 2 ** attempt, 30_000)
+            : Math.min(3000 * 2 ** attempt, 15_000);
+          await new Promise<void>((r) => setTimeout(r, delay));
+        }
+      }
+    }
+    throw lastErr;
   },
 
   async getItemFamilies(timeout?: number): Promise<ItemFamily[]> {
@@ -411,10 +446,13 @@ export const ApiService = {
       } catch (err) {
         if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
         const status = err instanceof ApiError ? err.status : undefined;
-        if (status && status >= 400 && status < 500) throw err;
+        if (status && status >= 400 && status < 500 && status !== 429) throw err;
         lastErr = err;
         if (attempt < RETRIES) {
-          await new Promise<void>((r) => setTimeout(r, Math.min(3000 * 2 ** attempt, 15000)));
+          const delay = status === 429
+            ? Math.min(5000 * 2 ** attempt, 30_000)
+            : Math.min(3000 * 2 ** attempt, 15_000);
+          await new Promise<void>((r) => setTimeout(r, delay));
         }
       }
     }
@@ -422,8 +460,26 @@ export const ApiService = {
   },
 
   async getItemCategories(timeout?: number): Promise<ItemCategory[]> {
-    const res = await apiClient.get('/bc/item-categories', { timeout });
-    return extractList<ItemCategory>(res.data);
+    const RETRIES = 3;
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= RETRIES; attempt++) {
+      try {
+        const res = await apiClient.get('/bc/item-categories', { timeout });
+        return extractList<ItemCategory>(res.data);
+      } catch (err) {
+        if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
+        const status = err instanceof ApiError ? err.status : undefined;
+        if (status && status >= 400 && status < 500 && status !== 429) throw err;
+        lastErr = err;
+        if (attempt < RETRIES) {
+          const delay = status === 429
+            ? Math.min(5000 * 2 ** attempt, 30_000)
+            : Math.min(3000 * 2 ** attempt, 15_000);
+          await new Promise<void>((r) => setTimeout(r, delay));
+        }
+      }
+    }
+    throw lastErr;
   },
 
   async getContactBrandTags(contactId: string): Promise<string[]> {
