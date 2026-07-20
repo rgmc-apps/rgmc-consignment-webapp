@@ -29,7 +29,7 @@ import type {
 
 const apiClient = axios.create({
   baseURL: '',
-  timeout: 60000,
+  timeout: 120_000,
   headers: {
     'Content-Type': 'application/json',
   },
