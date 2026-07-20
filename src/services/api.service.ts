@@ -588,6 +588,21 @@ export const ApiService = {
     return res.data;
   },
 
+  async submitSalesOrderAsync(payload: SalesOrderPayload): Promise<{ taskId: string; status: string }> {
+    const res = await apiClient.post('/bc/sales-orders/submit', payload);
+    return res.data;
+  },
+
+  async submitSalesReturnOrderAsync(payload: SalesReturnOrderPayload): Promise<{ taskId: string; status: string }> {
+    const res = await apiClient.post('/bc/custom/v2/sales-return-orders/submit', payload);
+    return res.data;
+  },
+
+  async pollTask(taskId: string): Promise<{ status: string; result?: unknown; error?: string }> {
+    const res = await apiClient.get(`/tasks/${taskId}`);
+    return res.data;
+  },
+
   async getBCSalesOrders(date: string): Promise<unknown> {
     const res = await apiClient.get('/bc/sales-orders', { params: { filter: `postingDate eq ${date}` } });
     return res.data;

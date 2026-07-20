@@ -436,6 +436,16 @@ function onRemarksCancel() {
   pendingSubmitType.value = null;
 }
 
+async function pollUntilDone(taskId: string, timeoutMs = 300_000): Promise<{ status: string; result?: unknown; error?: string }> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 3_000));
+    const task = await ApiService.pollTask(taskId);
+    if (task.status === 'done' || task.status === 'failed') return task;
+  }
+  throw new Error('Order is taking too long — check History or contact IT/MIS.');
+}
+
 async function doSubmitSales(customerNumber: string, remarks: string) {
   salesStatus.value = 'submitting';
   const isNoSales = session.value?.noSales ?? false;
@@ -455,11 +465,16 @@ async function doSubmitSales(customerNumber: string, remarks: string) {
     })),
   };
   try {
-    const res = await ApiService.submitSalesOrder(payload);
-    salesSeriesNo.value = (res as Record<string, string>)?.no ?? (res as Record<string, string>)?.series ?? '';
-    salesStatus.value = 'done';
-    triggerSweep();
-    showToast('Sales orders submitted!', 'success');
+    const { taskId } = await ApiService.submitSalesOrderAsync(payload);
+    const task = await pollUntilDone(taskId);
+    if (task.status === 'done') {
+      salesSeriesNo.value = (task.result as Record<string, string>)?.no ?? '';
+      salesStatus.value = 'done';
+      triggerSweep();
+      showToast('Sales orders submitted!', 'success');
+    } else {
+      throw new Error(task.error ?? 'Order processing failed');
+    }
   } catch (err) {
     salesErrorObj.value = err instanceof Error ? err : new Error(String(err));
     salesError.value = salesErrorObj.value.message;
@@ -486,11 +501,16 @@ async function doSubmitReturns(customerNumber: string, remarks: string) {
     })),
   };
   try {
-    const res = await ApiService.submitSalesReturnOrder(payload);
-    returnsSeriesNo.value = (res as Record<string, string>)?.no ?? (res as Record<string, string>)?.series ?? '';
-    returnsStatus.value = 'done';
-    triggerSweep();
-    showToast('Return orders submitted!', 'success');
+    const { taskId } = await ApiService.submitSalesReturnOrderAsync(payload);
+    const task = await pollUntilDone(taskId);
+    if (task.status === 'done') {
+      returnsSeriesNo.value = (task.result as Record<string, string>)?.no ?? '';
+      returnsStatus.value = 'done';
+      triggerSweep();
+      showToast('Return orders submitted!', 'success');
+    } else {
+      throw new Error(task.error ?? 'Order processing failed');
+    }
   } catch (err) {
     returnsErrorObj.value = err instanceof Error ? err : new Error(String(err));
     returnsError.value = returnsErrorObj.value.message;
