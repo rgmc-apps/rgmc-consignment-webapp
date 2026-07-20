@@ -410,6 +410,9 @@ async function fetchMissingPrices(items: typeof displayItems.value) {
     const priceMap = await ApiService.getAllItemPricesForDate(
       lookupDate.value,
       missing.map((i) => i.number),
+      undefined,
+      undefined,
+      props.familyCode,
     );
     for (const item of missing) {
       const price = priceMap[item.number] ?? null;

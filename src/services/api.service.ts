@@ -417,13 +417,14 @@ export const ApiService = {
     limit: number,
     signal?: AbortSignal,
     timeout?: number,
+    familyCode?: string,
   ): Promise<{ items: Item[]; priceMap: Record<string, number>; total: number }> {
     const RETRIES = 3;
     let lastErr: unknown;
     for (let attempt = 0; attempt <= RETRIES; attempt++) {
       try {
         const res = await apiClient.get('/bc/custom/v3/item-prices', {
-          params: { on_date: date, skip, limit },
+          params: { on_date: date, skip, limit, ...(familyCode ? { family_code: familyCode } : {}) },
           signal,
           timeout: timeout ?? 120_000,
         });

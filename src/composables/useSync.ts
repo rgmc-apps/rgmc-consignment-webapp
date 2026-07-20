@@ -75,7 +75,7 @@ export function useSync() {
       const itemsResult = await settle(
         (async () => {
           const PAGE_SIZE = 500;
-          const first = await ApiService.getItemsPaged(today, 0, PAGE_SIZE, undefined, TIMEOUT);
+          const first = await ApiService.getItemsPaged(today, 0, PAGE_SIZE, undefined, TIMEOUT, brandCode);
           const total = first.total || first.items.length;
           syncItemsTotal.value = total;
 
@@ -89,7 +89,7 @@ export function useSync() {
           };
 
           for (let skip = PAGE_SIZE; skip < total; skip += PAGE_SIZE) {
-            const page = await ApiService.getItemsPaged(today, skip, PAGE_SIZE, undefined, TIMEOUT);
+            const page = await ApiService.getItemsPaged(today, skip, PAGE_SIZE, undefined, TIMEOUT, brandCode);
             if (page.items.length === 0) break;
             for (const item of page.items) {
               if (!seen.has(item.number)) {

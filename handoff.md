@@ -41,6 +41,25 @@ All changes must remain backward-compatible with existing draft sessions stored 
 - In online mode + offline (no internet): state card shows "Offline" warning, Sync button hidden.
 - Offline mode behavior unchanged.
 
+**BC API 409 / 401 / timeout fixes** (multiple bc-api commits: `c8e6e38`, `c565b3e`, `56bf0ea`, `eaac493`)
+- **409 on parallel line creation**: `_create_line` in both `sales_order_routes.py` and `rgmc_sales_return_order_v2_routes.py` now retries 409 up to 3 times with 0.5s/1s/1.5s backoff (BC optimistic concurrency lock).
+- **401 transient errors**: `get_access_token(force_refresh=False)` added; `_bc_request` and `_fetch_all_pages` now retry on 401 by force-refreshing the OAuth token immediately.
+- **409 on Pag50318 `$skiptoken` pagination**: `_fetch_all_pages` now restarts from page 1 on 409 (up to 3 restarts, 1s delay) — BC temp-buffer cursor invalidated by concurrent requests.
+
+**Frontend sync simplified + paginated** (`add86c6`, `f693dbb` in consignment-webapp)
+- `useSync.ts`: replaced complex adaptive pagination with `Promise.allSettled` of 4 parallel tasks. Axios default timeout raised to 120s.
+- Items fetch uses sequential `getItemsPaged` calls (PAGE_SIZE=500); new `ApiService.getItemsPaged()` method using Python-level `skip`/`limit` params. First page warms backend cache; subsequent pages are instant cache hits.
+- TIMEOUT = 180_000 for all sync tasks.
+
+**Backend performance: single worker, warmup, longer TTL** (`eaac493` in bc-api)
+- `gunicorn_config.py`: `workers=1`, `threads=4`, `timeout=180` — single worker so all requests share one in-memory cache and one `_bc_semaphore(4)` (correctly caps BC at 4 concurrent connections).
+- `config.py`: `BC_WARMUP_COMPANIES = ["LGAP", "RGMC"]` from env var.
+- `bc_functions.py`: `_LIST_CACHE_TTL = 1800` (was 300). Added `warmup_all_companies()` that pre-populates all caches for all companies.
+- `main.py`: `@api.on_event("startup")` runs `warmup_all_companies` in background thread; `_warmup_loop` re-warms every 30 min.
+
+**GCP infra doc committed** (bc-api, already tracked)
+- `consignment-infra.md` — Layer 2A–2D hardening guide. Layer 2A (Cloud Run max-instances=1) is the next highest-priority action but requires user action in GCP console.
+
 ---
 
 ## Files Actively Being Edited
@@ -48,14 +67,19 @@ All changes must remain backward-compatible with existing draft sessions stored 
 All committed and stable.
 
 **Frontend (`C:\claude\rgmc-consignment-webapp\src`):**
-- `views/SplashPage.vue` — removed `hasLocalCache` guard; authenticated users always skip to home
-- `views/ScanningPage.vue` — added `canScan` computed; updated state card and scan form conditions
-- `views/HistoryPage.vue` — added BC Orders tab with date picker, order list, and detail modal
-- `services/api.service.ts` — 180s timeout on submit calls; 4 new BC order lookup methods
+- `views/SplashPage.vue`
+- `views/ScanningPage.vue`
+- `views/HistoryPage.vue`
+- `services/api.service.ts`
+- `composables/useSync.ts`
 
 **Backend (`C:\claude\rgmc-bc-api\src`):**
-- `routers/bc_routes/sales_order_routes.py` — `ThreadPoolExecutor(max_workers=3)` for parallel line creation
-- `routers/bc_routes/rgmc_sales_return_order_v2_routes.py` — same parallel pattern using v2 functions
+- `routers/bc_routes/sales_order_routes.py`
+- `routers/bc_routes/rgmc_sales_return_order_v2_routes.py`
+- `services/bc_functions.py`
+- `gunicorn_config.py`
+- `config.py`
+- `main.py`
 
 ---
 
@@ -63,27 +87,24 @@ All committed and stable.
 
 - **PowerShell heredoc with bash syntax** (`$(cat <<'EOF')`) — parse error. Must use PowerShell's `@'...'@` here-string for `git commit -m`.
 - **Edit tool "string not found" on bc routes** — em dash encoding mismatch (`—` vs `—`). Fixed by re-reading file to get exact bytes.
+- **3 gunicorn workers**: Each worker got its own isolated cache and semaphore — warmup in worker 1 didn't help workers 2/3, and 3×semaphore(4)=12 potential BC connections vs the ~5 BC allows. Reverted to `workers=1`.
+- **BC-native `bc_limit`/`bc_offset` pagination**: Bypasses backend in-memory cache — every page hits BC. Use Python-level `skip`/`limit` slicing from cache instead.
 
 ---
 
 ## Next Step
 
-**No immediate blocking task.** The most valuable next step from the backlog is:
-
-**Implement GCP Layer 2A (Cloud Run single-instance)** — documented in `C:\claude\rgmc-bc-api\consignment-infra.md`:
+**GCP Layer 2A (Cloud Run single-instance)** — requires user action in GCP console:
 1. Cloud Run → `rgmc-bc-api` service → Edit & Deploy New Revision
 2. Set Max instances = 1, Min instances = 1, Concurrency = 6
 3. Deploy
 
-This makes `_bc_semaphore(4)` a true global BC connection limiter and eliminates most 429 errors. No code change required.
+This ensures `_bc_semaphore(4)` is a true global BC connection limiter. The code change (`workers=1`) is already deployed; the GCP setting prevents Cloud Run from spinning up a second instance under load.
 
-**OR** implement Layer 2B (GCS catalog backup) — requires new Python code in `bc_functions.py` to persist the v3 item price catalog to a GCS bucket so restarts don't hit BC cold.
-
-Also still pending: commit the untracked `C:\claude\rgmc-bc-api\consignment-infra.md`:
-```powershell
-git -C C:\claude\rgmc-bc-api add consignment-infra.md
-git -C C:\claude\rgmc-bc-api commit -m "add GCP infra hardening plan for BC rate limit resilience"
-```
+**Optional Layer 2B (GCS catalog backup)** — code work:
+- Persist the v3 item price catalog to a GCS bucket on warmup.
+- On cold start, load from GCS if BC is unavailable.
+- Requires new Python code in `bc_functions.py` + GCS client library.
 
 ---
 
@@ -126,10 +147,14 @@ All refs (`isSyncing`, `syncProgress`, etc.) live outside the `useSync()` functi
 ### BC "External Document No." field
 35 characters max — base table limit. `RemarksModal.vue` enforces `maxlength="35"`.
 
-### `_block_until_v3_catalog_ready` (backend, post prior-session fix)
+### `_block_until_v3_catalog_ready` (backend)
 - Polls every 300ms, timeout 55s (under nginx 60s proxy_read_timeout)
 - Re-triggers on fetch failure as long as >8s remain on deadline
 - Returns None (→ 503) only if deadline expires with no cached data
 
+### Python-level vs BC-native pagination
+- `skip`/`limit` (Python-level): slices from backend in-memory cache — only page 1 hits BC (warms cache); all subsequent pages are instant.
+- `bc_limit`/`bc_offset` (BC-native): bypasses cache entirely — every page round-trips to BC. Avoid.
+
 ### GCP infra document
-`C:\claude\rgmc-bc-api\consignment-infra.md` — full Layer 2A–2D hardening guide. Still untracked (not committed). Layer 2A is the highest-priority, zero-code win.
+`C:\claude\rgmc-bc-api\consignment-infra.md` — committed. Full Layer 2A–2D hardening guide.
