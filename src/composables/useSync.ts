@@ -73,40 +73,16 @@ export function useSync() {
       );
 
       const itemsResult = await settle(
-        (async () => {
-          const PAGE_SIZE = 500;
-          const first = await ApiService.getItemsPaged(today, 0, PAGE_SIZE, undefined, TIMEOUT, brandCode);
-          const total = first.total || first.items.length;
-          syncItemsTotal.value = total;
-
-          const accItems = [...first.items];
-          const accPriceMap = { ...first.priceMap };
-          const seen = new Set(accItems.map((i) => i.number));
-          syncItemsLoaded.value = accItems.length;
-          syncSubTasks.value[2] = {
-            ...syncSubTasks.value[2],
-            detail: `${accItems.length.toLocaleString()} / ${total.toLocaleString()}`,
-          };
-
-          for (let skip = PAGE_SIZE; skip < total; skip += PAGE_SIZE) {
-            const page = await ApiService.getItemsPaged(today, skip, PAGE_SIZE, undefined, TIMEOUT, brandCode);
-            if (page.items.length === 0) break;
-            for (const item of page.items) {
-              if (!seen.has(item.number)) {
-                seen.add(item.number);
-                accItems.push(item);
-                accPriceMap[item.number] = item.unitPriceIncVAT;
-              }
-            }
-            syncItemsLoaded.value = accItems.length;
+        ApiService.getItemsForDate(today, brandCode, undefined, TIMEOUT)
+          .then((r) => {
+            syncItemsLoaded.value = r.items.length;
+            syncItemsTotal.value = r.items.length;
             syncSubTasks.value[2] = {
               ...syncSubTasks.value[2],
-              detail: `${accItems.length.toLocaleString()} / ${total.toLocaleString()}`,
+              detail: r.items.length.toLocaleString(),
             };
-          }
-
-          return { items: accItems, priceMap: accPriceMap };
-        })()
+            return r;
+          })
           .then((r) => {
             syncSubTasks.value[2].status = 'done';
             syncSubTasks.value[2] = { ...syncSubTasks.value[2], detail: `${r.items.length.toLocaleString()}` };
