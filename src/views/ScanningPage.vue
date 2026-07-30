@@ -97,6 +97,16 @@
             Contact your administrator if this persists.
           </p>
         </template>
+        <!-- Server catalog is empty — offer a trigger -->
+        <template v-else-if="isCatalogEmpty">
+          <ion-icon :icon="cloudDownloadOutline" color="warning" />
+          <p>Server catalog not ready</p>
+          <p class="state-sub">
+            The item price catalog hasn't been loaded on the server for
+            <strong>{{ authStore.company?.displayName ?? 'this company' }}</strong>
+            yet. Trigger a server sync below, wait 2–3 minutes, then tap Sync Now.
+          </p>
+        </template>
         <!-- Never synced (or sync failed before storing anything) -->
         <template v-else>
           <ion-icon :icon="cloudDownloadOutline" color="medium" />
@@ -107,7 +117,49 @@
           <ion-icon :icon="syncOutline" slot="start" />
           {{ lastSyncDate && cachedItems.length === 0 ? 'Retry Sync' : 'Sync Now' }}
         </ion-button>
+        <!-- Trigger server sync when catalog is empty -->
+        <template v-if="isCatalogEmpty && isOnline">
+          <ion-button
+            fill="outline"
+            color="warning"
+            :disabled="isTriggering"
+            @click="doTriggerRemoteSync"
+          >
+            <ion-spinner v-if="isTriggering" name="dots" slot="start" style="width:16px;height:16px" />
+            <ion-icon v-else :icon="cloudDownloadOutline" slot="start" />
+            {{ isTriggering ? 'Triggering…' : 'Trigger Server Sync' }}
+          </ion-button>
+          <p v-if="triggerMessage" class="trigger-msg" :class="{ 'trigger-msg--error': triggerMessage.startsWith('Failed') }">
+            {{ triggerMessage }}
+          </p>
+        </template>
       </div>
+
+      <!-- Sync warning banner (catalog empty with cached data, or partial sync failure) -->
+      <Transition name="net-notice-fade">
+        <div v-if="syncWarning && !isSyncing" class="sync-warn-banner">
+          <ion-icon :icon="alertCircleOutline" color="warning" />
+          <div class="sync-warn-content">
+            <span>{{ syncWarning }}</span>
+            <template v-if="isCatalogEmpty && isOnline">
+              <ion-button
+                size="small"
+                fill="outline"
+                color="warning"
+                :disabled="isTriggering"
+                class="sync-warn-trigger"
+                @click="doTriggerRemoteSync"
+              >
+                <ion-spinner v-if="isTriggering" name="dots" slot="start" style="width:12px;height:12px" />
+                {{ isTriggering ? 'Triggering…' : 'Trigger Server Sync' }}
+              </ion-button>
+              <span v-if="triggerMessage" class="trigger-msg" :class="{ 'trigger-msg--error': triggerMessage.startsWith('Failed') }">
+                {{ triggerMessage }}
+              </span>
+            </template>
+          </div>
+        </div>
+      </Transition>
 
       <!-- Syncing skeleton — mirrors the form layout so the user sees what's loading -->
       <div v-else-if="isSyncing" class="scan-skeleton">
@@ -707,7 +759,11 @@ import type { Customer, Item, ItemCategory, DiscountType } from '@/types';
 const router = useRouter();
 const authStore = useAuthStore();
 const sessionStore = useSessionStore();
-const { isSyncing, syncError, lastSyncDate, lastSyncLabel, sync } = useSync();
+const {
+  isSyncing, syncError, syncWarning, lastSyncDate, lastSyncLabel,
+  isCatalogEmpty, isTriggering, triggerMessage,
+  sync, triggerRemoteSync,
+} = useSync();
 const { isOnline, isSlowConnection } = useNetworkStatus();
 const { mode: appMode } = useAppModeStore();
 const { theme } = useTheme();
@@ -767,6 +823,11 @@ onMounted(async () => {
 });
 
 /* ─── Sync ─── */
+function doTriggerRemoteSync() {
+  const company = authStore.company?.code ?? '';
+  if (company) triggerRemoteSync(company);
+}
+
 function saveDraftAndGoHome() {
   sessionStore.saveAsDraftAndExit();
   router.replace('/app/home');
@@ -1329,6 +1390,40 @@ async function toast(message: string, color: string) {
   padding: 8px 16px;
   background: var(--app-danger-bg);
   font-size: 13px;
+  color: var(--ion-color-danger);
+}
+
+/* ── Sync warning banner ── */
+.sync-warn-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 16px;
+  background: rgba(var(--ion-color-warning-rgb), 0.1);
+  border-bottom: 1px solid rgba(var(--ion-color-warning-rgb), 0.25);
+  font-size: 13px;
+  color: var(--ion-color-warning-shade);
+}
+.sync-warn-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+.sync-warn-trigger {
+  align-self: flex-start;
+  height: 30px;
+  font-size: 12px;
+}
+
+/* ── Trigger message ── */
+.trigger-msg {
+  font-size: 12px;
+  color: var(--ion-color-success-shade);
+  margin: 0;
+  line-height: 1.4;
+}
+.trigger-msg--error {
   color: var(--ion-color-danger);
 }
 

@@ -13,6 +13,9 @@ const syncWarning = ref<string | null>(null);
 const lastSyncDate = ref<Date | null>(StorageService.getLastSync());
 const syncItemsLoaded = ref(0);
 const syncItemsTotal = ref(0);
+const isCatalogEmpty = ref(false);
+const isTriggering = ref(false);
+const triggerMessage = ref<string | null>(null);
 
 export function useSync() {
 
@@ -114,6 +117,14 @@ export function useSync() {
         StorageService.setSyncTimestamp('items');
         StorageService.setCachedItemPrices(today, priceMap);
         StorageService.applyPriceMapToItems(priceMap);
+        isCatalogEmpty.value = false;
+        triggerMessage.value = null;
+      } else {
+        const reason = (itemsResult as PromiseRejectedResult).reason;
+        const msg: string = reason instanceof Error ? reason.message : '';
+        if (msg.toLowerCase().includes('catalog is empty')) {
+          isCatalogEmpty.value = true;
+        }
       }
 
       const contacts = contactsResult.status === 'fulfilled'
@@ -157,6 +168,20 @@ export function useSync() {
     }
   }
 
+  async function triggerRemoteSync(company: string): Promise<void> {
+    if (isTriggering.value) return;
+    isTriggering.value = true;
+    triggerMessage.value = null;
+    try {
+      await ApiService.triggerItemPricesSync(company);
+      triggerMessage.value = 'Server sync started. Wait 2–3 minutes, then tap Sync Now.';
+    } catch (err) {
+      triggerMessage.value = err instanceof Error ? `Failed to trigger: ${err.message}` : 'Failed to trigger server sync.';
+    } finally {
+      isTriggering.value = false;
+    }
+  }
+
   async function syncIfStale(maxAgeHours = 24): Promise<void> {
     if (!lastSyncDate.value) {
       await sync();
@@ -184,8 +209,12 @@ export function useSync() {
     lastSyncLabel,
     syncItemsLoaded,
     syncItemsTotal,
+    isCatalogEmpty,
+    isTriggering,
+    triggerMessage,
     sync,
     syncIfStale,
     clearSyncWarning,
+    triggerRemoteSync,
   };
 }

@@ -567,6 +567,15 @@ export const ApiService = {
     return buildMap(allRows);
   },
 
+  async triggerItemPricesSync(company: string): Promise<void> {
+    const secret = import.meta.env.VITE_TASK_SECRET as string | undefined;
+    await apiClient.post('/internal/firestore/sync-item-prices', null, {
+      params: { company },
+      headers: secret ? { 'X-Task-Secret': secret } : {},
+      timeout: 15_000,
+    });
+  },
+
   async getApiStatus(company?: string): Promise<{ warming_up: boolean; active_bc_requests: number; busy: boolean }> {
     try {
       const res = await apiClient.get('/bc/status', {
