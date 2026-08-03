@@ -136,17 +136,24 @@ export const StorageService = {
     set(KEYS.CACHE_CONTACTS, contacts);
   },
 
-  getCachedCustomers(): Customer[] {
-    return get<Customer[]>(KEYS.CACHE_CUSTOMERS) ?? [];
+  getCachedCustomers(company?: string): Customer[] {
+    const raw = get<{ company?: string; data?: Customer[] } | Customer[]>(KEYS.CACHE_CUSTOMERS);
+    if (!raw) return [];
+    if (Array.isArray(raw)) {
+      // Old format (no company context) — treat as stale if a company is expected
+      return company ? [] : raw;
+    }
+    if (company && raw.company && raw.company !== company) return [];
+    return (raw.data as Customer[]) ?? [];
   },
-  setCachedCustomers(customers: Customer[]): void {
+  setCachedCustomers(customers: Customer[], company?: string): void {
     const slim = customers.map((c) => ({
       id: c.id,
       number: c.number,
       displayName: c.displayName,
       city: c.city,
     }));
-    set(KEYS.CACHE_CUSTOMERS, slim);
+    set(KEYS.CACHE_CUSTOMERS, { company: company ?? '', data: slim });
   },
 
   /* Items: in-memory + IndexedDB for offline persistence */

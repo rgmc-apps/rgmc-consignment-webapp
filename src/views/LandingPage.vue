@@ -222,7 +222,7 @@ const syncNotice = computed(() => syncError.value || syncWarning.value);
 
 async function doSync() {
   await sync();
-  allCustomers.value = StorageService.getCachedCustomers();
+  allCustomers.value = StorageService.getCachedCustomers(authStore.company?.code);
 }
 const isMinimalist = computed(() => theme.value === 'minimalist');
 const headerLogoSrc = computed(() =>
@@ -259,11 +259,11 @@ const todayLabel = computed(() =>
 );
 
 onMounted(() => {
-  allCustomers.value = StorageService.getCachedCustomers();
+  allCustomers.value = StorageService.getCachedCustomers(authStore.company?.code);
 });
 
 function onPullRefresh(ev: CustomEvent) {
-  allCustomers.value = StorageService.getCachedCustomers();
+  allCustomers.value = StorageService.getCachedCustomers(authStore.company?.code);
   sessionStore.loadFromStorage();
   (ev.target as HTMLIonRefresherElement).complete();
 }

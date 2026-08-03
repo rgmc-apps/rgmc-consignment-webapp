@@ -104,7 +104,7 @@ export function useSync() {
       );
 
       if (customersResult.status === 'fulfilled') {
-        StorageService.setCachedCustomers(customersResult.value);
+        StorageService.setCachedCustomers(customersResult.value, authStore.company?.code);
         StorageService.setSyncTimestamp('customers');
       }
       if (categoriesResult.status === 'fulfilled') {
