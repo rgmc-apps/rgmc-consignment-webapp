@@ -23,6 +23,7 @@ import type {
   Item,
   ItemCategory,
   ItemFamily,
+  PriceListHeader,
   SalesOrderPayload,
   SalesReturnOrderPayload,
 } from '@/types';
@@ -574,6 +575,20 @@ export const ApiService = {
       headers: secret ? { 'X-Task-Secret': secret } : {},
       timeout: 15_000,
     });
+  },
+
+  async getPriceListHeaderCatalog(
+    statusFilter?: string,
+    priceType?: string,
+  ): Promise<PriceListHeader[]> {
+    const params: Record<string, string> = {};
+    if (statusFilter) params['status'] = statusFilter;
+    if (priceType) params['price_type'] = priceType;
+    const res = await apiClient.get('/bc/custom/v2/price-list-headers/catalog', {
+      params,
+      timeout: 15_000,
+    });
+    return extractList<PriceListHeader>(res.data);
   },
 
   async getApiStatus(company?: string): Promise<{ warming_up: boolean; active_bc_requests: number; busy: boolean }> {

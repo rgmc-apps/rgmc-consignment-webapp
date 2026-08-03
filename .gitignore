@@ -22,6 +22,7 @@ desktop.ini
 # Claude Code session files
 .claude/
 handoff.md
+fable-suggestions.md
 
 # Dev-only scripts
 /screenshots/

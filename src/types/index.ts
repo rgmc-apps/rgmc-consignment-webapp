@@ -166,6 +166,20 @@ export interface SalesReturnOrderPayload {
   lines: SalesOrderLine[];
 }
 
+export interface PriceListHeader {
+  id: string;
+  code: string;
+  description: string;
+  status: string;
+  priceType: string;
+  startingDate: string;
+  endingDate: string;
+  itemFamilyCode?: string;
+  amountType?: string;
+  currencyCode?: string;
+  company?: string;
+}
+
 export interface ApiListResponse<T> {
   data: T[];
 }

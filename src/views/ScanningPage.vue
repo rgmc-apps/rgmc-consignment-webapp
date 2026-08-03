@@ -162,7 +162,7 @@
       </Transition>
 
       <!-- Syncing skeleton — mirrors the form layout so the user sees what's loading -->
-      <div v-else-if="isSyncing" class="scan-skeleton">
+      <div v-if="isSyncing" class="scan-skeleton">
         <!-- Skeleton: Customer card -->
         <div class="skel-form-card">
           <div class="skel-eyebrow skel-bone" />
@@ -201,6 +201,33 @@
       </div>
 
       <template v-if="canScan">
+
+        <!-- Price list update / expiry notice -->
+        <Transition name="net-notice-fade">
+          <div v-if="hasPriceListAlerts && !isSyncing && isOnline" class="price-list-alert-banner">
+            <div
+              v-for="alert in priceListAlerts"
+              :key="alert.type"
+              :class="['price-list-alert-row', `price-list-alert-row--${alert.type}`]"
+            >
+              <ion-icon
+                :icon="alert.type === 'expired' ? warningOutline : refreshCircleOutline"
+                :color="alert.type === 'expired' ? 'warning' : 'primary'"
+              />
+              <span>{{ alert.message }}</span>
+            </div>
+            <div class="price-list-alert-actions">
+              <ion-button size="small" fill="outline" color="primary" @click="sync">
+                <ion-icon :icon="syncOutline" slot="start" />
+                Sync Now
+              </ion-button>
+              <ion-button size="small" fill="clear" color="medium" @click="dismissPriceListAlert">
+                Dismiss
+              </ion-button>
+            </div>
+          </div>
+        </Transition>
+
         <div class="scan-panels">
         <div class="scan-form-col">
         <!-- ══ Customer Card ══ -->
@@ -738,10 +765,12 @@ import {
   arrowForwardOutline,
   saveOutline,
   informationCircleOutline,
+  refreshCircleOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore, computeTotal } from '@/stores/session.store';
 import { useSync } from '@/composables/useSync';
+import { usePriceListCheck } from '@/composables/usePriceListCheck';
 import { useCustomerFilter } from '@/composables/useCustomerFilter';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import { useAppModeStore } from '@/stores/app-mode.store';
@@ -764,6 +793,7 @@ const {
   isCatalogEmpty, isTriggering, triggerMessage,
   sync, triggerRemoteSync,
 } = useSync();
+const { alerts: priceListAlerts, hasAlerts: hasPriceListAlerts, check: checkPriceLists, dismiss: dismissPriceListAlert } = usePriceListCheck();
 const { isOnline, isSlowConnection } = useNetworkStatus();
 const { mode: appMode } = useAppModeStore();
 const { theme } = useTheme();
@@ -819,6 +849,8 @@ onMounted(async () => {
   }
   if (cachedItems.value.length === 0 && isOnline.value && appMode.value === 'offline') {
     await sync();
+  } else if (isOnline.value) {
+    checkPriceLists();
   }
 });
 
@@ -873,6 +905,7 @@ watch(isSyncing, (active) => {
     syncMsgIndex.value  = 0;
     isSyncingSlow.value = false;
     refreshCache();
+    if (isOnline.value) checkPriceLists();
     // Apply fresh prices to any open session lines — uses the price map already
     // written by sync, so no extra API calls are needed.
     const priceCache = StorageService.getCachedItemPrices();
@@ -1414,6 +1447,40 @@ async function toast(message: string, color: string) {
   align-self: flex-start;
   height: 30px;
   font-size: 12px;
+}
+
+/* ── Price list alert banner ── */
+.price-list-alert-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(var(--ion-color-primary-rgb), 0.06);
+  border-bottom: 1px solid rgba(var(--ion-color-primary-rgb), 0.18);
+}
+.price-list-alert-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.price-list-alert-row--expired {
+  color: var(--ion-color-warning-shade);
+}
+.price-list-alert-row--new-available {
+  color: var(--ion-color-primary-shade);
+}
+.price-list-alert-row ion-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  font-size: 16px;
+}
+.price-list-alert-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-top: 2px;
 }
 
 /* ── Trigger message ── */
