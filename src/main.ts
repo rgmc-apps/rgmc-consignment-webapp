@@ -2,6 +2,12 @@ import { createApp } from 'vue';
 import { IonicVue } from '@ionic/vue';
 import { createPinia } from 'pinia';
 
+// When a new build is deployed the old cached JS references stale hashed filenames.
+// Vite fires this event when a preload fails with 404; reloading fetches the new bundle.
+window.addEventListener('vite:preloadError', () => {
+  window.location.reload();
+});
+
 import App from './App.vue';
 import router from './router';
 

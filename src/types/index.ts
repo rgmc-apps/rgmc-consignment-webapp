@@ -72,6 +72,7 @@ export interface Item {
   familyCode?: string;
   baseUnitOfMeasure: string;
   unitPriceIncVAT: number;
+  priceListCode?: string;
   lastModifiedDateTime: string;
 }
 
@@ -87,11 +88,11 @@ export type SessionStatus = 'draft' | 'submitted' | 'failed';
 
 export interface OrderLine {
   id: string;
-  itemId: string;
   itemNumber: string;
   itemName: string;
   description: string;
   srp: number;
+  priceListCode?: string;
   quantity: number;
   discountType: DiscountType;
   discountValue: number;
@@ -163,6 +164,20 @@ export interface SalesReturnOrderPayload {
   yourReference?: string;
   submittedBy?: string;
   lines: SalesOrderLine[];
+}
+
+export interface PriceListHeader {
+  id: string;
+  code: string;
+  description: string;
+  status: string;
+  priceType: string;
+  startingDate: string;
+  endingDate: string;
+  itemFamilyCode?: string;
+  amountType?: string;
+  currencyCode?: string;
+  company?: string;
 }
 
 export interface ApiListResponse<T> {

@@ -22,7 +22,7 @@
       </ion-toolbar>
 
       <!-- Filter chips -->
-      <ion-toolbar v-if="sessionStore.completedSessions.length" class="filter-toolbar">
+      <ion-toolbar class="filter-toolbar">
         <div class="filter-chips">
           <ion-chip
             :color="activeFilter === 'all' ? 'primary' : 'medium'"
@@ -45,6 +45,14 @@
             <ion-icon :icon="alertCircleOutline" />
             Failed ({{ failedCount }})
           </ion-chip>
+          <ion-chip
+            :color="activeFilter === 'bc' ? 'tertiary' : 'medium'"
+            @click="switchToBCOrders"
+            class="filter-chip"
+          >
+            <ion-icon :icon="cloudDoneOutline" />
+            BC Orders
+          </ion-chip>
         </div>
       </ion-toolbar>
     </ion-header>
@@ -61,65 +69,164 @@
         />
       </ion-refresher>
 
-      <!-- Empty state -->
-      <div v-if="!sessionStore.completedSessions.length" class="empty-history">
-        <ion-icon :icon="timeOutline" color="medium" />
-        <p>No submitted sessions yet.<br />Completed sessions will appear here.</p>
-      </div>
+      <!-- Local session history -->
+      <template v-if="activeFilter !== 'bc'">
+        <div v-if="!sessionStore.completedSessions.length" class="empty-history">
+          <ion-icon :icon="timeOutline" color="medium" />
+          <p>No submitted sessions yet.<br />Completed sessions will appear here.</p>
+        </div>
 
-      <!-- Filtered empty state -->
-      <div v-else-if="!filteredSessions.length" class="empty-history">
-        <ion-icon :icon="filterOutline" color="medium" />
-        <p>No {{ activeFilter }} sessions.</p>
-      </div>
+        <div v-else-if="!filteredSessions.length" class="empty-history">
+          <ion-icon :icon="filterOutline" color="medium" />
+          <p>No {{ activeFilter }} sessions.</p>
+        </div>
 
-      <!-- Session list — :key forces remount on filter change to replay stagger -->
-      <ion-list v-else lines="full" :key="activeFilter">
-        <ion-item
-          v-for="session in filteredSessions"
-          :key="session.id"
-          button
-          :detail="false"
-          @click="openDetail(session)"
-        >
-          <ion-icon
-            :icon="session.status === 'submitted' ? checkmarkCircleOutline : alertCircleOutline"
-            :color="session.status === 'submitted' ? 'success' : 'danger'"
-            slot="start"
-          />
-          <ion-label>
-            <h3 class="session-customer">{{ session.customer?.displayName ?? '— No customer —' }}</h3>
-            <p class="session-meta">
-              {{ session.brand.displayName }} &bull; {{ formatDate(session.createdAt) }}
-            </p>
-            <p class="session-counts">
-              <span v-if="session.salesOrders.length">
-                Sales: {{ session.salesOrders.length }} lines
-                ({{ formatCurrency(sessionSalesTotal(session)) }})
-              </span>
-              <span v-if="session.salesOrders.length && session.returnOrders.length"> &bull; </span>
-              <span v-if="session.returnOrders.length">
-                Returns: {{ session.returnOrders.length }} lines
-                ({{ formatCurrency(sessionReturnTotal(session)) }})
-              </span>
-            </p>
-            <p v-if="session.salesOrderSeries || session.returnOrderSeries" class="session-series">
-              <span v-if="session.salesOrderSeries">SO# {{ session.salesOrderSeries }}</span>
-              <span v-if="session.salesOrderSeries && session.returnOrderSeries"> &bull; </span>
-              <span v-if="session.returnOrderSeries">SRO# {{ session.returnOrderSeries }}</span>
-            </p>
-            <p v-if="session.status === 'failed' && session.errorMessage" class="session-error">
-              {{ session.errorMessage }}
-            </p>
-          </ion-label>
-          <div slot="end" class="item-end">
-            <ion-badge :color="session.status === 'submitted' ? 'success' : 'danger'" class="status-badge">
-              {{ session.status === 'submitted' ? 'Submitted' : 'Failed' }}
-            </ion-badge>
-            <ion-note class="item-total">{{ formatCurrency(sessionTotal(session)) }}</ion-note>
+        <!-- Session list — :key forces remount on filter change to replay stagger -->
+        <ion-list v-else lines="full" :key="activeFilter">
+          <ion-item
+            v-for="session in filteredSessions"
+            :key="session.id"
+            button
+            :detail="false"
+            @click="openDetail(session)"
+          >
+            <ion-icon
+              :icon="session.status === 'submitted' ? checkmarkCircleOutline : alertCircleOutline"
+              :color="session.status === 'submitted' ? 'success' : 'danger'"
+              slot="start"
+            />
+            <ion-label>
+              <h3 class="session-customer">{{ session.customer?.displayName ?? '— No customer —' }}</h3>
+              <p class="session-meta">
+                {{ session.brand.displayName }} &bull; {{ session.postingDate ? formatDate(session.postingDate) : formatDate(session.createdAt) }}
+              </p>
+              <p class="session-counts">
+                <span v-if="session.salesOrders.length">
+                  Sales: {{ session.salesOrders.length }} lines
+                  ({{ formatCurrency(sessionSalesTotal(session)) }})
+                </span>
+                <span v-if="session.salesOrders.length && session.returnOrders.length"> &bull; </span>
+                <span v-if="session.returnOrders.length">
+                  Returns: {{ session.returnOrders.length }} lines
+                  ({{ formatCurrency(sessionReturnTotal(session)) }})
+                </span>
+              </p>
+              <p v-if="session.salesOrderSeries || session.returnOrderSeries" class="session-series">
+                <span v-if="session.salesOrderSeries">SO# {{ session.salesOrderSeries }}</span>
+                <span v-if="session.salesOrderSeries && session.returnOrderSeries"> &bull; </span>
+                <span v-if="session.returnOrderSeries">SRO# {{ session.returnOrderSeries }}</span>
+              </p>
+              <p v-if="session.status === 'failed' && session.errorMessage" class="session-error">
+                {{ session.errorMessage }}
+              </p>
+            </ion-label>
+            <div slot="end" class="item-end">
+              <ion-badge :color="session.status === 'submitted' ? 'success' : 'danger'" class="status-badge">
+                {{ session.status === 'submitted' ? 'Submitted' : 'Failed' }}
+              </ion-badge>
+              <ion-note class="item-total">{{ formatCurrency(sessionTotal(session)) }}</ion-note>
+            </div>
+          </ion-item>
+        </ion-list>
+      </template>
+
+      <!-- ── BC Orders Panel ── -->
+      <div v-else class="bc-panel">
+        <!-- Date picker -->
+        <div class="bc-date-bar">
+          <ion-icon :icon="calendarOutline" class="bc-date-icon" />
+          <input type="date" v-model="bcDate" class="bc-date-input" />
+          <ion-button size="small" fill="clear" @click="fetchBCOrders" :disabled="bcLoading">
+            <ion-icon :icon="refreshOutline" slot="icon-only" />
+          </ion-button>
+        </div>
+
+        <!-- Loading -->
+        <div v-if="bcLoading" class="bc-loading">
+          <ion-spinner name="crescent" />
+          <span>Fetching from BC…</span>
+        </div>
+
+        <!-- Error -->
+        <div v-else-if="bcError" class="empty-history">
+          <ion-icon :icon="alertCircleOutline" color="danger" />
+          <p>{{ bcError }}</p>
+        </div>
+
+        <!-- Results -->
+        <template v-else>
+          <!-- Sales Orders from BC -->
+          <div v-if="bcSalesOrders.length" class="bc-group">
+            <div class="bc-group-header">
+              <ion-icon :icon="cartOutline" color="primary" />
+              <span>Sales Orders</span>
+              <ion-badge color="primary">{{ bcSalesOrders.length }}</ion-badge>
+            </div>
+            <ion-list lines="full" class="bc-list">
+              <ion-item
+                v-for="order in bcSalesOrders"
+                :key="(order.id as string)"
+                button
+                :detail="false"
+                @click="openBCDetail(order, 'sales')"
+              >
+                <ion-label>
+                  <h3 class="session-customer">{{ order.sellToCustomerName ?? order.sellToCustomerNo ?? '—' }}</h3>
+                  <p class="session-meta">
+                    {{ order.no ?? '—' }}
+                    <span v-if="order.externalDocumentNo"> &bull; {{ order.externalDocumentNo }}</span>
+                  </p>
+                  <p v-if="order.submittedBy" class="session-counts">{{ order.submittedBy }}</p>
+                </ion-label>
+                <div slot="end" class="item-end">
+                  <ion-badge :color="bcStatusColor(order.status as string)" class="bc-status-badge">
+                    {{ order.status ?? 'Open' }}
+                  </ion-badge>
+                  <ion-note v-if="order.amount != null" class="item-total">{{ formatCurrency(order.amount as number) }}</ion-note>
+                </div>
+              </ion-item>
+            </ion-list>
           </div>
-        </ion-item>
-      </ion-list>
+
+          <!-- Return Orders from BC -->
+          <div v-if="bcReturnOrders.length" class="bc-group">
+            <div class="bc-group-header">
+              <ion-icon :icon="returnUpBackOutline" color="warning" />
+              <span>Return Orders</span>
+              <ion-badge color="warning">{{ bcReturnOrders.length }}</ion-badge>
+            </div>
+            <ion-list lines="full" class="bc-list">
+              <ion-item
+                v-for="order in bcReturnOrders"
+                :key="(order.id as string)"
+                button
+                :detail="false"
+                @click="openBCDetail(order, 'returns')"
+              >
+                <ion-label>
+                  <h3 class="session-customer">{{ order.sellToCustomerName ?? order.sellToCustomerNo ?? '—' }}</h3>
+                  <p class="session-meta">
+                    {{ order.no ?? '—' }}
+                    <span v-if="order.externalDocumentNo"> &bull; {{ order.externalDocumentNo }}</span>
+                  </p>
+                  <p v-if="order.submittedBy" class="session-counts">{{ order.submittedBy }}</p>
+                </ion-label>
+                <div slot="end" class="item-end">
+                  <ion-badge :color="bcStatusColor(order.status as string)" class="bc-status-badge">
+                    {{ order.status ?? 'Open' }}
+                  </ion-badge>
+                </div>
+              </ion-item>
+            </ion-list>
+          </div>
+
+          <!-- Empty -->
+          <div v-if="!bcSalesOrders.length && !bcReturnOrders.length" class="empty-history">
+            <ion-icon :icon="searchOutline" color="medium" />
+            <p>No orders found for {{ bcDate }}.</p>
+          </div>
+        </template>
+      </div>
     </ion-content>
 
     <!-- ══════════════ SESSION DETAIL MODAL ══════════════ -->
@@ -298,11 +405,113 @@
         </ion-content>
       </ion-page>
     </ion-modal>
+
+    <!-- ══════════════ BC ORDER DETAIL MODAL ══════════════ -->
+    <ion-modal
+      :is-open="!!selectedBCOrder"
+      @did-dismiss="selectedBCOrder = null"
+    >
+      <ion-page v-if="selectedBCOrder">
+        <ion-header>
+          <ion-toolbar>
+            <ion-buttons slot="start">
+              <ion-button fill="clear" @click="selectedBCOrder = null">
+                <ion-icon :icon="closeOutline" slot="icon-only" />
+              </ion-button>
+            </ion-buttons>
+            <ion-title>{{ selectedBCType === 'sales' ? 'Sales Order' : 'Return Order' }}</ion-title>
+          </ion-toolbar>
+        </ion-header>
+
+        <ion-content class="detail-content">
+          <!-- Header info card -->
+          <ion-card class="info-card">
+            <ion-card-content>
+              <div class="info-grid">
+                <div class="info-row">
+                  <span class="info-label">{{ selectedBCType === 'sales' ? 'SO#' : 'SRO#' }}</span>
+                  <span class="info-value series-num">{{ selectedBCOrder.no ?? '—' }}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Customer</span>
+                  <span class="info-value">{{ selectedBCOrder.sellToCustomerName ?? selectedBCOrder.sellToCustomerNo ?? '—' }}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Posting Date</span>
+                  <span class="info-value">{{ selectedBCOrder.postingDate ? formatDate(selectedBCOrder.postingDate as string) : '—' }}</span>
+                </div>
+                <div v-if="selectedBCOrder.externalDocumentNo" class="info-row">
+                  <span class="info-label">Remarks</span>
+                  <span class="info-value">{{ selectedBCOrder.externalDocumentNo }}</span>
+                </div>
+                <div v-if="selectedBCOrder.submittedBy" class="info-row">
+                  <span class="info-label">Submitted By</span>
+                  <span class="info-value">{{ selectedBCOrder.submittedBy }}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Status</span>
+                  <ion-badge :color="bcStatusColor(selectedBCOrder.status as string)" class="info-badge">
+                    {{ selectedBCOrder.status ?? 'Open' }}
+                  </ion-badge>
+                </div>
+                <div v-if="selectedBCOrder.amount != null" class="info-row">
+                  <span class="info-label">Total Amount</span>
+                  <span class="info-value">{{ formatCurrency(selectedBCOrder.amount as number) }}</span>
+                </div>
+              </div>
+            </ion-card-content>
+          </ion-card>
+
+          <!-- Line items -->
+          <div class="section-block">
+            <div class="section-header">
+              <ion-icon :icon="selectedBCType === 'sales' ? cartOutline : returnUpBackOutline" :color="selectedBCType === 'sales' ? 'primary' : 'warning'" />
+              <h2>Order Lines</h2>
+              <ion-badge color="medium" class="count-badge">{{ bcDetailLines.length }}</ion-badge>
+            </div>
+
+            <div v-if="bcDetailLoading" class="bc-lines-loading">
+              <ion-spinner name="crescent" />
+              <span>Loading lines…</span>
+            </div>
+
+            <ion-list v-else-if="bcDetailLines.length" lines="full" class="line-list">
+              <ion-item v-for="(line, i) in bcDetailLines" :key="i" class="line-item">
+                <ion-label>
+                  <h3 class="line-name">{{ line.description ?? '—' }}</h3>
+                  <p class="line-meta">{{ line.number ?? '—' }}</p>
+                  <p class="line-price-row">
+                    SRP {{ formatCurrency((line.unitPrice as number) ?? 0) }}
+                    &times; {{ line.quantity ?? 0 }}
+                    <span v-if="((line.lineDiscountPercent as number) ?? 0) > 0">
+                      &minus; {{ line.lineDiscountPercent }}%
+                    </span>
+                  </p>
+                </ion-label>
+                <ion-note slot="end" class="line-total">
+                  {{ formatCurrency((line.lineAmount as number) ?? ((line.unitPrice as number ?? 0) * (line.quantity as number ?? 0))) }}
+                </ion-note>
+              </ion-item>
+            </ion-list>
+
+            <div v-else-if="!bcDetailLoading" class="bc-no-lines">
+              No line details available.
+            </div>
+          </div>
+
+          <!-- Grand total (from lines, if amount not on header) -->
+          <div v-if="selectedBCOrder.amount == null && bcDetailLines.length" class="grand-total-row">
+            <span class="grand-total-label">Total</span>
+            <span class="grand-total-value">{{ formatCurrency(bcDetailLines.reduce((s, l) => s + ((l.lineAmount as number) ?? 0), 0)) }}</span>
+          </div>
+        </ion-content>
+      </ion-page>
+    </ion-modal>
   </ion-page>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   IonPage,
@@ -337,11 +546,15 @@ import {
   refreshOutline,
   chevronDownCircleOutline,
   bugOutline,
+  cloudDoneOutline,
+  calendarOutline,
+  searchOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
 import { useTheme } from '@/composables/useTheme';
 import { formatCurrency, formatDate, formatDateTime, formatDiscount } from '@/utils/format';
 import { useErrorReporter } from '@/composables/useErrorReporter';
+import { ApiService } from '@/services/api.service';
 import BugReportButton from '@/components/BugReportButton.vue';
 import type { ScanSession } from '@/types';
 
@@ -367,7 +580,7 @@ function onPullRefresh(ev: CustomEvent) {
 }
 
 /* ─── Filter state ─── */
-type FilterType = 'all' | 'submitted' | 'failed';
+type FilterType = 'all' | 'submitted' | 'failed' | 'bc';
 const activeFilter = ref<FilterType>('all');
 
 const submittedCount = computed(() =>
@@ -398,6 +611,80 @@ const selectedSession = ref<ScanSession | null>(null);
 
 function openDetail(session: ScanSession) {
   selectedSession.value = session;
+}
+
+/* ─── BC Orders ─── */
+type BCOrder = Record<string, unknown>;
+
+const bcDate = ref(new Date().toISOString().split('T')[0]);
+const bcSalesOrders = ref<BCOrder[]>([]);
+const bcReturnOrders = ref<BCOrder[]>([]);
+const bcLoading = ref(false);
+const bcError = ref('');
+
+const selectedBCOrder = ref<BCOrder | null>(null);
+const selectedBCType = ref<'sales' | 'returns'>('sales');
+const bcDetailLines = ref<BCOrder[]>([]);
+const bcDetailLoading = ref(false);
+
+function bcStatusColor(status: string | undefined): string {
+  switch ((status ?? '').toLowerCase()) {
+    case 'released': return 'success';
+    case 'pending approval': return 'warning';
+    case 'open': return 'primary';
+    default: return 'medium';
+  }
+}
+
+async function fetchBCOrders() {
+  bcLoading.value = true;
+  bcError.value = '';
+  try {
+    const [soRes, sroRes] = await Promise.allSettled([
+      ApiService.getBCSalesOrders(bcDate.value),
+      ApiService.getBCSalesReturnOrders(bcDate.value),
+    ]);
+    bcSalesOrders.value = soRes.status === 'fulfilled'
+      ? ((soRes.value as { data?: BCOrder[] })?.data ?? [])
+      : [];
+    bcReturnOrders.value = sroRes.status === 'fulfilled'
+      ? ((sroRes.value as { data?: BCOrder[] })?.data ?? [])
+      : [];
+    if (soRes.status === 'rejected' && sroRes.status === 'rejected') {
+      bcError.value = 'Could not fetch orders from BC. Check your connection.';
+    }
+  } catch {
+    bcError.value = 'Failed to fetch BC orders.';
+  } finally {
+    bcLoading.value = false;
+  }
+}
+
+function switchToBCOrders() {
+  activeFilter.value = 'bc';
+  fetchBCOrders();
+}
+
+watch(bcDate, () => {
+  if (activeFilter.value === 'bc') fetchBCOrders();
+});
+
+async function openBCDetail(order: BCOrder, type: 'sales' | 'returns') {
+  selectedBCOrder.value = order;
+  selectedBCType.value = type;
+  bcDetailLines.value = [];
+  bcDetailLoading.value = true;
+  try {
+    const orderId = order.id as string;
+    const res = type === 'sales'
+      ? await ApiService.getBCSalesOrderLines(orderId)
+      : await ApiService.getBCSalesReturnOrderLines(orderId);
+    bcDetailLines.value = ((res as { data?: BCOrder[] })?.data ?? []) as BCOrder[];
+  } catch {
+    bcDetailLines.value = [];
+  } finally {
+    bcDetailLoading.value = false;
+  }
 }
 
 /* ─── Retry ─── */
@@ -799,4 +1086,94 @@ ion-list ion-item:nth-child(8) { animation: fade-slide-up 0.28s var(--ease-out-q
   border-color: #e4e4e4;
 }
 .history--minimalist .grand-total-label { color: rgba(0, 0, 0, 0.4); }
+
+/* ── BC Orders Panel ── */
+.bc-panel {
+  padding-bottom: 32px;
+}
+
+.bc-date-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin: 12px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+}
+.bc-date-icon {
+  font-size: 16px;
+  color: var(--app-text-muted);
+  flex-shrink: 0;
+}
+.bc-date-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--app-fg);
+  font-family: inherit;
+}
+
+.bc-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 24px;
+  color: var(--app-text-muted);
+  font-size: 14px;
+}
+
+.bc-group {
+  margin: 0 12px 16px;
+}
+.bc-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 4px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--app-text-muted);
+}
+.bc-group-header ion-icon { font-size: 15px; }
+.bc-group-header span { flex: 1; }
+
+.bc-list {
+  background: var(--app-surface);
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+}
+
+.bc-status-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.3px; }
+
+.bc-lines-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--app-text-muted);
+  font-size: 13px;
+  background: var(--app-surface);
+  border-radius: 10px;
+  border: 1px solid var(--app-border);
+}
+
+.bc-no-lines {
+  text-align: center;
+  padding: 20px;
+  font-size: 13px;
+  color: var(--app-text-muted);
+  background: var(--app-surface);
+  border-radius: 10px;
+  border: 1px solid var(--app-border);
+}
 </style>

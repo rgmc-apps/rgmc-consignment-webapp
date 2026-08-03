@@ -39,17 +39,59 @@
       <!-- Sync -->
       <button
         class="pop-item"
-        :class="{ 'pop-item--disabled': isSyncing || !isOnline }"
+        :class="{
+          'pop-item--syncing': isSyncing,
+          'pop-item--disabled': !isSyncing && !isOnline,
+        }"
         :disabled="isSyncing || !isOnline"
         @click="onSync"
       >
-        <ion-icon :icon="isSyncing ? hourglassOutline : syncOutline" class="pop-icon" />
+        <ion-icon
+          :icon="syncOutline"
+          class="pop-icon"
+          :class="{ 'pop-icon--spinning': isSyncing }"
+        />
         <div class="pop-item-text">
-          <span class="pop-item-label">Sync Data</span>
-          <span class="pop-item-sub">{{ lastSyncLabel }}</span>
+          <span :key="isSyncing ? syncPrefixText : undefined" class="pop-item-label cycling-text">
+            {{ isSyncing ? `${syncPrefixText} ${syncProgress}%` : 'Sync Data' }}
+          </span>
+          <span :key="isSyncing ? syncSubCycleText : lastSyncLabel" class="pop-item-sub cycling-text">
+            {{ isSyncing ? syncSubCycleText : lastSyncLabel }}
+          </span>
         </div>
-        <ion-spinner v-if="isSyncing" name="crescent" class="pop-spinner" />
       </button>
+
+      <!-- Inline per-table progress — slides in while sync is running -->
+      <Transition name="sync-expand">
+        <div v-if="isSyncing && syncSubTasks.length" class="pop-sync-panel">
+          <div class="pop-progress-bar">
+            <div class="pop-progress-fill" :style="{ width: syncProgress + '%' }" />
+          </div>
+          <div class="pop-sync-tasks">
+            <div v-for="task in syncSubTasks" :key="task.label" class="pop-task-row">
+              <ion-icon
+                v-if="task.status === 'done'"
+                :icon="checkmarkCircleOutline"
+                class="pop-task-icon pop-task-icon--done"
+              />
+              <ion-icon
+                v-else-if="task.status === 'error'"
+                :icon="alertCircleOutline"
+                class="pop-task-icon pop-task-icon--error"
+              />
+              <ion-spinner v-else name="crescent" class="pop-task-spinner" />
+              <span
+                class="pop-task-label"
+                :class="{
+                  'pop-task-label--done': task.status === 'done',
+                  'pop-task-label--error': task.status === 'error',
+                }"
+              >{{ task.label }}</span>
+              <span v-if="task.detail" :key="task.detail" class="pop-task-detail cycling-text">{{ task.detail }}</span>
+            </div>
+          </div>
+        </div>
+      </Transition>
 
       <div class="pop-divider" />
 
@@ -111,16 +153,18 @@ import {
 } from '@ionic/vue';
 import {
   syncOutline,
-  hourglassOutline,
   logOutOutline,
   personOutline,
   chevronForwardOutline,
   sunnyOutline,
   moonOutline,
   removeOutline,
+  checkmarkCircleOutline,
+  alertCircleOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSync } from '@/composables/useSync';
+import { useLoadingText } from '@/composables/useLoadingText';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import { useTheme } from '@/composables/useTheme';
 import ProfileModal from '@/components/ProfileModal.vue';
@@ -128,7 +172,17 @@ import UserAvatar from '@/components/UserAvatar.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
-const { isSyncing, lastSyncLabel, sync } = useSync();
+const { isSyncing, syncProgress, syncSubTasks, lastSyncLabel, sync } = useSync();
+
+const syncPrefixText = useLoadingText(
+  ['Syncing…', 'Fetching data…', 'Updating cache…', 'Loading latest…'],
+  isSyncing,
+);
+const syncSubCycleText = useLoadingText(
+  ['Fetching latest data…', 'Updating your catalog…', 'Downloading customers…', 'Getting item prices…', 'Almost done…'],
+  isSyncing,
+  3000,
+);
 const { isOnline } = useNetworkStatus();
 const { theme, setTheme } = useTheme();
 
@@ -333,10 +387,229 @@ async function onLogout() {
   flex-shrink: 0;
 }
 
-.pop-spinner {
-  width: 16px;
-  height: 16px;
+/* ── Sync active state ── */
+.pop-item--syncing {
+  cursor: default;
+}
+
+.pop-item--syncing .pop-item-label {
   color: var(--app-gold);
+}
+
+@keyframes icon-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(-360deg); }
+}
+
+.pop-icon--spinning {
+  color: var(--app-gold) !important;
+  animation: icon-spin 1.4s linear infinite;
+}
+
+/* ── Inline sync progress panel ── */
+.pop-sync-panel {
+  padding: 0 16px 12px;
+  overflow: hidden;
+}
+
+.pop-progress-bar {
+  height: 3px;
+  border-radius: 3px;
+  background: var(--app-border);
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.pop-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--app-gold) 0%, color-mix(in srgb, var(--app-gold) 75%, white) 100%);
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.pop-sync-tasks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px 10px;
+}
+
+.pop-task-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.pop-task-icon--done {
+  font-size: 11px;
+  color: oklch(62% 0.15 145);
+  flex-shrink: 0;
+}
+
+.pop-task-icon--error {
+  font-size: 11px;
+  color: var(--ion-color-danger);
+  flex-shrink: 0;
+}
+
+.pop-task-spinner {
+  width: 10px;
+  height: 10px;
+  color: var(--app-gold);
+  flex-shrink: 0;
+}
+
+.pop-task-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--app-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pop-task-label--done {
+  opacity: 0.4;
+}
+
+.pop-task-label--error {
+  color: var(--ion-color-danger);
+}
+
+.pop-task-pct {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--app-gold);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.pop-task-detail {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--app-gold);
+  flex-shrink: 0;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+  opacity: 0.85;
+}
+
+/* ── Server load notice (below sync panel) ── */
+.pop-server-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 16px 10px;
+}
+
+.pop-server-notice--busy {
+  background: rgba(var(--ion-color-danger-rgb), 0.07);
+}
+
+.pop-server-notice--warm {
+  background: rgba(var(--ion-color-warning-rgb), 0.07);
+}
+
+.pop-notice-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.pop-server-notice--busy .pop-notice-icon { color: var(--ion-color-danger); }
+.pop-server-notice--warm .pop-notice-icon { color: var(--ion-color-warning-shade); }
+
+.pop-notice-text {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--app-fg);
+  line-height: 1.45;
+  opacity: 0.85;
+}
+
+.server-notice-fade-enter-active {
+  transition: opacity 0.22s ease, max-height 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+.server-notice-fade-leave-active {
+  transition: opacity 0.15s ease, max-height 0.2s ease;
+  overflow: hidden;
+}
+.server-notice-fade-enter-from,
+.server-notice-fade-leave-to { opacity: 0; max-height: 0 !important; }
+.server-notice-fade-enter-to,
+.server-notice-fade-leave-from { opacity: 1; max-height: 80px; }
+
+/* ── Server status chip (warmup / busy) ── */
+.pop-status-chip {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 20px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.pop-status-chip--busy {
+  background: rgba(var(--ion-color-danger-rgb), 0.12);
+  color: var(--ion-color-danger);
+  border: 1px solid rgba(var(--ion-color-danger-rgb), 0.25);
+}
+
+.pop-status-chip--warm {
+  background: rgba(var(--ion-color-warning-rgb), 0.12);
+  color: var(--ion-color-warning-shade);
+  border: 1px solid rgba(var(--ion-color-warning-rgb), 0.25);
+}
+
+.pop-icon--warn {
+  color: var(--ion-color-warning-shade) !important;
+}
+
+.pop-item--busy .pop-icon {
+  color: var(--ion-color-danger) !important;
+}
+
+.status-chip-fade-enter-active { transition: opacity 0.2s ease; }
+.status-chip-fade-leave-active { transition: opacity 0.15s ease; }
+.status-chip-fade-enter-from, .status-chip-fade-leave-to { opacity: 0; }
+
+/* ── Cycling loading text ── */
+@keyframes text-appear {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.cycling-text {
+  display: inline-block;
+  animation: text-appear 0.3s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cycling-text { animation: none !important; }
+}
+
+/* ── Slide-in / slide-out transition ── */
+.sync-expand-enter-active {
+  transition: opacity 0.22s ease, max-height 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+.sync-expand-leave-active {
+  transition: opacity 0.15s ease, max-height 0.2s ease;
+  overflow: hidden;
+}
+.sync-expand-enter-from,
+.sync-expand-leave-to {
+  opacity: 0;
+  max-height: 0 !important;
+}
+.sync-expand-enter-to,
+.sync-expand-leave-from {
+  opacity: 1;
+  max-height: 160px;
 }
 
 /* ── Theme selector ── */

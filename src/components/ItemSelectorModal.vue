@@ -47,7 +47,7 @@
               class="cat-chip"
             >All</ion-chip>
             <ion-chip
-              v-for="cat in categories"
+              v-for="cat in effectiveCategories"
               :key="cat.code"
               :color="selectedCat === cat.code ? 'primary' : 'medium'"
               @click="selectedCat = cat.code"
@@ -61,12 +61,29 @@
             <span>No item found for barcode <strong>{{ lastScannedBarcode }}</strong>. Showing search results.</span>
           </div>
 
+          <!-- Online mode: item loading state -->
+          <Transition name="price-bar-fade">
+            <div v-if="isLoadingOnline" class="price-fetch-bar">
+              <ion-spinner name="dots" class="price-fetch-spinner" />
+              <span>{{ onlineItems.length > 0 ? 'Refreshing items…' : 'Loading items from server…' }}</span>
+            </div>
+          </Transition>
+
+          <!-- Price-fetch bar -->
+          <Transition name="price-bar-fade">
+            <div v-if="isFetchingPrices" class="price-fetch-bar">
+              <ion-spinner name="dots" class="price-fetch-spinner" />
+              <span>Updating prices for {{ lookupDate }}…</span>
+            </div>
+          </Transition>
+
           <!-- Results header -->
           <p class="results-label">
-            {{ displayItems.length }} of {{ filteredItems.length }} items
-            <span v-if="filteredItems.length > DISPLAY_LIMIT" class="more-hint">
-              — refine your search to see more
-            </span>
+            <template v-if="totalPages > 1">
+              {{ (currentPage - 1) * PAGE_SIZE + 1 }}–{{ Math.min(currentPage * PAGE_SIZE, filteredItems.length) }}
+              of {{ filteredItems.length }} items
+            </template>
+            <template v-else>{{ filteredItems.length }} items</template>
           </p>
 
           <!-- Item list -->
@@ -86,12 +103,37 @@
                 </p>
               </ion-label>
               <ion-note slot="end" color="dark" class="item-price">
-                {{ formatCurrency(livePrices[item.number] ?? item.unitPriceIncVAT) }}
+                <span
+                  v-if="isFetchingPrices && livePrices[item.number] === undefined"
+                  class="price-skeleton"
+                />
+                <template v-else>{{ formatCurrency(livePrices[item.number] ?? item.unitPriceIncVAT) }}</template>
               </ion-note>
             </ion-item>
           </ion-list>
 
-          <div v-else class="empty-results">
+          <!-- Pagination controls -->
+          <div v-if="totalPages > 1" class="pagination-bar">
+            <ion-button
+              fill="clear"
+              size="small"
+              :disabled="currentPage <= 1"
+              @click="currentPage--"
+            >
+              <ion-icon :icon="chevronBackOutline" slot="icon-only" />
+            </ion-button>
+            <span class="pagination-label">{{ currentPage }} / {{ totalPages }}</span>
+            <ion-button
+              fill="clear"
+              size="small"
+              :disabled="currentPage >= totalPages"
+              @click="currentPage++"
+            >
+              <ion-icon :icon="chevronForwardOutline" slot="icon-only" />
+            </ion-button>
+          </div>
+
+          <div v-if="!displayItems.length" class="empty-results">
             <ion-icon :icon="searchOutline" />
             <p>No items found.<br />Try a different search term or category.</p>
           </div>
@@ -200,6 +242,7 @@ import {
   IonNote,
   IonChip,
   IonInput,
+  IonSpinner,
 } from '@ionic/vue';
 import {
   closeOutline,
@@ -209,17 +252,25 @@ import {
   alertCircleOutline,
   refreshOutline,
   checkmarkCircleOutline,
+  chevronBackOutline,
+  chevronForwardOutline,
 } from 'ionicons/icons';
 import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 import { formatCurrency } from '@/utils/format';
 import { useTheme } from '@/composables/useTheme';
+import { useAppModeStore } from '@/stores/app-mode.store';
 import type { Item, ItemCategory } from '@/types';
 
 const { theme } = useTheme();
 const isMinimalist = computed(() => theme.value === 'minimalist');
+const { mode } = useAppModeStore();
 
-const DISPLAY_LIMIT = 100;
+const PAGE_SIZE = 100;
+const currentPage = ref(1);
+
+const onlineItems = ref<Item[]>([]);
+const isLoadingOnline = ref(false);
 
 const props = defineProps<{
   items: Item[];
@@ -227,6 +278,7 @@ const props = defineProps<{
   initialCategoryCode?: string;
   isOnline?: boolean;
   onDate?: string;
+  familyCode?: string;
 }>();
 
 const emit = defineEmits<{
@@ -240,8 +292,20 @@ const selectedCat = ref(props.initialCategoryCode ?? '');
 const barcodeNotFound = ref(false);
 const lastScannedBarcode = ref('');
 
+const effectiveItems = computed(() => mode.value === 'online' ? onlineItems.value : props.items);
+
+const effectiveCategories = computed<ItemCategory[]>(() => {
+  if (mode.value === 'online' && onlineItems.value.length > 0) {
+    const seen = new Set<string>();
+    return onlineItems.value
+      .filter((i) => i.itemCategoryCode && !seen.has(i.itemCategoryCode) && seen.add(i.itemCategoryCode))
+      .map((i) => ({ id: i.itemCategoryCode, code: i.itemCategoryCode, displayName: i.itemCategoryCode, lastModifiedDateTime: '' }));
+  }
+  return props.categories;
+});
+
 const filteredItems = computed(() => {
-  let src = props.items;
+  let src = effectiveItems.value;
   if (selectedCat.value) {
     src = src.filter((i) => i.itemCategoryCode === selectedCat.value);
   }
@@ -257,31 +321,98 @@ const filteredItems = computed(() => {
   return src;
 });
 
-const displayItems = computed(() => filteredItems.value.slice(0, DISPLAY_LIMIT));
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredItems.value.length / PAGE_SIZE)));
+
+const displayItems = computed(() => {
+  const start = (currentPage.value - 1) * PAGE_SIZE;
+  return filteredItems.value.slice(start, start + PAGE_SIZE);
+});
+
+// Reset to page 1 whenever the filtered set changes
+watch([searchQuery, selectedCat], () => { currentPage.value = 1; });
 
 /* ─── Live prices ─── */
 // Keyed by item.number; seeded from the sync price-map, then filled on-demand.
 const livePrices = ref<Record<string, number>>({});
+const isFetchingPrices = ref(false);
 
 const lookupDate = computed(() => props.onDate ?? new Date().toISOString().split('T')[0]);
 
-onMounted(() => {
-  const today = new Date().toISOString().split('T')[0];
+onMounted(async () => {
+  if (mode.value === 'online') {
+    // Seed from previously loaded items immediately (stale-while-revalidate).
+    // This makes search work instantly on repeat opens without a loading wait.
+    const allCached = StorageService.getCachedItems();
+    const seedItems = props.familyCode
+      ? allCached.filter((i) => i.familyCode === props.familyCode)
+      : allCached;
+    const cachedPrices = StorageService.getCachedItemPrices();
+    if (seedItems.length > 0) {
+      onlineItems.value = seedItems;
+      if (cachedPrices?.date === lookupDate.value) {
+        livePrices.value = { ...cachedPrices.prices };
+      }
+    }
+
+    // Cache hit: items loaded and prices match the posting date — no API call needed.
+    if (seedItems.length > 0 && cachedPrices?.date === lookupDate.value) {
+      isLoadingOnline.value = false;
+      return;
+    }
+
+    // Cache miss (no items) or date mismatch — fetch from API.
+    isLoadingOnline.value = seedItems.length === 0;
+    try {
+      const result = await ApiService.getItemsPage(lookupDate.value, props.familyCode);
+      onlineItems.value = result.items;
+      livePrices.value = result.priceMap;
+
+      // Persist so the next open at the same date is instant.
+      // Merge by familyCode so items from other families aren't overwritten.
+      const existing = StorageService.getCachedItems();
+      const others = props.familyCode
+        ? existing.filter((i) => i.familyCode !== props.familyCode)
+        : [];
+      StorageService.setCachedItems([...others, ...result.items]);
+
+      const existingPrices = StorageService.getCachedItemPrices();
+      StorageService.setCachedItemPrices(
+        lookupDate.value,
+        existingPrices?.date === lookupDate.value
+          ? { ...existingPrices.prices, ...result.priceMap }
+          : result.priceMap,
+      );
+    } catch (err) {
+      // Keep showing seed items if the API call fails.
+    } finally {
+      isLoadingOnline.value = false;
+    }
+    return;
+  }
+
+  // Offline mode: use cached prices and batch-fetch any missing ones for the current page.
   const cached = StorageService.getCachedItemPrices();
-  if (cached?.date === today) livePrices.value = { ...cached.prices };
+  if (cached?.date === lookupDate.value) {
+    livePrices.value = { ...cached.prices };
+  }
+  if (priceTimer) clearTimeout(priceTimer);
+  priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 100);
 });
 
 let priceTimer: ReturnType<typeof setTimeout> | null = null;
 
-watch(displayItems, (items) => {
+async function fetchMissingPrices(items: typeof displayItems.value) {
   if (!props.isOnline) return;
-  if (priceTimer) clearTimeout(priceTimer);
-  priceTimer = setTimeout(async () => {
-    const missing = items.filter((i) => livePrices.value[i.number] === undefined);
-    if (!missing.length) return;
+  const missing = items.filter((i) => livePrices.value[i.number] === undefined);
+  if (!missing.length) return;
+  isFetchingPrices.value = true;
+  try {
     const priceMap = await ApiService.getAllItemPricesForDate(
       lookupDate.value,
       missing.map((i) => i.number),
+      undefined,
+      undefined,
+      props.familyCode,
     );
     for (const item of missing) {
       const price = priceMap[item.number] ?? null;
@@ -290,7 +421,21 @@ watch(displayItems, (items) => {
         StorageService.patchCachedItemPrice(item.number, price);
       }
     }
-  }, 300);
+  } finally {
+    isFetchingPrices.value = false;
+  }
+}
+
+watch(displayItems, (items) => {
+  if (priceTimer) clearTimeout(priceTimer);
+  priceTimer = setTimeout(() => fetchMissingPrices(items), 300);
+});
+
+watch(lookupDate, () => {
+  livePrices.value = {};
+  if (priceTimer) clearTimeout(priceTimer);
+  // Only fetch prices for the current page — page navigation triggers its own fetch.
+  priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 300);
 });
 
 watch(
@@ -496,6 +641,7 @@ function resolveBarcode(code: string) {
 onUnmounted(() => {
   stopCamera();
   if (priceTimer) clearTimeout(priceTimer);
+  isFetchingPrices.value = false;
 });
 </script>
 
@@ -554,6 +700,25 @@ onUnmounted(() => {
 .item-price {
   font-size: 14px;
   font-weight: 700;
+}
+
+/* ── Pagination ── */
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--app-border);
+}
+
+.pagination-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text-muted);
+  min-width: 56px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Empty state ── */
@@ -817,6 +982,58 @@ onUnmounted(() => {
 
 .single-confirm-btn {
   margin-bottom: 8px;
+}
+
+/* ── Price fetch bar ── */
+.price-fetch-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  background: color-mix(in srgb, var(--ion-color-primary) 10%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--ion-color-primary) 22%, transparent);
+  font-size: 12px;
+  color: var(--ion-color-primary);
+  font-weight: 500;
+}
+.price-fetch-spinner { width: 14px; height: 14px; flex-shrink: 0; }
+
+.price-bar-fade-enter-active,
+.price-bar-fade-leave-active {
+  transition: opacity 0.2s ease, max-height 0.25s ease;
+  overflow: hidden;
+  max-height: 40px;
+}
+.price-bar-fade-enter-from,
+.price-bar-fade-leave-to { opacity: 0; max-height: 0; }
+
+/* ── Price skeleton shimmer ── */
+.price-skeleton {
+  display: inline-block;
+  width: 54px;
+  height: 13px;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--app-border) 25%,
+    var(--app-surface-alt) 50%,
+    var(--app-border) 75%
+  );
+  background-size: 200% 100%;
+  animation: price-shimmer 1.4s ease-in-out infinite;
+  vertical-align: middle;
+}
+
+@keyframes price-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .price-skeleton {
+    animation: none;
+    background: var(--app-border);
+  }
 }
 
 /* ── Minimalist theme overrides ── */

@@ -415,6 +415,24 @@ ion-spinner {
   to   { opacity: 1; }
 }
 
+@keyframes skel-shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+
+/* Reusable shimmer bone — set width/height on the element */
+.skel-bone {
+  border-radius: 5px;
+  background: linear-gradient(
+    90deg,
+    var(--app-border) 0%,
+    var(--app-surface-alt) 50%,
+    var(--app-border) 100%
+  );
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.6s ease-in-out infinite;
+}
+
 @keyframes icon-pop {
   from { opacity: 0; transform: scale(0.45); }
   to   { opacity: 1; transform: scale(1);    }

@@ -58,11 +58,8 @@ export default defineConfig(({ mode }) => {
       port: 8100,
       proxy: proxyTarget
         ? {
-            '/bc': {
-              target: proxyTarget,
-              changeOrigin: true,
-              secure: true,
-            },
+            '/bc':       { target: proxyTarget, changeOrigin: true, secure: true },
+            '/internal': { target: proxyTarget, changeOrigin: true, secure: true },
           }
         : undefined,
     },

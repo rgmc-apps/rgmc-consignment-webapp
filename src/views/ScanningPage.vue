@@ -79,7 +79,7 @@
       </Transition>
 
       <!-- No cache state -->
-      <div v-if="!hasCache && !isSyncing" class="state-card">
+      <div v-if="!canScan && !isSyncing" class="state-card">
         <!-- Offline with no items — cannot scan -->
         <template v-if="!isOnline">
           <ion-icon :icon="cloudOfflineOutline" color="warning" />
@@ -97,6 +97,16 @@
             Contact your administrator if this persists.
           </p>
         </template>
+        <!-- Server catalog is empty — offer a trigger -->
+        <template v-else-if="isCatalogEmpty">
+          <ion-icon :icon="cloudDownloadOutline" color="warning" />
+          <p>Server catalog not ready</p>
+          <p class="state-sub">
+            The item price catalog hasn't been loaded on the server for
+            <strong>{{ authStore.company?.displayName ?? 'this company' }}</strong>
+            yet. Trigger a server sync below, wait 2–3 minutes, then tap Sync Now.
+          </p>
+        </template>
         <!-- Never synced (or sync failed before storing anything) -->
         <template v-else>
           <ion-icon :icon="cloudDownloadOutline" color="medium" />
@@ -107,13 +117,81 @@
           <ion-icon :icon="syncOutline" slot="start" />
           {{ lastSyncDate && cachedItems.length === 0 ? 'Retry Sync' : 'Sync Now' }}
         </ion-button>
+        <!-- Trigger server sync when catalog is empty -->
+        <template v-if="isCatalogEmpty && isOnline">
+          <ion-button
+            fill="outline"
+            color="warning"
+            :disabled="isTriggering"
+            @click="doTriggerRemoteSync"
+          >
+            <ion-spinner v-if="isTriggering" name="dots" slot="start" style="width:16px;height:16px" />
+            <ion-icon v-else :icon="cloudDownloadOutline" slot="start" />
+            {{ isTriggering ? 'Triggering…' : 'Trigger Server Sync' }}
+          </ion-button>
+          <p v-if="triggerMessage" class="trigger-msg" :class="{ 'trigger-msg--error': triggerMessage.startsWith('Failed') }">
+            {{ triggerMessage }}
+          </p>
+        </template>
       </div>
 
-      <!-- Syncing state -->
-      <div v-else-if="isSyncing" class="state-card">
-        <ion-spinner name="crescent" />
-        <p>{{ syncMainMsg }}</p>
-        <p class="state-sub">{{ syncSubMsg }}</p>
+      <!-- Sync warning banner (catalog empty with cached data, or partial sync failure) -->
+      <Transition name="net-notice-fade">
+        <div v-if="syncWarning && !isSyncing" class="sync-warn-banner">
+          <ion-icon :icon="alertCircleOutline" color="warning" />
+          <div class="sync-warn-content">
+            <span>{{ syncWarning }}</span>
+            <template v-if="isCatalogEmpty && isOnline">
+              <ion-button
+                size="small"
+                fill="outline"
+                color="warning"
+                :disabled="isTriggering"
+                class="sync-warn-trigger"
+                @click="doTriggerRemoteSync"
+              >
+                <ion-spinner v-if="isTriggering" name="dots" slot="start" style="width:12px;height:12px" />
+                {{ isTriggering ? 'Triggering…' : 'Trigger Server Sync' }}
+              </ion-button>
+              <span v-if="triggerMessage" class="trigger-msg" :class="{ 'trigger-msg--error': triggerMessage.startsWith('Failed') }">
+                {{ triggerMessage }}
+              </span>
+            </template>
+          </div>
+        </div>
+      </Transition>
+
+      <!-- Syncing skeleton — mirrors the form layout so the user sees what's loading -->
+      <div v-if="isSyncing" class="scan-skeleton">
+        <!-- Skeleton: Customer card -->
+        <div class="skel-form-card">
+          <div class="skel-eyebrow skel-bone" />
+          <div class="skel-cust-block">
+            <div class="skel-cust-name skel-bone" />
+            <div class="skel-cust-sub skel-bone" />
+          </div>
+          <div class="skel-divider" />
+          <div class="skel-date-block">
+            <div class="skel-date-label skel-bone" />
+            <div class="skel-date-value skel-bone" />
+          </div>
+        </div>
+        <!-- Skeleton: Item form card -->
+        <div class="skel-form-card skel-form-card--delay">
+          <div class="skel-eyebrow skel-bone" />
+          <div v-for="n in 3" :key="n" class="skel-field-row">
+            <div class="skel-field-label skel-bone" />
+            <div class="skel-field-value skel-bone" />
+          </div>
+        </div>
+        <!-- Sync status message at the bottom -->
+        <div class="skel-sync-status">
+          <ion-spinner name="dots" class="skel-sync-spinner" />
+          <div class="skel-sync-text">
+            <span :key="syncMainMsg" class="skel-sync-main cycling-text">{{ syncMainMsg }}</span>
+            <span :key="syncSubMsg" class="skel-sync-sub cycling-text">{{ syncSubMsg }}</span>
+          </div>
+        </div>
       </div>
 
       <!-- Sync error -->
@@ -122,14 +200,41 @@
         <span>{{ syncError }}</span>
       </div>
 
-      <template v-if="hasCache">
+      <template v-if="canScan">
+
+        <!-- Price list update / expiry notice -->
+        <Transition name="net-notice-fade">
+          <div v-if="hasPriceListAlerts && !isSyncing && isOnline" class="price-list-alert-banner">
+            <div
+              v-for="alert in priceListAlerts"
+              :key="alert.type"
+              :class="['price-list-alert-row', `price-list-alert-row--${alert.type}`]"
+            >
+              <ion-icon
+                :icon="alert.type === 'expired' ? warningOutline : refreshCircleOutline"
+                :color="alert.type === 'expired' ? 'warning' : 'primary'"
+              />
+              <span>{{ alert.message }}</span>
+            </div>
+            <div class="price-list-alert-actions">
+              <ion-button size="small" fill="outline" color="primary" @click="sync">
+                <ion-icon :icon="syncOutline" slot="start" />
+                Sync Now
+              </ion-button>
+              <ion-button size="small" fill="clear" color="medium" @click="dismissPriceListAlert">
+                Dismiss
+              </ion-button>
+            </div>
+          </div>
+        </Transition>
+
         <div class="scan-panels">
         <div class="scan-form-col">
         <!-- ══ Customer Card ══ -->
         <ion-card class="form-card">
           <ion-card-content>
             <p class="field-label">CUSTOMER</p>
-            <div class="customer-tap" @click="showCustomerModal = true">
+            <div :class="['customer-tap', { 'customer-tap--flash': customerFlash }]" @click="showCustomerModal = true">
               <div v-if="selectedCustomer" class="customer-info">
                 <p class="cust-name">{{ selectedCustomer.displayName }}</p>
                 <p class="cust-sub">{{ selectedCustomer.number }} &bull; {{ selectedCustomer.city }}</p>
@@ -203,7 +308,7 @@
 
             <!-- Fields below only visible once item is selected -->
             <Transition name="form-fields">
-            <div v-if="form.itemId" class="form-fields-group">
+            <div v-if="form.itemNumber" class="form-fields-group">
               <!-- Description -->
               <ion-item lines="inset" class="form-row form-row--readonly">
                 <ion-label>Description</ion-label>
@@ -215,7 +320,10 @@
                 <ion-label>SRP</ion-label>
                 <ion-note slot="end" class="readonly-val readonly-val--gold">
                   <ion-spinner v-if="fetchingPrice" name="dots" style="width:16px;height:16px;vertical-align:middle" />
-                  <template v-else>{{ formatCurrency(form.srp) }}</template>
+                  <template v-else>
+                    {{ formatCurrency(form.srp) }}
+                    <span v-if="form.priceListCode" class="price-list-code">{{ form.priceListCode }}</span>
+                  </template>
                 </ion-note>
               </ion-item>
               <p class="srp-date-hint">
@@ -320,6 +428,7 @@
           </ion-segment>
 
           <ion-list class="order-list" lines="full">
+            <TransitionGroup name="order-item">
             <ion-item-sliding
               v-for="line in activeOrders"
               :key="line.id"
@@ -329,11 +438,13 @@
                   <h3>{{ line.itemName }}</h3>
                   <p>
                     {{ line.itemNumber }} &bull;
-                    Qty {{ line.quantity }} &times; {{ formatCurrency(line.srp) }}
+                    Qty {{ line.quantity }} &times;
+                    <span :class="{ 'price-stale': isUpdatingLinePrices }">{{ formatCurrency(line.srp) }}</span>
+                    <span v-if="line.priceListCode" class="price-list-code">{{ line.priceListCode }}</span>
                   </p>
                   <p>
                     Disc: {{ formatDiscount(line.discountType, line.discountValue) }}
-                    &bull; Total: {{ formatCurrency(line.totalAmount) }}
+                    &bull; Total: <span :class="{ 'price-stale': isUpdatingLinePrices }">{{ formatCurrency(line.totalAmount) }}</span>
                   </p>
                 </ion-label>
                 <ion-note
@@ -341,7 +452,8 @@
                   :color="activeTab === 'sales' ? 'primary' : 'danger'"
                   class="line-total"
                 >
-                  {{ formatCurrency(line.totalAmount) }}
+                  <ion-spinner v-if="isUpdatingLinePrices" name="dots" class="line-price-spinner" />
+                  <template v-else>{{ formatCurrency(line.totalAmount) }}</template>
                 </ion-note>
               </ion-item>
               <ion-item-options side="end">
@@ -350,6 +462,7 @@
                 </ion-item-option>
               </ion-item-options>
             </ion-item-sliding>
+            </TransitionGroup>
 
             <!-- Subtotal row -->
             <ion-item lines="none" class="subtotal-row">
@@ -456,8 +569,9 @@
       :initial-category-code="form.categoryCode"
       :is-online="isOnline"
       :on-date="orderDateValue"
+      :family-code="authStore.brand?.code"
       @select="onItemSelected"
-      @close="showItemModal = false"
+      @close="onItemModalClose"
     />
 
     <!-- ══════════ Confirm Add Sheet ══════════ -->
@@ -480,13 +594,16 @@
               </span>
             </div>
             <p class="conf-item-srp">
-              <template v-if="fetchingPrice">
-                <ion-spinner name="dots" class="srp-spinner" />
-                <span class="conf-srp-label">Fetching price…</span>
-              </template>
-              <template v-else>
-                {{ formatCurrency(confirmedSrp) }} <span class="conf-srp-label">SRP</span>
-              </template>
+              <Transition name="price-reveal" mode="out-in">
+                <span v-if="fetchingPrice" key="loading" class="conf-srp-loading">
+                  <ion-spinner name="dots" class="srp-spinner" />
+                  <span class="conf-srp-label">Fetching price…</span>
+                </span>
+                <span v-else :key="priceRevealKey" class="conf-srp-value">
+                  {{ formatCurrency(confirmedSrp) }} <span class="conf-srp-label">SRP</span>
+                  <span v-if="confirmedPriceListCode" class="price-list-code">{{ confirmedPriceListCode }}</span>
+                </span>
+              </Transition>
             </p>
           </div>
 
@@ -648,12 +765,15 @@ import {
   arrowForwardOutline,
   saveOutline,
   informationCircleOutline,
+  refreshCircleOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore, computeTotal } from '@/stores/session.store';
 import { useSync } from '@/composables/useSync';
+import { usePriceListCheck } from '@/composables/usePriceListCheck';
 import { useCustomerFilter } from '@/composables/useCustomerFilter';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
+import { useAppModeStore } from '@/stores/app-mode.store';
 import { useTheme } from '@/composables/useTheme';
 import { useGoldAccent } from '@/composables/useGoldAccent';
 import { StorageService } from '@/services/storage.service';
@@ -668,8 +788,14 @@ import type { Customer, Item, ItemCategory, DiscountType } from '@/types';
 const router = useRouter();
 const authStore = useAuthStore();
 const sessionStore = useSessionStore();
-const { isSyncing, syncError, lastSyncDate, lastSyncLabel, sync } = useSync();
+const {
+  isSyncing, syncError, syncWarning, lastSyncDate, lastSyncLabel,
+  isCatalogEmpty, isTriggering, triggerMessage,
+  sync, triggerRemoteSync,
+} = useSync();
+const { alerts: priceListAlerts, hasAlerts: hasPriceListAlerts, check: checkPriceLists, dismiss: dismissPriceListAlert } = usePriceListCheck();
 const { isOnline, isSlowConnection } = useNetworkStatus();
+const { mode: appMode } = useAppModeStore();
 const { theme } = useTheme();
 const isMinimalist = computed(() => theme.value === 'minimalist');
 const headerLogoSrc = computed(() =>
@@ -691,6 +817,11 @@ const hasCache = computed(
   () => cachedItems.value.length > 0 && cachedCustomers.value.length > 0 && categories.value.length > 0,
 );
 
+// In online mode, items are fetched live by ItemSelectorModal — no local cache required
+const canScan = computed(
+  () => hasCache.value || (appMode.value === 'online' && isOnline.value),
+);
+
 function refreshCache() {
   const brandCode = authStore.brand?.code;
   cachedCustomers.value = StorageService.getCachedCustomers();
@@ -701,6 +832,13 @@ function refreshCache() {
   categories.value = StorageService.getCachedItemCategories();
 }
 
+function onItemModalClose() {
+  showItemModal.value = false;
+  // In online mode the modal may have saved freshly fetched items to storage.
+  // Refresh so cachedItems reflects what was just persisted.
+  if (appMode.value === 'online') refreshCache();
+}
+
 onMounted(async () => {
   /* Restore items from IndexedDB before checking cache — ensures items
      are available after a browser refresh even when offline. */
@@ -709,12 +847,19 @@ onMounted(async () => {
   if (!sessionStore.currentSession && authStore.brand && authStore.user) {
     sessionStore.startNewSession(authStore.brand, authStore.user);
   }
-  if (cachedItems.value.length === 0 && isOnline.value) {
+  if (cachedItems.value.length === 0 && isOnline.value && appMode.value === 'offline') {
     await sync();
+  } else if (isOnline.value) {
+    checkPriceLists();
   }
 });
 
 /* ─── Sync ─── */
+function doTriggerRemoteSync() {
+  const company = authStore.company?.code ?? '';
+  if (company) triggerRemoteSync(company);
+}
+
 function saveDraftAndGoHome() {
   sessionStore.saveAsDraftAndExit();
   router.replace('/app/home');
@@ -760,6 +905,7 @@ watch(isSyncing, (active) => {
     syncMsgIndex.value  = 0;
     isSyncingSlow.value = false;
     refreshCache();
+    if (isOnline.value) checkPriceLists();
     // Apply fresh prices to any open session lines — uses the price map already
     // written by sync, so no extra API calls are needed.
     const priceCache = StorageService.getCachedItemPrices();
@@ -774,7 +920,7 @@ watch(isSyncing, (active) => {
           sessionStore.updateLineSrp(line.id, type, price);
         }
       }
-      if (form.itemId && priceCache.prices[form.itemNumber] !== undefined) {
+      if (form.itemNumber && priceCache.prices[form.itemNumber] !== undefined) {
         const price = priceCache.prices[form.itemNumber];
         form.srp = price;
         confirmedSrp.value = price;
@@ -801,6 +947,7 @@ const networkNotice = computed<'offline' | 'slow' | null>(() => {
 /* ─── Customer modal ─── */
 const showCustomerModal = ref(false);
 const customerSearch = ref('');
+const customerFlash = ref(false);
 
 const allCustomersRef = computed(() => cachedCustomers.value);
 const customerSearchRef = computed(() => customerSearch.value);
@@ -817,6 +964,8 @@ function selectCustomer(c: Customer) {
   sessionStore.setCustomer(c);
   showCustomerModal.value = false;
   customerSearch.value = '';
+  customerFlash.value = true;
+  setTimeout(() => { customerFlash.value = false; }, 450);
 }
 
 /* ─── Item form ─── */
@@ -825,11 +974,11 @@ const activeTab = ref<'sales' | 'returns'>('sales');
 
 interface ScanForm {
   categoryCode: string;
-  itemId: string;
   itemNumber: string;
   itemName: string;
   description: string;
   srp: number;
+  priceListCode: string;
   quantity: number;
   discountType: DiscountType;
   discountValue: number;
@@ -837,11 +986,11 @@ interface ScanForm {
 
 const form = reactive<ScanForm>({
   categoryCode: '',
-  itemId: '',
   itemNumber: '',
   itemName: '',
   description: '',
   srp: 0,
+  priceListCode: '',
   quantity: 1,
   discountType: 'percent',
   discountValue: 0,
@@ -874,8 +1023,10 @@ const confirmDiscountType = ref<DiscountType>('percent');
 const confirmDiscountValue = ref(0);
 
 const confirmedSrp = ref(0);
+const confirmedPriceListCode = ref('');
 const fetchingPrice = ref(false);
 const isUpdatingLinePrices = ref(false);
+const priceRevealKey = ref(0);
 
 const confirmTotal = computed(() =>
   computeTotal(
@@ -886,22 +1037,30 @@ const confirmTotal = computed(() =>
   ),
 );
 
-// Returns price from API when online; falls back to the cached price-map when offline.
-async function lookupPrice(itemNumber: string, onDate: string): Promise<number | null> {
+// Returns price + priceListCode — cache-first, API only when date isn't cached.
+async function lookupPrice(itemNumber: string, onDate: string): Promise<{ price: number | null; priceListCode: string | null }> {
+  const cached = StorageService.getCachedItemPrices();
+  if (cached?.date === onDate && itemNumber in cached.prices) {
+    return { price: cached.prices[itemNumber], priceListCode: null };
+  }
   if (isOnline.value) {
     return ApiService.getActiveItemPrice(itemNumber, onDate);
   }
-  const cached = StorageService.getCachedItemPrices();
-  return cached?.prices[itemNumber] ?? null;
+  return { price: cached?.prices[itemNumber] ?? null, priceListCode: null };
 }
 
 async function fetchActivePrice(itemNumber: string, onDate: string): Promise<void> {
   fetchingPrice.value = true;
   try {
-    const price = await lookupPrice(itemNumber, onDate);
+    const { price, priceListCode } = await lookupPrice(itemNumber, onDate);
     const resolved = price ?? confirmItem.value?.unitPriceIncVAT ?? 0;
     confirmedSrp.value = resolved;
     form.srp = resolved;
+    priceRevealKey.value++;
+    if (priceListCode !== null) {
+      form.priceListCode = priceListCode;
+      confirmedPriceListCode.value = priceListCode;
+    }
     if (price !== null && isOnline.value) {
       StorageService.patchCachedItemPrice(itemNumber, price);
     }
@@ -919,7 +1078,7 @@ watch(orderDateValue, async (newDate) => {
     ...sessionStore.salesOrders.map((l) => ({ line: l, type: 'sales' as const })),
     ...sessionStore.returnOrders.map((l) => ({ line: l, type: 'returns' as const })),
   ];
-  const hasFormItem = !!form.itemId;
+  const hasFormItem = !!form.itemNumber;
   if (!allLines.length && !hasFormItem) return;
 
   // Offline: apply cached prices immediately — no network call, no loading state.
@@ -936,7 +1095,22 @@ watch(orderDateValue, async (newDate) => {
     return;
   }
 
-  // Online: cancel any previous in-flight fetch, then load from API.
+  // Online: check cache first — prices for this date may already be loaded.
+  const cachedForDate = StorageService.getCachedItemPrices();
+  if (cachedForDate?.date === newDate) {
+    const priceMap = cachedForDate.prices;
+    if (hasFormItem) {
+      const price = priceMap[form.itemNumber] ?? null;
+      if (price !== null) { confirmedSrp.value = price; form.srp = price; }
+    }
+    for (const { line, type } of allLines) {
+      const price = priceMap[line.itemNumber] ?? null;
+      if (price !== null) sessionStore.updateLineSrp(line.id, type, price);
+    }
+    return;
+  }
+
+  // No cached prices for this date — fetch from API.
   _dateWatchAbort?.abort();
   _dateWatchAbort = new AbortController();
   const { signal } = _dateWatchAbort;
@@ -990,7 +1164,7 @@ watch(isOnline, async (online, wasOnline) => {
     ...sessionStore.salesOrders.map((l) => ({ line: l, type: 'sales' as const })),
     ...sessionStore.returnOrders.map((l) => ({ line: l, type: 'returns' as const })),
   ];
-  if (!allLines.length && !form.itemId) return;
+  if (!allLines.length && !form.itemNumber) return;
   const alert = await alertController.create({
     header: 'Connection Restored',
     message: 'Update item prices to their current rates?',
@@ -999,7 +1173,7 @@ watch(isOnline, async (online, wasOnline) => {
       {
         text: 'Update Prices',
         handler: async () => {
-          const hasFormItem = !!form.itemId;
+          const hasFormItem = !!form.itemNumber;
           const lineNos = allLines.map(({ line }) => line.itemNumber);
           const allNos = [...new Set(hasFormItem ? [form.itemNumber, ...lineNos] : lineNos)];
           const priceMap = await ApiService.getAllItemPricesForDate(orderDateValue.value, allNos);
@@ -1026,11 +1200,11 @@ watch(isOnline, async (online, wasOnline) => {
 });
 
 function onItemSelected(item: Item) {
-  form.itemId = item.id;
   form.itemNumber = item.number;
   form.itemName = item.displayName;
   form.description = item.description || item.displayName;
   form.srp = item.unitPriceIncVAT;
+  form.priceListCode = item.priceListCode ?? '';
   form.categoryCode = item.itemCategoryCode || form.categoryCode;
   form.quantity = 1;
   form.discountType = 'percent';
@@ -1038,6 +1212,7 @@ function onItemSelected(item: Item) {
   showItemModal.value = false;
   confirmItem.value = item;
   confirmedSrp.value = item.unitPriceIncVAT;
+  confirmedPriceListCode.value = item.priceListCode ?? '';
   confirmQty.value = 1;
   confirmDiscountType.value = 'percent';
   confirmDiscountValue.value = 0;
@@ -1063,11 +1238,11 @@ function doConfirm(orderType: 'sales' | 'returns') {
   if (!confirmItem.value || !selectedCustomer.value) return;
   const item = confirmItem.value;
   const line = {
-    itemId: item.id,
     itemNumber: item.number,
     itemName: item.displayName,
     description: item.description || item.displayName,
     srp: confirmedSrp.value,
+    priceListCode: confirmedPriceListCode.value || undefined,
     quantity: Math.max(1, confirmQty.value || 1),
     discountType: confirmDiscountType.value,
     discountValue: Math.max(0, confirmDiscountValue.value || 0),
@@ -1092,13 +1267,13 @@ function doConfirm(orderType: 'sales' | 'returns') {
 
 /* ─── Add lines ─── */
 async function addToSales() {
-  if (!form.itemId || !selectedCustomer.value) return;
+  if (!form.itemNumber || !selectedCustomer.value) return;
   sessionStore.addSalesOrder({
-    itemId: form.itemId,
     itemNumber: form.itemNumber,
     itemName: form.itemName,
     description: form.description,
     srp: form.srp,
+    priceListCode: form.priceListCode || undefined,
     quantity: Math.max(1, form.quantity),
     discountType: form.discountType,
     discountValue: Math.max(0, form.discountValue),
@@ -1110,13 +1285,13 @@ async function addToSales() {
 }
 
 async function addToReturn() {
-  if (!form.itemId || !selectedCustomer.value) return;
+  if (!form.itemNumber || !selectedCustomer.value) return;
   sessionStore.addReturnOrder({
-    itemId: form.itemId,
     itemNumber: form.itemNumber,
     itemName: form.itemName,
     description: form.description,
     srp: form.srp,
+    priceListCode: form.priceListCode || undefined,
     quantity: Math.max(1, form.quantity),
     discountType: form.discountType,
     discountValue: Math.max(0, form.discountValue),
@@ -1137,11 +1312,11 @@ function deleteActiveLine(lineId: string) {
 
 function resetItemForm() {
   /* Keep category; clear item-specific fields */
-  form.itemId = '';
   form.itemNumber = '';
   form.itemName = '';
   form.description = '';
   form.srp = 0;
+  form.priceListCode = '';
   form.quantity = 1;
   form.discountType = 'percent';
   form.discountValue = 0;
@@ -1248,6 +1423,74 @@ async function toast(message: string, color: string) {
   padding: 8px 16px;
   background: var(--app-danger-bg);
   font-size: 13px;
+  color: var(--ion-color-danger);
+}
+
+/* ── Sync warning banner ── */
+.sync-warn-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 16px;
+  background: rgba(var(--ion-color-warning-rgb), 0.1);
+  border-bottom: 1px solid rgba(var(--ion-color-warning-rgb), 0.25);
+  font-size: 13px;
+  color: var(--ion-color-warning-shade);
+}
+.sync-warn-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+.sync-warn-trigger {
+  align-self: flex-start;
+  height: 30px;
+  font-size: 12px;
+}
+
+/* ── Price list alert banner ── */
+.price-list-alert-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(var(--ion-color-primary-rgb), 0.06);
+  border-bottom: 1px solid rgba(var(--ion-color-primary-rgb), 0.18);
+}
+.price-list-alert-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.price-list-alert-row--expired {
+  color: var(--ion-color-warning-shade);
+}
+.price-list-alert-row--new-available {
+  color: var(--ion-color-primary-shade);
+}
+.price-list-alert-row ion-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  font-size: 16px;
+}
+.price-list-alert-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-top: 2px;
+}
+
+/* ── Trigger message ── */
+.trigger-msg {
+  font-size: 12px;
+  color: var(--ion-color-success-shade);
+  margin: 0;
+  line-height: 1.4;
+}
+.trigger-msg--error {
   color: var(--ion-color-danger);
 }
 
@@ -1453,7 +1696,57 @@ async function toast(message: string, color: string) {
   padding: 0 5px;
 }
 
-.line-total { font-size: 14px; font-weight: 700; }
+.line-total {
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  min-width: 56px;
+  justify-content: flex-end;
+}
+.line-price-spinner { width: 16px; height: 16px; }
+
+.price-list-code {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(var(--ion-color-medium-rgb), 0.12);
+  color: var(--ion-color-medium);
+  font-size: 0.68em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.price-stale {
+  opacity: 0.35;
+  animation: price-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes price-pulse {
+  0%, 100% { opacity: 0.35; }
+  50%       { opacity: 0.65; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .price-stale,
+  .customer-tap--flash,
+  .skel-form-card,
+  .skel-form-card--delay,
+  .skel-sync-status,
+  .cycling-text {
+    animation: none !important;
+  }
+  .order-item-enter-active,
+  .order-item-leave-active,
+  .order-item-move,
+  .price-reveal-enter-active,
+  .price-reveal-leave-active {
+    transition: none !important;
+  }
+}
 
 .subtotal-row {
   --background: var(--app-surface-alt);
@@ -1529,11 +1822,147 @@ async function toast(message: string, color: string) {
 .submit-bar-enter-from   { opacity: 0; transform: translateY(100%); }
 .submit-bar-leave-to     { opacity: 0; transform: translateY(100%); }
 
+/* ── Syncing skeleton ── */
+.scan-skeleton {
+  padding: 0;
+}
+
+.skel-form-card {
+  margin: 10px 12px 0;
+  background: var(--app-surface);
+  border-radius: var(--app-radius-lg);
+  border: 1px solid var(--app-border);
+  padding: 16px;
+  box-shadow: var(--app-shadow);
+  animation: fade-slide-up 0.32s var(--ease-out-quart) both;
+}
+
+.skel-form-card--delay {
+  animation-delay: 0.09s;
+}
+
+.skel-eyebrow {
+  height: 9px;
+  width: 70px;
+  margin-bottom: 14px;
+  border-radius: 4px;
+}
+
+.skel-cust-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 14px;
+}
+
+.skel-cust-name {
+  height: 16px;
+  width: 70%;
+  border-radius: 6px;
+}
+
+.skel-cust-sub {
+  height: 11px;
+  width: 45%;
+  border-radius: 4px;
+}
+
+.skel-divider {
+  height: 1px;
+  background: var(--app-border);
+  margin: 4px 0 14px;
+}
+
+.skel-date-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skel-date-label {
+  height: 9px;
+  width: 80px;
+  border-radius: 4px;
+}
+
+.skel-date-value {
+  height: 15px;
+  width: 50%;
+  border-radius: 5px;
+}
+
+.skel-field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.skel-field-label {
+  height: 12px;
+  width: 80px;
+  border-radius: 4px;
+}
+
+.skel-field-value {
+  height: 12px;
+  width: 100px;
+  border-radius: 4px;
+}
+
+.skel-sync-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 12px 0;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--ion-color-primary) 8%, transparent);
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--ion-color-primary) 20%, transparent);
+  animation: fade-in 0.35s ease 0.18s both;
+}
+
+.skel-sync-spinner {
+  flex-shrink: 0;
+  color: var(--app-gold);
+}
+
+.skel-sync-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.skel-sync-main {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-fg);
+  display: block;
+}
+
+.skel-sync-sub {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  display: block;
+}
+
 /* ── Customer tap press feedback ── */
+@keyframes customer-flash {
+  0%   { background: var(--app-gold-pale); border-radius: 8px; }
+  60%  { background: oklch(85% 0.065 74 / 0.55); }
+  100% { background: transparent; border-radius: 0px; }
+}
+
 .customer-tap {
   transition: background 0.14s ease, border-radius 0.14s ease;
 }
 .customer-tap:active { background: var(--app-gold-pale); border-radius: 6px; }
+
+.customer-tap--flash {
+  animation: customer-flash 0.42s var(--ease-out-expo) both;
+}
 
 /* ── Action button press ── */
 .action-btns ion-button {
@@ -1550,13 +1979,20 @@ async function toast(message: string, color: string) {
 .order-segment { animation: fade-in 0.28s ease 0.04s both; }
 .empty-orders  { animation: fade-in 0.28s ease both; }
 
-/* ── Order list stagger ── */
-.order-list ion-item-sliding:nth-child(1) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.02s both; }
-.order-list ion-item-sliding:nth-child(2) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.05s both; }
-.order-list ion-item-sliding:nth-child(3) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.08s both; }
-.order-list ion-item-sliding:nth-child(4) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.11s both; }
-.order-list ion-item-sliding:nth-child(5) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.14s both; }
-.order-list ion-item-sliding:nth-child(6) { animation: fade-slide-up 0.26s var(--ease-out-quart) 0.17s both; }
+/* ── Order list: TransitionGroup item enter/leave ── */
+.order-item-enter-active {
+  transition: opacity 0.22s var(--ease-out-quart), transform 0.22s var(--ease-out-quart);
+}
+.order-item-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease-in;
+  position: absolute;
+  width: 100%;
+}
+.order-item-enter-from { opacity: 0; transform: translateX(-10px); }
+.order-item-leave-to  { opacity: 0; transform: translateX(12px); }
+.order-item-move {
+  transition: transform 0.22s var(--ease-out-quart);
+}
 
 /* ── Customer modal internals ── */
 .modal-brand-tag {
@@ -1722,6 +2158,35 @@ async function toast(message: string, color: string) {
 
 .conf-btn {
   margin-bottom: 10px;
+}
+
+/* ── Confirm sheet SRP price reveal ── */
+.conf-srp-loading,
+.conf-srp-value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.srp-spinner { margin-right: 4px; vertical-align: middle; }
+
+.price-reveal-enter-active {
+  transition: opacity 0.22s ease, transform 0.22s var(--ease-out-quart);
+}
+.price-reveal-leave-active {
+  transition: opacity 0.12s ease;
+}
+.price-reveal-enter-from { opacity: 0; transform: translateY(4px); }
+.price-reveal-leave-to   { opacity: 0; }
+
+/* ── Cycling text (shared pattern used by skeleton sync status) ── */
+@keyframes text-appear {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.cycling-text {
+  animation: text-appear 0.3s ease both;
 }
 
 /* ─── Responsive layout ─────────────────────────────────────────────────── */

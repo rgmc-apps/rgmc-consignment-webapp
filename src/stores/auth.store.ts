@@ -176,7 +176,7 @@ export const useAuthStore = defineStore('auth', () => {
       company.value = selectedCompany;
       brand.value = selectedBrand;
       user.value = candidate;
-      setApiCompany(selectedCompany.name);
+      setApiCompany(selectedCompany.code);
       StorageService.setCompany(selectedCompany);
       StorageService.setAuth({ brand: selectedBrand, user: candidate, company: selectedCompany });
       fetchAndCachePhoto();

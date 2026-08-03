@@ -8,7 +8,7 @@
       <div class="login-container">
         <!-- Logo block -->
         <div class="login-logo-block">
-          <img :src="logoSrc" alt="RGMC Consignment" class="login-logo" />
+          <img :src="logoSrc" alt="RGMC Consignment" :class="['login-logo', { 'login-logo--loading': companiesLoading || brandsLoading }]" />
           <h1 class="login-title">RGMC Consignment</h1>
           <p class="login-subtitle">Web App</p>
         </div>
@@ -41,53 +41,71 @@
             </Transition>
             <p class="login-form-heading">Sign In</p>
 
-            <!-- Company dropdown -->
-            <ion-item lines="full" class="login-field">
-              <ion-label position="stacked">Company</ion-label>
-              <ion-select
-                v-model="selectedCompanyId"
-                placeholder="Select company"
-                interface="action-sheet"
-                :disabled="isLoading || companiesLoading"
-              >
-                <ion-select-option
-                  v-for="c in companies"
-                  :key="c.id"
-                  :value="c.id"
-                >
-                  {{ c.displayName }}
-                </ion-select-option>
-              </ion-select>
-              <Transition name="spin-fade">
-                <ion-spinner v-if="companiesLoading" slot="end" name="crescent" />
-              </Transition>
-            </ion-item>
+            <!-- Gateway skeleton — replaces the two dropdowns while companies are fetching -->
+            <Transition name="gateway-fade">
+              <div v-if="companiesLoading" class="login-gateway">
+                <div class="login-gateway-field">
+                  <div class="skel-bone gateway-label-bone" />
+                  <div class="skel-bone gateway-value-bone" />
+                </div>
+                <div class="login-gateway-field">
+                  <div class="skel-bone gateway-label-bone" />
+                  <div class="skel-bone gateway-value-bone gateway-value-bone--narrow" />
+                </div>
+                <div class="login-gateway-status">
+                  <ion-spinner name="dots" class="gateway-spinner" />
+                  <span>Connecting to server…</span>
+                </div>
+              </div>
+            </Transition>
 
-            <!-- Brand dropdown -->
-            <ion-item
-              lines="full"
-              class="login-field"
-              :class="{ 'login-field--unlocking': selectedCompanyId && !brandsLoading }"
-            >
-              <ion-label position="stacked">Brand</ion-label>
-              <ion-select
-                v-model="selectedBrandId"
-                placeholder="Select brand"
-                interface="action-sheet"
-                :disabled="isLoading || brandsLoading || !selectedCompanyId"
-              >
-                <ion-select-option
-                  v-for="b in brands"
-                  :key="b.id"
-                  :value="b.id"
+            <!-- Company dropdown -->
+            <Transition name="fields-reveal">
+              <div v-if="!companiesLoading" class="login-selects">
+                <ion-item lines="full" class="login-field login-field--stagger-1">
+                  <ion-label position="stacked">Company</ion-label>
+                  <ion-select
+                    v-model="selectedCompanyId"
+                    placeholder="Select company"
+                    interface="action-sheet"
+                    :disabled="isLoading || companiesLoading"
+                  >
+                    <ion-select-option
+                      v-for="c in companies"
+                      :key="c.id"
+                      :value="c.id"
+                    >
+                      {{ c.displayName }}
+                    </ion-select-option>
+                  </ion-select>
+                </ion-item>
+
+                <!-- Brand dropdown -->
+                <ion-item
+                  lines="full"
+                  :class="['login-field', 'login-field--stagger-2', { 'login-field--unlocking': selectedCompanyId && !brandsLoading }]"
                 >
-                  {{ b.displayName }}
-                </ion-select-option>
-              </ion-select>
-              <Transition name="spin-fade">
-                <ion-spinner v-if="brandsLoading" slot="end" name="crescent" />
-              </Transition>
-            </ion-item>
+                  <ion-label position="stacked">Brand</ion-label>
+                  <ion-select
+                    v-model="selectedBrandId"
+                    placeholder="Select brand"
+                    interface="action-sheet"
+                    :disabled="isLoading || brandsLoading || !selectedCompanyId"
+                  >
+                    <ion-select-option
+                      v-for="b in brands"
+                      :key="b.id"
+                      :value="b.id"
+                    >
+                      {{ b.displayName }}
+                    </ion-select-option>
+                  </ion-select>
+                  <Transition name="spin-fade">
+                    <ion-spinner v-if="brandsLoading" slot="end" name="crescent" />
+                  </Transition>
+                </ion-item>
+              </div>
+            </Transition>
 
             <!-- Item family code for selected brand -->
             <Transition name="family-fade">
@@ -97,8 +115,34 @@
               </div>
             </Transition>
 
+            <!-- App mode toggle -->
+            <div class="mode-toggle-row login-field--stagger-3">
+              <div class="mode-toggle-icon-wrap">
+                <ion-icon :icon="mode === 'offline' ? cloudOfflineOutline : wifiOutline" class="mode-toggle-icon" />
+              </div>
+              <div class="mode-toggle-labels">
+                <span class="mode-toggle-title">{{ mode === 'offline' ? 'Offline Mode' : 'Online Mode' }}</span>
+                <span class="mode-toggle-hint">
+                  <template v-if="mode === 'offline'">
+                    <span v-if="offlineReady" class="mode-ready-tag">
+                      <ion-icon :icon="cloudDoneOutline" />ready
+                    </span>
+                    <span v-else class="mode-sync-tag">sync required</span>
+                    &mdash; slower startup
+                  </template>
+                  <template v-else>loads data on demand</template>
+                </span>
+              </div>
+              <ion-toggle
+                :checked="mode === 'offline'"
+                :disabled="isLoading || isSyncing"
+                @ion-change="onModeToggle"
+                class="mode-toggle"
+              />
+            </div>
+
             <!-- Username -->
-            <ion-item lines="full" :class="['login-field', { 'login-field--error': loginState === 'error' }]">
+            <ion-item lines="full" :class="['login-field', 'login-field--stagger-4', { 'login-field--error': loginState === 'error' }]">
               <ion-label position="stacked">Username</ion-label>
               <ion-input
                 v-model="username"
@@ -111,7 +155,7 @@
             </ion-item>
 
             <!-- Password -->
-            <ion-item lines="full" :class="['login-field', { 'login-field--error': loginState === 'error' }]">
+            <ion-item lines="full" :class="['login-field', 'login-field--stagger-5', { 'login-field--error': loginState === 'error' }]">
               <ion-label position="stacked">Password</ion-label>
               <ion-input
                 v-model="password"
@@ -151,23 +195,53 @@
             >
               <ion-icon v-if="loginState === 'success' && !isSyncing" :icon="checkmarkCircleOutline" slot="start" />
               <ion-spinner v-else-if="isLoading || isSyncing" name="crescent" slot="start" />
-              <span>{{
+              <span :key="isLoading ? loginLoadingText : undefined" class="cycling-text">{{
                 loginState === 'success' && !isSyncing ? 'Signed in' :
                 isSyncing  ? syncBtnLabel :
-                isLoading  ? 'Signing in…' :
+                isLoading  ? loginLoadingText :
                              'Sign In'
               }}</span>
             </ion-button>
 
-            <!-- Sync status panel — shown after login success while data loads -->
+            <!-- Sync status panel — shown after login success in offline mode while data loads -->
             <Transition name="sync-status-fade">
-              <div v-if="loginState === 'success' && isSyncing" class="login-sync-status">
+              <div v-if="loginState === 'success' && isSyncing && mode === 'offline'" class="login-sync-status">
                 <ion-spinner name="dots" class="sync-status-dots" />
                 <div class="sync-status-text">
-                  <Transition name="sync-label-swap" mode="out-in">
-                    <span :key="syncBtnLabel" class="sync-status-label">{{ syncBtnLabel }}</span>
-                  </Transition>
-                  <span class="sync-status-sub">Preparing your workspace for offline use</span>
+                  <div class="sync-status-top">
+                    <span class="sync-status-mode-label">Preparing offline mode</span>
+                    <span :key="syncHeaderText" class="sync-status-label cycling-text">{{ syncHeaderText }}</span>
+                    <span class="sync-status-pct">{{ syncProgress }}%</span>
+                  </div>
+                  <!-- Per-table rows — shown for all phases -->
+                  <div v-if="syncSubTasks.length" class="sync-subtasks">
+                    <div v-for="task in syncSubTasks" :key="task.label" class="sync-subtask-row">
+                      <ion-icon
+                        v-if="task.status === 'done'"
+                        :icon="checkmarkCircleOutline"
+                        class="subtask-icon subtask-icon--done"
+                      />
+                      <ion-icon
+                        v-else-if="task.status === 'error'"
+                        :icon="alertCircleOutline"
+                        class="subtask-icon subtask-icon--error"
+                      />
+                      <ion-spinner v-else name="crescent" class="subtask-spinner" />
+                      <span
+                        class="subtask-label"
+                        :class="{
+                          'subtask-label--done': task.status === 'done',
+                          'subtask-label--error': task.status === 'error',
+                        }"
+                      >{{ task.label }}</span>
+                      <span v-if="task.detail" :key="task.detail" class="subtask-detail cycling-text">{{ task.detail }}</span>
+                      <span v-if="task.status === 'error'" class="subtask-err-note">Failed</span>
+                    </div>
+                  </div>
+                  <div class="sync-progress-track">
+                    <div class="sync-progress-fill" :style="{ width: syncProgress + '%' }" />
+                  </div>
+                  <span :key="syncSubCycleText" class="sync-status-sub cycling-text">{{ syncSubCycleText }}</span>
                 </div>
               </div>
             </Transition>
@@ -196,12 +270,15 @@ import {
   IonButton,
   IonIcon,
   IonSpinner,
+  IonToggle,
 } from '@ionic/vue';
-import { eyeOutline, eyeOffOutline, alertCircleOutline, cloudOfflineOutline, warningOutline, pricetagOutline, checkmarkCircleOutline } from 'ionicons/icons';
+import { eyeOutline, eyeOffOutline, alertCircleOutline, cloudOfflineOutline, warningOutline, pricetagOutline, checkmarkCircleOutline, wifiOutline, cloudDoneOutline } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { ApiService, setApiCompany } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 import { useSync } from '@/composables/useSync';
+import { useAppModeStore } from '@/stores/app-mode.store';
+import { useLoadingText } from '@/composables/useLoadingText';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import SetPasswordModal from '@/components/SetPasswordModal.vue';
 import { useTheme } from '@/composables/useTheme';
@@ -237,13 +314,43 @@ watch([username, password], () => {
 });
 
 const isLoading = computed(() => authStore.isLoading);
-const { isSyncing, syncPhase, sync } = useSync();
+const { isSyncing, syncPhase, syncProgress, syncSubTasks, sync } = useSync();
+const { mode, offlineReady, setMode } = useAppModeStore();
+
+function onModeToggle(e: Event) {
+  setMode((e as CustomEvent).detail.checked ? 'offline' : 'online');
+}
+
+const loginLoadingText = useLoadingText(
+  ['Signing in…', 'Verifying credentials…', 'Checking permissions…', 'Almost there…'],
+  isLoading,
+);
+const syncHeaderText = useLoadingText(
+  ['Syncing data…', 'Fetching customer list…', 'Loading product catalog…', 'Retrieving contacts…', 'Getting latest prices…', 'Almost done…'],
+  isSyncing,
+);
+const syncSubCycleText = useLoadingText(
+  [
+    'Preparing your workspace for offline use',
+    'Building local data cache…',
+    'Setting up offline mode…',
+    'Optimizing for your session…',
+    'Caching for offline access…',
+  ],
+  isSyncing,
+  3200,
+);
 
 onUnmounted(() => {
   if (syncSlowTimer) { clearTimeout(syncSlowTimer); syncSlowTimer = null; }
 });
 
-const syncBtnLabel = computed(() => syncPhase.value || 'Syncing…');
+const syncBtnLabel = computed(() => {
+  const phase = syncPhase.value || 'Syncing…';
+  return syncProgress.value > 0 && syncProgress.value < 100
+    ? `${phase} ${syncProgress.value}%`
+    : phase;
+});
 
 const { isOnline, isSlowConnection } = useNetworkStatus();
 
@@ -349,9 +456,9 @@ async function handleLogin() {
 
   loginState.value = 'success';
 
-  /* Full offline prep — fetch all master data so the app works without a
-     network connection after this login. Failure is non-fatal. */
-  await sync();
+  if (mode.value === 'offline') {
+    await sync();
+  }
 
   router.replace('/app/home');
 }
@@ -544,6 +651,99 @@ async function handleLogin() {
 .net-notice-fade-enter-from,
 .net-notice-fade-leave-to    { opacity: 0; transform: translateY(-6px); }
 
+/* ── App mode toggle ── */
+.mode-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--app-border);
+}
+
+.mode-toggle-icon-wrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.mode-toggle-icon {
+  font-size: 1.15rem;
+  color: var(--app-text-muted);
+}
+
+.mode-toggle-labels {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mode-toggle-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-fg);
+}
+
+.mode-toggle-hint {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.mode-ready-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: oklch(52% 0.15 145 / 0.15);
+  color: oklch(62% 0.15 145);
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.mode-ready-tag ion-icon {
+  font-size: 11px;
+}
+
+.mode-sync-tag {
+  display: inline-flex;
+  background: rgba(var(--ion-color-warning-rgb), 0.15);
+  color: var(--ion-color-warning-shade);
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.mode-toggle {
+  --track-background: var(--app-border);
+  --track-background-checked: var(--app-gold);
+  flex-shrink: 0;
+}
+
+/* ── Sync status mode label ── */
+.sync-status-mode-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: oklch(60% 0.10 145 / 0.7);
+  display: block;
+  margin-bottom: 4px;
+}
+
 /* ── Item family tag ── */
 .brand-family-tag {
   display: flex;
@@ -730,18 +930,231 @@ async function handleLogin() {
 .sync-status-fade-enter-from   { opacity: 0; transform: translateY(-6px); }
 .sync-status-fade-leave-to     { opacity: 0; }
 
-/* Cycling label swap */
-.sync-label-swap-enter-active { transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
-.sync-label-swap-leave-active { transition: opacity 0.15s ease; }
-.sync-label-swap-enter-from   { opacity: 0; transform: translateY(5px); }
-.sync-label-swap-leave-to     { opacity: 0; }
+/* ── Sync sub-tasks ── */
+.sync-subtasks {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 6px 0 2px;
+}
+
+.sync-subtask-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.subtask-icon--done {
+  font-size: 14px;
+  color: oklch(62% 0.15 145);
+  flex-shrink: 0;
+}
+
+.subtask-icon--error {
+  font-size: 14px;
+  color: var(--ion-color-danger);
+  flex-shrink: 0;
+}
+
+.subtask-spinner {
+  width: 14px;
+  height: 14px;
+  color: oklch(62% 0.15 145);
+  flex-shrink: 0;
+}
+
+.subtask-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: oklch(70% 0.12 145);
+  flex: 1;
+}
+
+.subtask-label--done {
+  opacity: 0.55;
+}
+
+.subtask-label--error {
+  color: var(--ion-color-danger);
+}
+
+.subtask-err-note {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ion-color-danger);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+}
+
+.subtask-pct {
+  font-size: 11px;
+  font-weight: 700;
+  color: oklch(70% 0.12 145);
+  flex-shrink: 0;
+}
+
+.subtask-detail {
+  font-size: 11px;
+  font-weight: 600;
+  color: oklch(65% 0.10 145 / 0.8);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+}
+
+/* ── Sync progress bar ── */
+.sync-status-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sync-status-pct {
+  font-size: 12px;
+  font-weight: 700;
+  color: oklch(70% 0.12 145);
+  flex-shrink: 0;
+}
+
+.sync-progress-track {
+  height: 4px;
+  border-radius: 4px;
+  background: oklch(52% 0.15 145 / 0.15);
+  overflow: hidden;
+  margin: 5px 0 4px;
+}
+
+.sync-progress-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, oklch(52% 0.15 145) 0%, oklch(68% 0.18 145) 100%);
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Cycling loading text fade-in ── */
+@keyframes text-appear {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.cycling-text {
+  display: inline-block;
+  animation: text-appear 0.3s ease;
+}
+
+/* ── Gateway skeleton (while companies are loading) ── */
+.login-gateway {
+  padding: 6px 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.login-gateway-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.gateway-label-bone {
+  height: 10px;
+  width: 68px;
+}
+
+.gateway-value-bone {
+  height: 16px;
+  width: 100%;
+  border-radius: 6px;
+}
+
+.gateway-value-bone--narrow {
+  width: 55%;
+}
+
+.login-gateway-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  padding-top: 2px;
+}
+
+.gateway-spinner {
+  width: 16px;
+  height: 16px;
+  color: var(--app-gold);
+}
+
+/* Dark-mode shimmer bones */
+.login-page .skel-bone,
+.login-page .gateway-label-bone,
+.login-page .gateway-value-bone {
+  background: linear-gradient(
+    90deg,
+    oklch(30% 0.02 74 / 0.3) 0%,
+    oklch(35% 0.02 74 / 0.5) 50%,
+    oklch(30% 0.02 74 / 0.3) 100%
+  );
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.6s ease-in-out infinite;
+}
+
+/* Gateway fade */
+.gateway-fade-enter-active { transition: opacity 0.22s ease, transform 0.22s var(--ease-out-quart); }
+.gateway-fade-leave-active { transition: opacity 0.18s ease; }
+.gateway-fade-enter-from   { opacity: 0; transform: translateY(-4px); }
+.gateway-fade-leave-to     { opacity: 0; }
+
+/* Fields reveal after skeleton leaves */
+.fields-reveal-enter-active {
+  transition: opacity 0.28s ease, transform 0.28s var(--ease-out-quart);
+}
+.fields-reveal-leave-active { transition: opacity 0.15s ease; }
+.fields-reveal-enter-from   { opacity: 0; transform: translateY(6px); }
+.fields-reveal-leave-to     { opacity: 0; }
+
+/* Staggered field entrance (runs once on mount / after selects reveal) */
+.login-field--stagger-1 { animation: fade-slide-up 0.3s var(--ease-out-quart) 0.02s both; }
+.login-field--stagger-2 { animation: fade-slide-up 0.3s var(--ease-out-quart) 0.07s both; }
+.login-field--stagger-3 { animation: fade-slide-up 0.3s var(--ease-out-quart) 0.13s both; }
+.login-field--stagger-4 { animation: fade-slide-up 0.3s var(--ease-out-quart) 0.18s both; }
+.login-field--stagger-5 { animation: fade-slide-up 0.3s var(--ease-out-quart) 0.23s both; }
+
+/* Logo loading pulse — gentle gold aura while server data is fetching */
+@keyframes logo-loading-pulse {
+  0%, 100% { filter: drop-shadow(0 0 0px oklch(53% 0.11 74 / 0)); }
+  50%       { filter: drop-shadow(0 0 10px oklch(53% 0.11 74 / 0.55)); }
+}
+
+.login-logo--loading {
+  animation: logo-loading-pulse 2s ease-in-out infinite;
+}
+
+/* Remove the two selects from "stagger" on a complete re-render
+   (when gateway leaves, .login-selects reveals as a block) */
+.login-selects .login-field--stagger-1 { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.02s both; }
+.login-selects .login-field--stagger-2 { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.08s both; }
 
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   .login-card--shake,
   .login-card--success,
   .login-progress-strip::after,
-  .login-btn--loading {
+  .login-btn--loading,
+  .cycling-text,
+  .login-logo--loading,
+  .gateway-label-bone,
+  .gateway-value-bone,
+  .login-field--stagger-1,
+  .login-field--stagger-2,
+  .login-field--stagger-3,
+  .login-field--stagger-4,
+  .login-field--stagger-5 {
     animation: none !important;
   }
   .login-progress-strip {
@@ -757,6 +1170,9 @@ async function handleLogin() {
   .sync-status-fade-leave-active,
   .sync-label-swap-enter-active,
   .sync-label-swap-leave-active {
+    transition: none !important;
+  }
+  .sync-progress-fill {
     transition: none !important;
   }
 }
