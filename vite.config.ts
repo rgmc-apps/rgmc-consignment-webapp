@@ -60,6 +60,7 @@ export default defineConfig(({ mode }) => {
         ? {
             '/bc':       { target: proxyTarget, changeOrigin: true, secure: true },
             '/internal': { target: proxyTarget, changeOrigin: true, secure: true },
+            '/tasks':    { target: proxyTarget, changeOrigin: true, secure: true },
           }
         : undefined,
     },
