@@ -116,17 +116,42 @@
 
         <!-- Submit sales button / status -->
         <div class="submit-action" v-if="salesStatus === 'pending' || salesStatus === 'submitting'">
-          <ion-button
-            expand="block"
-            color="primary"
-            :disabled="salesStatus === 'submitting' || !session.customer || !isOnline"
-            @click="confirmSubmit('sales')"
-          >
-            <ion-spinner v-if="salesStatus === 'submitting'" name="crescent" slot="start" />
-            <ion-icon v-else :icon="sendOutline" slot="start" />
-            {{ salesStatus === 'submitting' ? 'Submitting…' : 'Submit Sales Orders' }}
-          </ion-button>
-          <div v-if="!isOnline" class="submit-offline-notice">
+          <Transition name="queue-swap" mode="out-in">
+            <div v-if="salesStatus === 'submitting'" key="sales-loading" class="queue-loading-panel">
+              <div class="queue-broadcast">
+                <span class="queue-ring queue-ring--1" />
+                <span class="queue-ring queue-ring--2" />
+                <span class="queue-ring queue-ring--3" />
+                <div class="queue-icon-wrap">
+                  <ion-icon :icon="sendOutline" class="queue-icon" />
+                </div>
+              </div>
+              <p class="queue-headline">Sending to Business Central</p>
+              <p class="queue-sub">Processing order — please keep this page open</p>
+              <div class="queue-steps">
+                <span class="queue-step queue-step--done">Queued</span>
+                <span class="queue-step-sep">›</span>
+                <span class="queue-step queue-step--active">Processing</span>
+                <span class="queue-step-sep">›</span>
+                <span class="queue-step queue-step--waiting">Confirming</span>
+              </div>
+              <div class="queue-shimmer-track">
+                <div class="queue-shimmer-bar" />
+              </div>
+            </div>
+            <ion-button
+              v-else
+              key="sales-btn"
+              expand="block"
+              color="primary"
+              :disabled="!session.customer || !isOnline"
+              @click="confirmSubmit('sales')"
+            >
+              <ion-icon :icon="sendOutline" slot="start" />
+              Submit Sales Orders
+            </ion-button>
+          </Transition>
+          <div v-if="!isOnline && salesStatus === 'pending'" class="submit-offline-notice">
             <ion-icon :icon="cloudOfflineOutline" />
             <span>You're offline — reconnect to submit.</span>
           </div>
@@ -221,17 +246,42 @@
         </ion-list>
 
         <div class="submit-action" v-if="returnsStatus === 'pending' || returnsStatus === 'submitting'">
-          <ion-button
-            expand="block"
-            color="danger"
-            :disabled="returnsStatus === 'submitting' || !session.customer || !isOnline"
-            @click="confirmSubmit('returns')"
-          >
-            <ion-spinner v-if="returnsStatus === 'submitting'" name="crescent" slot="start" />
-            <ion-icon v-else :icon="returnDownBackOutline" slot="start" />
-            {{ returnsStatus === 'submitting' ? 'Submitting…' : 'Submit Return Orders' }}
-          </ion-button>
-          <div v-if="!isOnline" class="submit-offline-notice">
+          <Transition name="queue-swap" mode="out-in">
+            <div v-if="returnsStatus === 'submitting'" key="returns-loading" class="queue-loading-panel queue-loading-panel--returns">
+              <div class="queue-broadcast queue-broadcast--returns">
+                <span class="queue-ring queue-ring--1" />
+                <span class="queue-ring queue-ring--2" />
+                <span class="queue-ring queue-ring--3" />
+                <div class="queue-icon-wrap">
+                  <ion-icon :icon="returnDownBackOutline" class="queue-icon" />
+                </div>
+              </div>
+              <p class="queue-headline">Sending to Business Central</p>
+              <p class="queue-sub">Processing return — please keep this page open</p>
+              <div class="queue-steps">
+                <span class="queue-step queue-step--done">Queued</span>
+                <span class="queue-step-sep">›</span>
+                <span class="queue-step queue-step--active queue-step--active--returns">Processing</span>
+                <span class="queue-step-sep">›</span>
+                <span class="queue-step queue-step--waiting">Confirming</span>
+              </div>
+              <div class="queue-shimmer-track">
+                <div class="queue-shimmer-bar queue-shimmer-bar--returns" />
+              </div>
+            </div>
+            <ion-button
+              v-else
+              key="returns-btn"
+              expand="block"
+              color="danger"
+              :disabled="!session.customer || !isOnline"
+              @click="confirmSubmit('returns')"
+            >
+              <ion-icon :icon="returnDownBackOutline" slot="start" />
+              Submit Return Orders
+            </ion-button>
+          </Transition>
+          <div v-if="!isOnline && returnsStatus === 'pending'" class="submit-offline-notice">
             <ion-icon :icon="cloudOfflineOutline" />
             <span>You're offline — reconnect to submit.</span>
           </div>
@@ -325,7 +375,6 @@ import {
   IonLabel,
   IonNote,
   IonBadge,
-  IonSpinner,
   toastController,
 } from '@ionic/vue';
 import {
@@ -438,10 +487,19 @@ function onRemarksCancel() {
 
 async function pollUntilDone(taskId: string, timeoutMs = 300_000): Promise<{ status: string; result?: unknown; error?: string }> {
   const deadline = Date.now() + timeoutMs;
+  let consecutiveErrors = 0;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 3_000));
-    const task = await ApiService.pollTask(taskId);
-    if (task.status === 'done' || task.status === 'failed') return task;
+    try {
+      const task = await ApiService.pollTask(taskId);
+      consecutiveErrors = 0;
+      if (task.status === 'done' || task.status === 'failed') return task;
+    } catch {
+      consecutiveErrors++;
+      // Swallow transient bc-api errors (network blip, brief 503) and keep polling.
+      // Only give up after 10 consecutive failures (~30 s of silence).
+      if (consecutiveErrors >= 10) throw new Error('Order status unavailable — check History or contact IT/MIS.');
+    }
   }
   throw new Error('Order is taking too long — check History or contact IT/MIS.');
 }
@@ -853,6 +911,191 @@ async function showToast(message: string, color: string) {
   color: var(--app-text-muted);
 }
 .empty-session ion-icon { font-size: 48px; }
+
+/* ── Queue loading panel ── */
+.queue-loading-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 16px 18px;
+  border-radius: 14px;
+  background: var(--app-surface-alt);
+  border: 1px solid var(--app-border);
+  overflow: hidden;
+}
+
+/* Broadcast rings */
+.queue-broadcast {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-bottom: 2px;
+}
+
+.queue-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1.5px solid var(--ion-color-primary);
+  animation: ring-broadcast 1.8s ease-out infinite;
+  opacity: 0;
+}
+.queue-ring--1 { width: 44px; height: 44px; animation-delay: 0s; }
+.queue-ring--2 { width: 44px; height: 44px; animation-delay: 0.6s; }
+.queue-ring--3 { width: 44px; height: 44px; animation-delay: 1.2s; }
+
+.queue-broadcast--returns .queue-ring {
+  border-color: var(--ion-color-danger);
+}
+
+@keyframes ring-broadcast {
+  0%   { transform: scale(1);   opacity: 0.75; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+.queue-icon-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--ion-color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+  animation: icon-breathe 2.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.queue-broadcast--returns .queue-icon-wrap {
+  background: var(--ion-color-danger);
+}
+
+@keyframes icon-breathe {
+  0%, 100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(var(--ion-color-primary-rgb), 0.3); }
+  50%       { transform: scale(1.05); box-shadow: 0 0 0 6px rgba(var(--ion-color-primary-rgb), 0); }
+}
+
+.queue-icon {
+  font-size: 20px;
+  color: #fff;
+}
+
+/* Text */
+.queue-headline {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--app-fg);
+  margin: 0;
+  letter-spacing: 0.1px;
+}
+
+.queue-sub {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  margin: 0;
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* Step indicator */
+.queue-steps {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.queue-step {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--app-text-muted);
+  opacity: 0.45;
+}
+
+.queue-step--done {
+  opacity: 1;
+  color: var(--ion-color-success);
+}
+
+.queue-step--active {
+  opacity: 1;
+  color: var(--ion-color-primary);
+  animation: step-pulse 1.2s ease-in-out infinite;
+}
+.queue-step--active--returns {
+  color: var(--ion-color-danger);
+}
+
+@keyframes step-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+.queue-step-sep {
+  font-size: 10px;
+  color: var(--app-text-muted);
+  opacity: 0.4;
+}
+
+/* Shimmer progress bar */
+.queue-shimmer-track {
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--app-border);
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.queue-shimmer-bar {
+  height: 100%;
+  width: 40%;
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--ion-color-primary) 40%,
+    rgba(var(--ion-color-primary-rgb), 0.6) 60%,
+    transparent 100%
+  );
+  animation: shimmer-slide 1.6s ease-in-out infinite;
+}
+.queue-shimmer-bar--returns {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--ion-color-danger) 40%,
+    rgba(var(--ion-color-danger-rgb), 0.6) 60%,
+    transparent 100%
+  );
+}
+
+@keyframes shimmer-slide {
+  0%   { transform: translateX(-150%); }
+  100% { transform: translateX(350%); }
+}
+
+/* Swap transition */
+.queue-swap-enter-active {
+  transition: opacity 0.22s ease, transform 0.22s var(--ease-out-quart);
+}
+.queue-swap-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.queue-swap-enter-from {
+  opacity: 0;
+  transform: translateY(8px) scale(0.97);
+}
+.queue-swap-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+}
 
 /* ── Offline notice ── */
 .offline-notice {
