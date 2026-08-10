@@ -121,7 +121,20 @@
                 <ion-icon :icon="mode === 'offline' ? cloudOfflineOutline : wifiOutline" class="mode-toggle-icon" />
               </div>
               <div class="mode-toggle-labels">
-                <span class="mode-toggle-title">{{ mode === 'offline' ? 'Offline Mode' : 'Online Mode' }}</span>
+                <div class="mode-toggle-title-row">
+                  <span class="mode-toggle-title">{{ mode === 'offline' ? 'Offline Mode' : 'Online Mode' }}</span>
+                  <button
+                    class="mode-info-btn"
+                    @click="showModeInfo = !showModeInfo"
+                    :aria-label="showModeInfo ? 'Close mode info' : 'Learn about modes & storage'"
+                  >
+                    <ion-icon
+                      :icon="informationCircleOutline"
+                      class="mode-info-icon"
+                      :class="{ 'mode-info-icon--active': showModeInfo }"
+                    />
+                  </button>
+                </div>
                 <span class="mode-toggle-hint">
                   <template v-if="mode === 'offline'">
                     <span v-if="offlineReady" class="mode-ready-tag">
@@ -140,6 +153,52 @@
                 class="mode-toggle"
               />
             </div>
+
+            <!-- Mode explanation panel -->
+            <Transition name="mode-info">
+              <div v-if="showModeInfo" class="mode-info-panel">
+                <div class="mode-compare">
+                  <div class="mode-col" :class="{ 'mode-col--active': mode === 'online' }">
+                    <div class="mode-col-head">
+                      <ion-icon :icon="wifiOutline" class="mode-col-icon" />
+                      <span class="mode-col-name">Online</span>
+                      <span v-if="mode === 'online'" class="mode-col-badge">active</span>
+                    </div>
+                    <ul class="mode-col-list">
+                      <li>Items fetched live per session</li>
+                      <li>No initial setup needed</li>
+                      <li>Internet required for item search</li>
+                      <li>Cached data loads instantly</li>
+                    </ul>
+                  </div>
+                  <div class="mode-col" :class="{ 'mode-col--active': mode === 'offline' }">
+                    <div class="mode-col-head">
+                      <ion-icon :icon="cloudOfflineOutline" class="mode-col-icon" />
+                      <span class="mode-col-name">Offline</span>
+                      <span v-if="mode === 'offline'" class="mode-col-badge">active</span>
+                    </div>
+                    <ul class="mode-col-list">
+                      <li>Full catalog downloaded first</li>
+                      <li>Works without internet</li>
+                      <li>Skips re-sync if data is fresh</li>
+                      <li>Instant item search, always</li>
+                    </ul>
+                  </div>
+                </div>
+                <div class="mode-storage-note">
+                  <div class="msn-icon-wrap">
+                    <ion-icon :icon="archiveOutline" />
+                  </div>
+                  <div class="msn-body">
+                    <span class="msn-title">Saved to this device</span>
+                    <span class="msn-desc">
+                      Customers, items &amp; prices are cached locally and survive sign-out.
+                      Return within 24 hours — your data is ready, no re-sync needed.
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </Transition>
 
             <!-- Username -->
             <ion-item lines="full" :class="['login-field', 'login-field--stagger-4', { 'login-field--error': loginState === 'error' }]">
@@ -272,7 +331,7 @@ import {
   IonSpinner,
   IonToggle,
 } from '@ionic/vue';
-import { eyeOutline, eyeOffOutline, alertCircleOutline, cloudOfflineOutline, warningOutline, pricetagOutline, checkmarkCircleOutline, wifiOutline, cloudDoneOutline } from 'ionicons/icons';
+import { eyeOutline, eyeOffOutline, alertCircleOutline, cloudOfflineOutline, warningOutline, pricetagOutline, checkmarkCircleOutline, wifiOutline, cloudDoneOutline, informationCircleOutline, archiveOutline } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { ApiService, setApiCompany } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
@@ -308,13 +367,14 @@ const currentYear = new Date().getFullYear();
 /* ─── Login animation state ─── */
 const loginState = ref<'idle' | 'loading' | 'success' | 'error'>('idle');
 const isCardShaking = ref(false);
+const showModeInfo = ref(false);
 
 watch([username, password], () => {
   if (loginState.value === 'error') loginState.value = 'idle';
 });
 
 const isLoading = computed(() => authStore.isLoading);
-const { isSyncing, syncPhase, syncProgress, syncSubTasks, sync } = useSync();
+const { isSyncing, syncPhase, syncProgress, syncSubTasks, sync, syncIfStale } = useSync();
 const { mode, offlineReady, setMode } = useAppModeStore();
 
 function onModeToggle(e: Event) {
@@ -380,6 +440,7 @@ const canSubmit = computed(
 );
 
 onMounted(() => {
+  StorageService.init(); // Populate _itemsMemory from IndexedDB so offlineReady is accurate
   loadCompanies();
 });
 
@@ -457,7 +518,7 @@ async function handleLogin() {
   loginState.value = 'success';
 
   if (mode.value === 'offline') {
-    await sync();
+    await syncIfStale(24);
   }
 
   router.replace('/app/home');
@@ -1140,6 +1201,220 @@ async function handleLogin() {
 .login-selects .login-field--stagger-1 { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.02s both; }
 .login-selects .login-field--stagger-2 { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.08s both; }
 
+/* ── Mode info button ── */
+.mode-toggle-title-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mode-info-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  border-radius: 50%;
+  transition: background 0.15s ease;
+  line-height: 0;
+}
+
+.mode-info-btn:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.mode-info-icon {
+  font-size: 14px;
+  color: var(--app-text-muted);
+  transition: color 0.18s ease, transform 0.25s var(--ease-out-expo);
+}
+
+.mode-info-icon--active {
+  color: var(--app-gold);
+  transform: rotate(20deg);
+}
+
+/* ── Mode info panel ── */
+.mode-info-panel {
+  margin: 0 0 4px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.mode-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.mode-col {
+  padding: 12px 10px;
+  position: relative;
+  transition: background 0.2s ease;
+}
+
+.mode-col + .mode-col {
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.mode-col--active {
+  background: rgba(160, 115, 32, 0.06);
+}
+
+.mode-col--active::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--app-gold), transparent);
+  opacity: 0.6;
+}
+
+.mode-col-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.mode-col-icon {
+  font-size: 13px;
+  color: var(--app-text-muted);
+  flex-shrink: 0;
+}
+
+.mode-col--active .mode-col-icon {
+  color: var(--app-gold);
+}
+
+.mode-col-name {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--app-text-muted);
+}
+
+.mode-col--active .mode-col-name {
+  color: var(--app-gold-light);
+}
+
+.mode-col-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--app-gold);
+  background: rgba(160, 115, 32, 0.15);
+  border: 1px solid rgba(160, 115, 32, 0.3);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: auto;
+}
+
+.mode-col-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mode-col-list li {
+  font-size: 10px;
+  color: var(--app-text-muted);
+  line-height: 1.4;
+  padding-left: 10px;
+  position: relative;
+}
+
+.mode-col-list li::before {
+  content: '·';
+  position: absolute;
+  left: 2px;
+  color: var(--app-border);
+}
+
+.mode-col--active .mode-col-list li {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.mode-col--active .mode-col-list li::before {
+  color: rgba(160, 115, 32, 0.5);
+}
+
+/* ── Storage persistence note ── */
+.mode-storage-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(160, 115, 32, 0.05);
+}
+
+.msn-icon-wrap {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(160, 115, 32, 0.12);
+  border: 1px solid rgba(160, 115, 32, 0.22);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.msn-icon-wrap ion-icon {
+  font-size: 14px;
+  color: var(--app-gold);
+}
+
+.msn-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.msn-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--app-gold-light);
+  letter-spacing: 0.2px;
+}
+
+.msn-desc {
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--app-text-muted);
+}
+
+/* ── Mode info panel transition ── */
+.mode-info-enter-active {
+  transition: opacity 0.22s ease, transform 0.25s var(--ease-out-expo);
+  overflow: hidden;
+}
+.mode-info-leave-active {
+  transition: opacity 0.15s ease;
+  overflow: hidden;
+}
+.mode-info-enter-from {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+.mode-info-leave-to {
+  opacity: 0;
+}
+
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   .login-card--shake,
@@ -1169,7 +1444,12 @@ async function handleLogin() {
   .sync-status-fade-enter-active,
   .sync-status-fade-leave-active,
   .sync-label-swap-enter-active,
-  .sync-label-swap-leave-active {
+  .sync-label-swap-leave-active,
+  .mode-info-enter-active,
+  .mode-info-leave-active {
+    transition: none !important;
+  }
+  .mode-info-icon {
     transition: none !important;
   }
   .sync-progress-fill {

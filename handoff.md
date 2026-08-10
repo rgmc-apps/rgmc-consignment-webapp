@@ -2,95 +2,110 @@
 
 ## Goal
 
-Fix `GET /bc/custom/v3/item-prices` returning 503 "Item price catalog is empty" even when Firestore has RGMC records, and ensure future syncs populate Firestore with active (non-blocked) prices by finding the nearest valid BC price date rather than requiring an exact today match.
+Fix multiple inter-related issues in the RGMC Consignment Web App:
 
-The broader goal is a stable RGMC Consignment Web App where the Ionic/Vue frontend can sync item prices from Firestore (populated by the worker pool from BC) without hitting BC directly.
+1. **Item price list staleness alerting** — Add a composable (`usePriceListCheck`) that warns users when BC price lists have expired or new ones became effective after their last sync, so they know to re-sync.
+2. **Customer cache cross-company contamination** — Scope the customer cache by company code so switching BC companies doesn't show stale customers from the previous company.
+3. **Task polling 404 loop** — Fix `GET /tasks/{taskId}` always returning `index.html` (the SPA fallback) because the `/tasks/` path was never proxied through nginx or Vite — so orders always appeared to fail even when BC processed them successfully.
+4. **Submit page UX** — Replace the spinner button during order submission with an animated "signal broadcast" loading panel showing Queued → Processing → Confirming steps.
+
+---
 
 ## Current State
 
-**All code changes are complete and committed. Nothing in either repo has been pushed since the last session — both have unpushed commits waiting.**
+**All changes from this session are committed and clean. Repo is at `origin/master` HEAD.**
 
-### rgmc-bc-api (`C:\claude\rgmc-bc-api`)
-Unpushed commit:
-- `b800770` — date fallback + false-503 fix (this session)
+### What was done (all committed):
 
-Already deployed (pushed in prior sessions):
-- `b09b7bc` — `POST /internal/firestore/sync-item-prices-direct` endpoint
-- `cfe7987` — `GET /internal/test/catalog-status` shows both env collections
-- `96fcd01` — 503 detail includes company + collection name
+1. **`usePriceListCheck` composable added** (`src/composables/usePriceListCheck.ts`) — Module-level singleton that calls `GET /bc/custom/price-list-headers?status=Active&type=Sale`, compares headers against today's date and the cached price date, and surfaces two alert types: `expired` (endingDate < today) and `new-available` (startingDate > cachedDate). Alerts are shown as a dismissible banner in `ScanningPage.vue`.
 
-### rgmc-worker-pool (`C:\claude\rgmc-worker-pool`)
-Unpushed commit:
-- `55dd08f` — date fallback in `fetch_v3_catalog` (this session)
+2. **`getPriceListHeaderCatalog` added to ApiService** (`src/services/api.service.ts`) — New method to fetch price list headers with optional `status` and `type` query params.
 
-Already deployed (pushed and confirmed in prior sessions):
-- `248ff64` — incremental sync via `lastModifiedDateTime`
+3. **`PriceListHeader` type added** (`src/types/index.ts`) — Fields: `code`, `description`, `startingDate`, `endingDate`, `currencyCode`.
 
-### rgmc-consignment-webapp (`C:\claude\rgmc-consignment-webapp`)
-No unpushed commits. All webapp changes from prior sessions are deployed.
+4. **Price list alert banner added to ScanningPage** (`src/views/ScanningPage.vue`) — Shows dismissible alert rows above the scan form when `hasPriceListAlerts` is true. The `check()` is called on mount and after each sync.
 
-### Known Firestore State
-Collection `item_prices_production` for company `RGMC` exists but **all records have `blocked: True`** — they were synced on a date outside BC's price-list valid date range. After deploying the new commits and re-syncing, the date fallback will automatically find a valid date and populate the collection with active records.
+5. **Customer cache scoped by company** (`src/services/storage.service.ts`) — `getCachedCustomers(company?)` / `setCachedCustomers(customers, company?)` now store `{ company, data }` objects. Old plain-array cache format detected via `Array.isArray(raw)` and treated as stale (returns `[]`) when a company code is expected. All callers updated: `useSync.ts`, `LandingPage.vue` (3 calls), `ScanningPage.vue`.
+
+6. **`/tasks/` proxy added** (`nginx.conf` + `vite.config.ts`) — Root-cause fix for the polling loop. Added a `location /tasks/` block in nginx.conf with identical settings to `/bc/` and `/internal/`. Added `'/tasks'` to Vite dev proxy. Previously, `GET /tasks/{taskId}` hit the nginx SPA fallback (`try_files $uri /index.html`) and returned HTML, causing the poller to loop indefinitely.
+
+7. **Submit loading panel** (`src/views/SubmitPage.vue`) — When `salesStatus === 'submitting'` or `returnsStatus === 'submitting'`, the submit button is replaced via `<Transition name="queue-swap">` with a `.queue-loading-panel` div containing animated concentric rings (`.queue-ring--1/2/3`), a queue-icon-wrap, headline, sub-text, step indicators (Queued/Processing/Confirming), and a shimmer bar. Returns variant uses `--returns` modifier classes for danger/red color.
+
+8. **`pollUntilDone` error-resilient** (`src/views/SubmitPage.vue:488`) — Catches transient HTTP errors and retries; only fails after 10 consecutive errors (~30 s). Previously, one transient error immediately propagated as a submission failure.
+
+### What still needs verification:
+
+- **End-to-end test after Docker rebuild** — The `nginx.conf` `/tasks/` fix only takes effect after rebuilding and redeploying the webapp Docker image. The commit is in but the image may not have been rebuilt/pushed yet.
+- **Price list alert banner styling** — Added but not visually tested in a browser.
+- **Old `order_tasks` Firestore collection** — Still orphaned from the previous session. Safe to delete from the Firestore console; nothing writes to it. Active collection is `order_tasks_production`.
+
+---
 
 ## Files Actively Being Edited
 
-All edits are committed. No files are mid-change.
+All committed. No files in mid-edit state.
 
-**rgmc-bc-api:**
-- `src/services/bc_functions.py` — `rgmc_v3_fetch_catalog_direct`: now loops `start_date` back up to 30 days; returns all records for the first date where `any(not r.get("blocked") for r in records)` is True. Logs which date was chosen if different from requested.
-- `src/routers/bc_routes/rgmc_item_price_v3_routes.py` — `list_item_prices`: replaced the old `catalog_empty` logic with an `include_blocked=True` guard; records-exist-but-all-blocked now returns `{"data":[], "total":0, "source":"firestore"}` with 200 OK instead of 503. Same change applied to `get_item_price_count`.
-- `src/services/price_firestore_service.py` — line 103: `data.get("blocked")` → `data.get("blocked") is True` (strict boolean, prevents truthy strings like `"No"` from incorrectly filtering records).
+- `src/composables/usePriceListCheck.ts` — **New file.** Module-level singleton for price list staleness checks. Calls bc-api headers endpoint, compares against today and `cachedDate`, emits `expired` / `new-available` alerts.
+- `src/services/api.service.ts` — Added `getPriceListHeaderCatalog(status?, type?)` method.
+- `src/types/index.ts` — Added `PriceListHeader` interface and `PriceListAlertType` / `PriceListAlert` types.
+- `src/views/ScanningPage.vue` — Added price list alert banner (template + CSS), imported `usePriceListCheck`, wired `check()` calls on mount and post-sync.
+- `src/services/storage.service.ts` — `getCachedCustomers` / `setCachedCustomers` now accept and store `company` code. Old array format treated as stale.
+- `src/composables/useSync.ts` — `setCachedCustomers()` call now passes `authStore.company?.code`.
+- `src/views/LandingPage.vue` — Three `getCachedCustomers()` calls updated to pass `authStore.company?.code`.
+- `nginx.conf` — Added `/tasks/` proxy location block. This was the root-cause fix for the polling loop.
+- `vite.config.ts` — Added `'/tasks'` to Vite dev proxy.
+- `src/views/SubmitPage.vue` — Loading animation panel for `submitting` state; `pollUntilDone` now retries on transient errors.
+- `dist/index.html` — Updated JS bundle hash (rebuilt artifact, committed alongside source changes).
 
-**rgmc-worker-pool:**
-- `src/services/bc_client.py` — extracted `_fetch_v3_catalog_for_date(company_id, company_name, effective_date, since=None)` helper; `fetch_v3_catalog` now loops up to 30 days on full syncs (`since=None`), skips fallback on incremental syncs (`since` set).
+---
 
 ## Failed Attempts
 
-- **What was tried**: Assumed GCP_ENV mismatch — worker writes to `item_prices_staging`, bc-api reads `item_prices_production` — **Why it failed**: User confirmed GCP_ENV=Production on both services; `catalog-status` endpoint showed records exist in `item_prices_production`.
-- **What was tried**: Assumed catalog was completely empty — **Why it failed**: User confirmed RGMC records DO exist in Firestore; all had `blocked: True` because sync used `onDate eq today` and today is outside the price-list's valid range.
-- **What was tried**: 503 detail improvement to expose company+collection — **Why it failed** (as a standalone fix): Made the error more debuggable but did not resolve the underlying issue. The 503 was still triggered on every read.
+- **Firebase REST API for direct Firestore task lookup**: Attempted to bypass bc-api polling by calling the Firestore REST API directly from the webapp. **Why it failed**: No Firebase project — GCP-only Firestore. Client-side access requires Firebase Auth/OAuth2, which the webapp doesn't have. All Firebase env vars and `getTaskDirect()` helper were fully removed after this dead end.
+- **Attributing "order success but webapp shows error" to Firestore write failure**: Suspected `update_task(status="done")` was silently failing. **Why it failed**: The actual cause was the `/tasks/` nginx proxy missing — poll requests never reached bc-api at all.
+- **Price list header endpoint path uncertainty**: The exact bc-api endpoint path for price list headers needed to be verified before `getPriceListHeaderCatalog` was wired up. The endpoint is `GET /bc/custom/price-list-headers` with `?status=` and `?type=` params.
+
+---
 
 ## Next Step
 
-**Push both repos to trigger Cloud Build deploys:**
+**Rebuild and redeploy the webapp Docker container** so the `nginx.conf` `/tasks/` proxy fix takes effect in production:
 
-```powershell
-cd C:\claude\rgmc-bc-api; git push origin master
-cd C:\claude\rgmc-worker-pool; git push origin master
+```bash
+# In rgmc-consignment-webapp root:
+docker build -t <registry>/rgmc-consignment-webapp:latest .
+docker push <registry>/rgmc-consignment-webapp:latest
+# Then redeploy on Cloud Run
 ```
 
-After both Cloud Build deploys complete (~3–5 min each), trigger a re-sync to populate Firestore with valid non-blocked records:
+After redeployment, do a full end-to-end test:
+1. Submit a sales order → loading panel (rings + steps) should appear
+2. Wait for BC processing (10–30 s typically)
+3. Webapp should transition to `salesStatus === 'done'` and show the BC order number
+4. Check `order_tasks_production` in Firestore — document should show `status: "done"`
 
-```
-POST /internal/firestore/sync-item-prices-direct
-  Header: X-Task-Secret: <TASK_SECRET>
-  Query:  company=RGMC
-```
+If polling still fails, check bc-api Cloud Run logs for `GET /tasks/{taskId}` — you should see them arriving. If not, the nginx proxy is still not routing.
 
-This bypasses the worker pool entirely (useful to confirm the date fallback works immediately). Or use `POST /internal/firestore/routine-sync` for a full three-collection sync via the worker pool.
-
-Then verify:
-```
-GET /bc/custom/v3/item-prices?company=RGMC          → should return data with total > 0
-GET /internal/test/catalog-status?company=RGMC      → X-Task-Secret required; check this_env record counts
-```
+---
 
 ## Context & Gotchas
 
-- **Three repos**: `C:\claude\rgmc-bc-api`, `C:\claude\rgmc-worker-pool`, `C:\claude\rgmc-consignment-webapp`. All on Cloud Run. Cloud Build auto-deploys on `git push origin master`.
-- **GCP project**: `durable-woods-465907-n1`, region: `asia-southeast1`. GCP_ENV must be `"Production"` on both bc-api and worker pool Cloud Run services — controls Firestore collection suffix (`item_prices_production` vs `item_prices_staging`).
-- **Repo locations**:
-  - `C:\claude\rgmc-worker-pool` → GitHub: `erar404/rgmc-worker-pool`
-  - `C:\claude\rgmc-bc-api` → GitHub: `rgmc-apps/rgmc-bc-api`
-  - `C:\claude\rgmc-consignment-webapp` → GitHub: `rgmc-apps/rgmc-consignment-webapp`
-- **`blocked` field from BC**: BC sets `blocked: True` (Python bool) when `onDate` is outside the price's valid date range. Strict `is True` check is intentional — `blocked: False` or `blocked: "No"` must not exclude records.
-- **Date fallback rationale**: BC's `Pag50318` `onDate eq {date}` filter returns prices valid on that exact date. If today is past all price list end dates, BC returns items with `blocked: True`. The fix tries up to 30 days back to find the nearest date with at least one active price. This is the "nearest date on its range" the user requested.
-- **Incremental sync and date fallback**: When `since` is set in `fetch_v3_catalog` (incremental run), the fallback is skipped — the worker only fetches records modified since last sync. The initial full sync (when `since=None`, i.e., `sync_state_{env}` has no entry) will use the date fallback to find a valid date. Subsequent incremental runs don't need date fallback because data is already in Firestore.
-- **False 503 fix**: The list endpoint now uses `include_blocked=True` to check for any records. If records exist (even all blocked) → 200 empty. If collection is truly empty → 503. This prevents the false 503 while existing blocked data is in Firestore.
-- **`POST /internal/firestore/sync-item-prices-direct`**: Bypasses worker pool — calls BC directly from bc-api. Fast for one-off syncs and diagnostics. Introduced in `b09b7bc`.
-- **`GET /internal/test/catalog-status`**: Returns record counts for both `this_env` and `alt_env` Firestore collections per company. Use to confirm GCP_ENV alignment. Introduced in `cfe7987`.
-- **nginx `proxy_read_timeout 200s`**: Already deployed in webapp (`ed7a97d`). Prevents 504 on large Firestore reads. Do not reduce.
-- **Worker pool `max_messages=1`**: Prevents concurrent OOM from two simultaneous heavy BC catalog fetches. Configured in Pub/Sub subscription; don't change.
-- **`sync_state_{env}` Firestore collection**: Tracks last-sync timestamps per `(company, collection_type)` for incremental sync. Populated by `set_sync_state()` in `sync_worker.py` after each successful write.
-- **Cloud Build quirk**: PowerShell `<<'EOF'` heredoc syntax fails in this environment — use PowerShell `@'...'@` here-strings for multi-line git commit messages.
-- **IAM**: Worker pool SA (`rgmc-worker-pool@...`) needs `roles/pubsub.subscriber`; bc-api SA needs `roles/pubsub.publisher`. These were set in prior sessions.
+- **`/tasks/` proxy was the root cause**: The SPA's `try_files $uri /index.html` fallback was silently returning 200 HTML for every task poll. The poller never detected an error, just looped until the 5-minute timeout. Adding the explicit `location /tasks/` block before the SPA fallback fixes this.
+
+- **`usePriceListCheck` is a module-level singleton**: `alerts`, `isChecking`, `isDismissed` are declared outside the composable function. All components that call `usePriceListCheck()` share the same state. Dismissing in one component dismisses globally.
+
+- **Customer cache backwards compatibility**: Old localStorage format is a plain array. `Array.isArray(raw)` detects it and returns `[]` (stale) when a company is passed. Users will be prompted to re-sync once on upgrade — expected behavior.
+
+- **`getPriceListHeaderCatalog` bc-api endpoint**: `GET /bc/custom/price-list-headers` — same company injection as all other `/bc/` calls (interceptor adds `?company=...`). Accepts optional `status` (`Active`, `Inactive`, etc.) and `type` (`Sale`, `Purchase`) query params.
+
+- **Price list alert is advisory only**: The `check()` call wraps in try/catch and silently ignores errors. A failed header fetch doesn't block scanning — users just won't see the staleness warning.
+
+- **`GCP_ENV` on bc-api Cloud Run**: Must be `Production` (capital P; code lowercases internally). Controls which `order_tasks_{env}` Firestore collection is used. If unset or wrong, tasks go to the wrong collection.
+
+- **`pollUntilDone` still uses 3-second intervals**: 5-minute timeout, 10 consecutive error limit. If BC takes >5 min (e.g., large return with many 409 retries), webapp will time out and show "Order is taking too long." Not yet reported as an issue.
+
+- **The old `order_tasks` Firestore collection is orphaned**: Safe to delete from console. No code writes to it. Active collection is `order_tasks_production`.
+
+- **Two async submit routes exist**: `POST /bc/sales-orders/submit` (v1, sales orders) and `POST /bc/custom/v2/sales-orders/submit` (v2, return orders). Both create Cloud Tasks that always hit `/internal/tasks/process-order/{task_id}`. Both use the same `/tasks/{task_id}` polling endpoint.
+
+- **Vite proxy only applies in dev**: In production, nginx.conf is authoritative. Both were fixed. Docker image must be rebuilt for the nginx change to apply.
