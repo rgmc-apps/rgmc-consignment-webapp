@@ -349,18 +349,25 @@ onMounted(async () => {
     const cachedPrices = StorageService.getCachedItemPrices();
     if (seedItems.length > 0) {
       onlineItems.value = seedItems;
-      if (cachedPrices?.date === lookupDate.value) {
+      // Always seed with whatever prices we have — better than blank while loading
+      if (cachedPrices?.prices) {
         livePrices.value = { ...cachedPrices.prices };
       }
     }
 
-    // Cache hit: items loaded and prices match the posting date — no API call needed.
-    if (seedItems.length > 0 && cachedPrices?.date === lookupDate.value) {
+    // Cache hit: exact date match, OR items were synced within 24 h and posting date is today.
+    const pricesMatchDate = cachedPrices?.date === lookupDate.value;
+    const today = new Date().toISOString().split('T')[0];
+    const postingIsToday = lookupDate.value === today;
+    const itemsTs = StorageService.getSyncTimestamps().items;
+    const cacheIsRecent = !!itemsTs && (Date.now() - new Date(itemsTs).getTime()) < 24 * 60 * 60 * 1000;
+
+    if (seedItems.length > 0 && (pricesMatchDate || (cacheIsRecent && postingIsToday))) {
       isLoadingOnline.value = false;
       return;
     }
 
-    // Cache miss (no items) or date mismatch — fetch from API.
+    // Cache miss or stale data — fetch from API.
     isLoadingOnline.value = seedItems.length === 0;
     try {
       const result = await ApiService.getItemsPage(lookupDate.value, props.familyCode);
