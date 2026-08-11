@@ -10,7 +10,10 @@ const syncProgress = ref(0);
 const syncSubTasks = ref<{ label: string; status: 'pending' | 'done' | 'error'; detail?: string }[]>([]);
 const syncError = ref<string | null>(null);
 const syncWarning = ref<string | null>(null);
-const lastSyncDate = ref<Date | null>(StorageService.getLastSync());
+// lastSyncDate is a reactive trigger — set to new Date() after each sync so that
+// lastSyncLabel (and any other computed) re-evaluates. The authoritative timestamp is
+// always read per-company-brand from StorageService.getLastSync().
+const lastSyncDate = ref<Date | null>(null);
 const syncItemsLoaded = ref(0);
 const syncItemsTotal = ref(0);
 const isCatalogEmpty = ref(false);
@@ -18,10 +21,17 @@ const isTriggering = ref(false);
 const triggerMessage = ref<string | null>(null);
 
 export function useSync() {
+  const authStore = useAuthStore();
 
+  // lastSyncLabel reads the stored timestamp for the current company+brand.
+  // lastSyncDate.value is touched so the computed re-evaluates after a sync.
   const lastSyncLabel = computed(() => {
-    if (!lastSyncDate.value) return 'Never synced';
-    const d = lastSyncDate.value;
+    void lastSyncDate.value; // reactive dependency — re-runs after sync completes
+    const company = authStore.company?.code;
+    const brand = authStore.brand?.code;
+    if (!company || !brand) return 'Never synced';
+    const d = StorageService.getLastSync(company, brand);
+    if (!d) return 'Never synced';
     return d.toLocaleDateString('en-PH', {
       month: 'short',
       day: 'numeric',
@@ -52,12 +62,12 @@ export function useSync() {
 
     try {
       const TIMEOUT = 180_000;
-      const authStore = useAuthStore();
-      const brandCode = authStore.brand?.code ?? StorageService.getAuth()?.brand?.code;
+      const company  = authStore.company?.code ?? '';
+      const brand    = authStore.brand?.code ?? StorageService.getAuth()?.brand?.code ?? '';
+      const brandCode = brand || undefined;
       const today = new Date().toISOString().split('T')[0];
 
       // Tasks run sequentially to limit concurrent BC connections to 1 per user.
-      // Each task updates its subtask status and bumps progress as it completes.
       let done = 0;
       const bump = () => { syncProgress.value = Math.round((++done / 4) * 100); };
       const settle = <T>(p: Promise<T>): Promise<PromiseSettledResult<T>> =>
@@ -104,17 +114,17 @@ export function useSync() {
       );
 
       if (customersResult.status === 'fulfilled') {
-        StorageService.setCachedCustomers(customersResult.value, authStore.company?.code);
-        StorageService.setSyncTimestamp('customers');
+        StorageService.setCachedCustomers(customersResult.value, company);
+        StorageService.setSyncTimestamp('customers', company, brand);
       }
       if (categoriesResult.status === 'fulfilled') {
         StorageService.setCachedItemCategories(categoriesResult.value);
-        StorageService.setSyncTimestamp('itemCategories');
+        StorageService.setSyncTimestamp('itemCategories', company, brand);
       }
       if (itemsResult.status === 'fulfilled') {
         const { items, priceMap } = itemsResult.value;
         StorageService.setCachedItems(items);
-        StorageService.setSyncTimestamp('items');
+        StorageService.setSyncTimestamp('items', company, brand);
         StorageService.setCachedItemPrices(today, priceMap);
         StorageService.applyPriceMapToItems(priceMap);
         isCatalogEmpty.value = false;
@@ -158,7 +168,7 @@ export function useSync() {
       }
 
       syncProgress.value = 100;
-      lastSyncDate.value = new Date();
+      lastSyncDate.value = new Date(); // reactive trigger so lastSyncLabel re-evaluates
     } catch (err) {
       syncError.value = err instanceof Error ? err.message : 'Sync failed. Check your connection.';
     } finally {
@@ -183,12 +193,14 @@ export function useSync() {
   }
 
   async function syncIfStale(maxAgeHours = 24): Promise<void> {
-    if (!lastSyncDate.value) {
+    const company = authStore.company?.code;
+    const brand   = authStore.brand?.code;
+    if (!company || !brand) {
       await sync();
       return;
     }
-    const ageMs = Date.now() - lastSyncDate.value.getTime();
-    if (ageMs > maxAgeHours * 60 * 60 * 1000) {
+    const lastSync = StorageService.getLastSync(company, brand);
+    if (!lastSync || (Date.now() - lastSync.getTime()) > maxAgeHours * 3_600_000) {
       await sync();
     }
   }

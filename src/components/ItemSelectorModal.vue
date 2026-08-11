@@ -260,11 +260,13 @@ import { StorageService } from '@/services/storage.service';
 import { formatCurrency } from '@/utils/format';
 import { useTheme } from '@/composables/useTheme';
 import { useAppModeStore } from '@/stores/app-mode.store';
+import { useAuthStore } from '@/stores/auth.store';
 import type { Item, ItemCategory } from '@/types';
 
 const { theme } = useTheme();
 const isMinimalist = computed(() => theme.value === 'minimalist');
 const { mode } = useAppModeStore();
+const authStore = useAuthStore();
 
 const PAGE_SIZE = 100;
 const currentPage = ref(1);
@@ -359,7 +361,7 @@ onMounted(async () => {
     const pricesMatchDate = cachedPrices?.date === lookupDate.value;
     const today = new Date().toISOString().split('T')[0];
     const postingIsToday = lookupDate.value === today;
-    const itemsTs = StorageService.getSyncTimestamps().items;
+    const itemsTs = StorageService.getSyncTimestamps(authStore.company?.code ?? '', authStore.brand?.code ?? '').items;
     const cacheIsRecent = !!itemsTs && (Date.now() - new Date(itemsTs).getTime()) < 24 * 60 * 60 * 1000;
 
     if (seedItems.length > 0 && (pricesMatchDate || (cacheIsRecent && postingIsToday))) {

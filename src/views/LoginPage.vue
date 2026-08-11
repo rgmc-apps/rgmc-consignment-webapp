@@ -115,6 +115,14 @@
               </div>
             </Transition>
 
+            <!-- Cached sync indicator for selected company + brand -->
+            <Transition name="sync-chip-fade">
+              <div v-if="selectedSyncLabel" class="brand-sync-chip">
+                <ion-icon :icon="cloudDoneOutline" />
+                <span>Data cached &middot; {{ selectedSyncLabel }}</span>
+              </div>
+            </Transition>
+
             <!-- App mode toggle -->
             <div class="mode-toggle-row login-field--stagger-3">
               <div class="mode-toggle-icon-wrap">
@@ -374,7 +382,7 @@ watch([username, password], () => {
 });
 
 const isLoading = computed(() => authStore.isLoading);
-const { isSyncing, syncPhase, syncProgress, syncSubTasks, sync, syncIfStale } = useSync();
+const { isSyncing, syncPhase, syncProgress, syncSubTasks, sync, syncIfStale, lastSyncDate } = useSync();
 const { mode, offlineReady, setMode } = useAppModeStore();
 
 function onModeToggle(e: Event) {
@@ -434,6 +442,22 @@ const networkNotice = computed<'offline' | 'slow' | null>(() => {
 
 const selectedCompany = computed(() => companies.value.find((c) => c.id === selectedCompanyId.value) ?? null);
 const selectedBrand = computed(() => brands.value.find((b) => b.id === selectedBrandId.value) ?? null);
+
+const selectedSyncLabel = computed(() => {
+  void lastSyncDate.value; // re-evaluate after a sync completes
+  const company = selectedCompany.value?.code;
+  const brand = selectedBrand.value?.code;
+  if (!company || !brand) return null;
+  const d = StorageService.getLastSync(company, brand);
+  if (!d) return null;
+  return d.toLocaleDateString('en-PH', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+});
 
 const canSubmit = computed(
   () => selectedCompanyId.value && selectedBrandId.value && username.value.trim(),
@@ -833,6 +857,30 @@ async function handleLogin() {
 .family-fade-leave-active { transition: opacity 0.15s ease; }
 .family-fade-enter-from   { opacity: 0; transform: translateY(-4px); }
 .family-fade-leave-to     { opacity: 0; }
+
+/* ── Cached sync chip ── */
+.brand-sync-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 4px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: oklch(52% 0.15 145 / 0.1);
+  border: 1px solid oklch(52% 0.15 145 / 0.25);
+  font-size: 12px;
+  color: oklch(68% 0.15 145);
+}
+
+.brand-sync-chip ion-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.sync-chip-fade-enter-active { transition: opacity 0.22s ease, transform 0.22s var(--ease-out-quart); }
+.sync-chip-fade-leave-active { transition: opacity 0.15s ease; }
+.sync-chip-fade-enter-from   { opacity: 0; transform: translateY(-4px); }
+.sync-chip-fade-leave-to     { opacity: 0; }
 
 /* Spinner fade-in/out (companies loading, brands loading) */
 .spin-fade-enter-active { transition: opacity 0.18s ease, transform 0.18s var(--ease-out-quart); }

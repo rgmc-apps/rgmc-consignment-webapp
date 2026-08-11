@@ -134,11 +134,15 @@ export interface AuthSession {
   company?: Company;
 }
 
-export interface SyncTimestamps {
+/** Per-company-brand sync record (what gets stored at each map entry). */
+export interface SyncTimestampEntry {
   customers?: string;
   items?: string;
   itemCategories?: string;
 }
+
+/** Full map stored in localStorage — keyed by "companyCode::brandCode". */
+export type SyncTimestamps = Record<string, SyncTimestampEntry>;
 
 export interface SalesOrderLine {
   itemNumber: string;

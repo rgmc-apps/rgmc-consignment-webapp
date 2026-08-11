@@ -7,6 +7,7 @@ import type {
   Item,
   ItemCategory,
   ScanSession,
+  SyncTimestampEntry,
   SyncTimestamps,
 } from '@/types';
 
@@ -250,21 +251,40 @@ export const StorageService = {
     set(KEYS.CACHE_ITEM_PRICES, { date, prices });
   },
 
-  /* ─── Sync timestamps ─── */
-  getSyncTimestamps(): SyncTimestamps {
-    return get<SyncTimestamps>(KEYS.SYNC_TIMESTAMPS) ?? {};
+  /* ─── Sync timestamps (keyed by "companyCode::brandCode") ─── */
+  getSyncTimestamps(company: string, brand: string): SyncTimestampEntry {
+    const raw = get<Record<string, unknown>>(KEYS.SYNC_TIMESTAMPS);
+    if (!raw) return {};
+    // Old format had flat keys ('customers', 'items', 'itemCategories') at the top level.
+    // Detect and wipe it so the new nested format is always used.
+    if ('customers' in raw || 'items' in raw || 'itemCategories' in raw) {
+      remove(KEYS.SYNC_TIMESTAMPS);
+      return {};
+    }
+    return (raw as SyncTimestamps)[`${company}::${brand}`] ?? {};
   },
-  setSyncTimestamp(key: keyof SyncTimestamps): void {
-    const ts = this.getSyncTimestamps();
-    ts[key] = new Date().toISOString();
-    set(KEYS.SYNC_TIMESTAMPS, ts);
+  setSyncTimestamp(key: keyof SyncTimestampEntry, company: string, brand: string): void {
+    const raw = get<Record<string, unknown>>(KEYS.SYNC_TIMESTAMPS) ?? {};
+    // Wipe old flat format if detected
+    const isOld = 'customers' in raw || 'items' in raw || 'itemCategories' in raw;
+    const all: SyncTimestamps = isOld ? {} : (raw as SyncTimestamps);
+    const k = `${company}::${brand}`;
+    if (!all[k]) all[k] = {};
+    all[k]![key] = new Date().toISOString();
+    set(KEYS.SYNC_TIMESTAMPS, all);
   },
-  getLastSync(): Date | null {
-    const ts = this.getSyncTimestamps();
-    const vals = Object.values(ts).filter(Boolean) as string[];
+  getLastSync(company: string, brand: string): Date | null {
+    const entry = this.getSyncTimestamps(company, brand);
+    const vals = Object.values(entry).filter(Boolean) as string[];
     if (!vals.length) return null;
     const latest = vals.reduce((a, b) => (a > b ? a : b));
-    return latest ? new Date(latest) : null;
+    return new Date(latest);
+  },
+  /** Returns all per-company-brand entries for display or debug. */
+  getAllSyncTimestamps(): SyncTimestamps {
+    const raw = get<Record<string, unknown>>(KEYS.SYNC_TIMESTAMPS);
+    if (!raw || 'customers' in raw || 'items' in raw || 'itemCategories' in raw) return {};
+    return raw as SyncTimestamps;
   },
   clearSyncTimestamps(): void {
     remove(KEYS.SYNC_TIMESTAMPS);

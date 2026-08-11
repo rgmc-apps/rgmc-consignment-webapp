@@ -19,6 +19,11 @@
           <span class="pop-name">{{ authStore.user?.displayName }}</span>
           <span v-if="authStore.user?.username" class="pop-username">@{{ authStore.user.username }}</span>
           <span class="pop-brand">{{ authStore.brand?.displayName }}</span>
+          <span v-if="lastSyncLabel !== 'Never synced'" class="pop-sync-ts">
+            <ion-icon :icon="cloudDoneOutline" class="pop-sync-ts-icon" />
+            {{ lastSyncLabel }}
+          </span>
+          <span v-else class="pop-sync-ts pop-sync-ts--none">Not yet synced</span>
         </div>
       </div>
 
@@ -161,6 +166,7 @@ import {
   removeOutline,
   checkmarkCircleOutline,
   alertCircleOutline,
+  cloudDoneOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSync } from '@/composables/useSync';
@@ -312,6 +318,28 @@ async function onLogout() {
   text-transform: uppercase;
   color: var(--app-gold);
   opacity: 0.8;
+}
+
+.pop-sync-ts {
+  font-size: 10px;
+  font-weight: 500;
+  color: oklch(65% 0.15 145 / 0.9);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pop-sync-ts-icon {
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.pop-sync-ts--none {
+  color: var(--app-text-muted);
+  opacity: 0.55;
 }
 
 /* ── Divider ── */
