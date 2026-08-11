@@ -19,6 +19,7 @@ const syncItemsTotal = ref(0);
 const isCatalogEmpty = ref(false);
 const isTriggering = ref(false);
 const triggerMessage = ref<string | null>(null);
+const syncDataAge = ref<number>(StorageService.getSyncDataAge());
 
 export function useSync() {
   const authStore = useAuthStore();
@@ -192,7 +193,8 @@ export function useSync() {
     }
   }
 
-  async function syncIfStale(maxAgeHours = 24): Promise<void> {
+  async function syncIfStale(maxAgeHours?: number): Promise<void> {
+    const age = maxAgeHours ?? syncDataAge.value;
     const company = authStore.company?.code;
     const brand   = authStore.brand?.code;
     if (!company || !brand) {
@@ -200,9 +202,15 @@ export function useSync() {
       return;
     }
     const lastSync = StorageService.getLastSync(company, brand);
-    if (!lastSync || (Date.now() - lastSync.getTime()) > maxAgeHours * 3_600_000) {
+    if (!lastSync || (Date.now() - lastSync.getTime()) > age * 3_600_000) {
       await sync();
     }
+  }
+
+  function setSyncDataAge(hours: number): void {
+    const clamped = Math.max(1, Math.round(hours));
+    syncDataAge.value = clamped;
+    StorageService.setSyncDataAge(clamped);
   }
 
   function clearSyncWarning(): void {
@@ -224,8 +232,10 @@ export function useSync() {
     isCatalogEmpty,
     isTriggering,
     triggerMessage,
+    syncDataAge,
     sync,
     syncIfStale,
+    setSyncDataAge,
     clearSyncWarning,
     triggerRemoteSync,
   };

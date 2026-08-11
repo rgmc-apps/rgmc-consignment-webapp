@@ -542,7 +542,7 @@ async function handleLogin() {
   loginState.value = 'success';
 
   if (mode.value === 'offline') {
-    await syncIfStale(24);
+    await syncIfStale();
   }
 
   router.replace('/app/home');
