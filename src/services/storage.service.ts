@@ -154,32 +154,39 @@ export const StorageService = {
     set(KEYS.CACHE_CONTACTS, contacts);
   },
 
-  getCachedCustomers(company?: string): Customer[] {
-    const raw = get<{ company?: string; data?: Customer[] } | Customer[]>(KEYS.CACHE_CUSTOMERS);
+  getCachedCustomers(company?: string, brand?: string): Customer[] {
+    const raw = get<{ company?: string; data?: Array<{ id: string; number: string; displayName: string; city: string; brandCode?: string }> } | Customer[]>(KEYS.CACHE_CUSTOMERS);
     if (!raw) return [];
     if (Array.isArray(raw)) {
       // Old format (no company context) — treat as stale if a company is expected
-      return company ? [] : raw;
+      return company ? [] : (raw as Customer[]);
     }
     if (company && raw.company && raw.company !== company) return [];
-    return (raw.data as Customer[]) ?? [];
+    const data = raw.data ?? [];
+    const filtered = brand
+      ? data.filter((c) => !c.brandCode || c.brandCode === brand)
+      : data;
+    return filtered as unknown as Customer[];
   },
-  setCachedCustomers(customers: Customer[], company?: string): void {
+  setCachedCustomers(customers: Customer[], company?: string, brand?: string): void {
     const slim = customers.map((c) => ({
       id: c.id,
       number: c.number,
       displayName: c.displayName,
       city: c.city,
+      ...(brand ? { brandCode: brand } : {}),
     }));
     set(KEYS.CACHE_CUSTOMERS, { company: company ?? '', data: slim });
   },
   /** Upsert a partial list of customers into the cache (incremental sync). */
-  mergeCachedCustomers(updates: Customer[], company?: string): void {
+  mergeCachedCustomers(updates: Customer[], company?: string, brand?: string): void {
     if (!updates.length) return;
-    const existing = this.getCachedCustomers(company);
+    const raw = get<{ company?: string; data?: Array<{ id: string; number: string; displayName: string; city: string; brandCode?: string }> } | Customer[]>(KEYS.CACHE_CUSTOMERS);
+    const existing: Array<{ id: string; number: string; displayName: string; city: string; brandCode?: string }> =
+      raw && !Array.isArray(raw) ? (raw.data ?? []) : [];
     const map = new Map(existing.map((c) => [c.id, c]));
     for (const c of updates) {
-      map.set(c.id, { id: c.id, number: c.number, displayName: c.displayName, city: c.city } as Customer);
+      map.set(c.id, { id: c.id, number: c.number, displayName: c.displayName, city: c.city, ...(brand ? { brandCode: brand } : {}) });
     }
     set(KEYS.CACHE_CUSTOMERS, { company: company ?? '', data: Array.from(map.values()) });
   },

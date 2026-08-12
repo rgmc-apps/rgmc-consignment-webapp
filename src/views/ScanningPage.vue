@@ -819,7 +819,7 @@ const canScan = computed(() => hasCache.value);
 
 function refreshCache() {
   const brandCode = authStore.brand?.code;
-  cachedCustomers.value = StorageService.getCachedCustomers(authStore.company?.code);
+  cachedCustomers.value = StorageService.getCachedCustomers(authStore.company?.code, authStore.brand?.code);
   const allItems = StorageService.getCachedItems();
   cachedItems.value = brandCode
     ? allItems.filter((i) => i.familyCode === brandCode)

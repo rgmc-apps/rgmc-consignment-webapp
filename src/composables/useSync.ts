@@ -72,7 +72,7 @@ export function useSync() {
       // If a type has cached data, fetch only records modified since that timestamp
       // (incremental). If the cache is empty, fetch everything (full).
       const ts = StorageService.getSyncTimestamps(company, brand);
-      const hasCustomers  = StorageService.getCachedCustomers(company).length > 0;
+      const hasCustomers  = StorageService.getCachedCustomers(company, brand).length > 0;
       const hasCategories = StorageService.getCachedItemCategories().length > 0;
       const hasContacts   = StorageService.getCachedContacts().length > 0;
 
@@ -121,9 +121,9 @@ export function useSync() {
       // ── Persist ──
       if (customersResult.status === 'fulfilled') {
         if (hasCustomers) {
-          StorageService.mergeCachedCustomers(customersResult.value, company);
+          StorageService.mergeCachedCustomers(customersResult.value, company, brand);
         } else {
-          StorageService.setCachedCustomers(customersResult.value, company);
+          StorageService.setCachedCustomers(customersResult.value, company, brand);
         }
         StorageService.setSyncTimestamp('customers', company, brand);
       }
