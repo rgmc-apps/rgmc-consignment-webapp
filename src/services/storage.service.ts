@@ -217,16 +217,21 @@ export const StorageService = {
       unitPriceIncVAT: i.unitPriceIncVAT,
     })) as Item[];
     if (brand) {
-      // Keep items from other brands; replace only this brand's items.
-      const others = _itemsMemory.filter((i) => i.familyCode !== brand);
+      // Keep items from other brands; replace this brand's items.
+      // slim takes precedence: exclude from "others" any item whose id appears in slim
+      // so null/undefined-familyCode items don't accumulate as duplicates across syncs.
+      const slimIds = new Set(slim.map((i) => i.id));
+      const others = _itemsMemory.filter((i) => i.familyCode !== brand && !slimIds.has(i.id));
       _itemsMemory = [...others, ...slim];
     } else {
       _itemsMemory = slim;
     }
+    // Snapshot the reference now so concurrent setCachedItems calls can't overwrite this write.
+    const snapshot = _itemsMemory;
     // Persist to IndexedDB — fire and forget so the sync isn't blocked
     openItemsIDB().then((db) => {
       const tx = db.transaction(IDB_ITEMS_STORE, 'readwrite');
-      tx.objectStore(IDB_ITEMS_STORE).put(_itemsMemory, 'all');
+      tx.objectStore(IDB_ITEMS_STORE).put(snapshot, 'all');
       tx.oncomplete = () => db.close();
       tx.onerror   = () => db.close();
     }).catch(() => {});
@@ -244,9 +249,11 @@ export const StorageService = {
     }).catch(() => {});
   },
 
-  applyPriceMapToItems(prices: Record<string, number>): void {
+  applyPriceMapToItems(prices: Record<string, number>, brand?: string): void {
     let changed = false;
     for (const item of _itemsMemory) {
+      // Skip items from other brands to prevent cross-brand price corruption.
+      if (brand && item.familyCode !== brand) continue;
       const price = prices[item.number];
       if (price !== undefined && item.unitPriceIncVAT !== price) {
         item.unitPriceIncVAT = price;

@@ -361,11 +361,8 @@ onMounted(async () => {
     livePrices.value = result.priceMap;
 
     // Persist so a full sync can pick these up (and so re-opens are instant).
-    const existing = StorageService.getCachedItems();
-    const others = props.familyCode
-      ? existing.filter((i) => i.familyCode !== props.familyCode)
-      : [];
-    StorageService.setCachedItems([...others, ...result.items]);
+    // Pass familyCode so setCachedItems uses the brand-isolated path and keeps other brands intact.
+    StorageService.setCachedItems(result.items, props.familyCode || undefined);
 
     const existingPrices = StorageService.getCachedItemPrices();
     StorageService.setCachedItemPrices(
@@ -413,11 +410,11 @@ watch(displayItems, (items) => {
   priceTimer = setTimeout(() => fetchMissingPrices(items), 300);
 });
 
-watch(lookupDate, () => {
-  // Re-seed from cache rather than wiping — avoids a flash of missing prices
-  // and limits the fetch to items that have no cached price at all.
+watch(lookupDate, (newDate) => {
   const cached = StorageService.getCachedItemPrices();
-  livePrices.value = cached?.prices ? { ...cached.prices } : {};
+  // Only seed from cache when the cached date matches the new lookup date.
+  // A date mismatch means prices are stale — wipe so fetchMissingPrices re-fetches all.
+  livePrices.value = cached?.date === newDate && cached.prices ? { ...cached.prices } : {};
   if (priceTimer) clearTimeout(priceTimer);
   priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 300);
 });

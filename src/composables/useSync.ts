@@ -65,8 +65,13 @@ export function useSync() {
       const TIMEOUT = 180_000;
       const company  = authStore.company?.code ?? '';
       const brand    = authStore.brand?.code ?? StorageService.getAuth()?.brand?.code ?? '';
-      const brandCode = brand || undefined;
       const today = new Date().toISOString().split('T')[0];
+
+      // Abort early — an empty company or brand would corrupt brand-isolated caches.
+      if (!company || !brand) {
+        syncError.value = 'No company or brand selected. Please log in again.';
+        return;
+      }
 
       // Snapshot existing cache state and timestamps *before* the sync starts.
       // If a type has cached data, fetch only records modified since that timestamp
@@ -82,7 +87,7 @@ export function useSync() {
         p.then((value) => ({ status: 'fulfilled' as const, value }), (reason) => ({ status: 'rejected' as const, reason }));
 
       const customersResult = await settle(
-        ApiService.getCustomers(brandCode, TIMEOUT, hasCustomers ? ts.customers : undefined)
+        ApiService.getCustomers(brand, TIMEOUT, hasCustomers ? ts.customers : undefined)
           .then((r) => { syncSubTasks.value[0].status = 'done'; bump(); return r; })
           .catch((e) => { syncSubTasks.value[0].status = 'error'; bump(); throw e; }),
       );
@@ -96,7 +101,7 @@ export function useSync() {
       // Items are always fetched in full — prices change daily and the endpoint
       // returns items + prices together, making a partial price refresh impractical.
       const itemsResult = await settle(
-        ApiService.getItemsForDate(today, brandCode, undefined, TIMEOUT)
+        ApiService.getItemsForDate(today, brand, undefined, TIMEOUT)
           .then((r) => {
             syncItemsLoaded.value = r.items.length;
             syncItemsTotal.value = r.items.length;
@@ -140,10 +145,10 @@ export function useSync() {
       if (itemsResult.status === 'fulfilled') {
         const { items, priceMap } = itemsResult.value;
         // Items are fetched per-brand; replace only this brand's slice of the cache.
-        StorageService.setCachedItems(items, brand || undefined);
+        StorageService.setCachedItems(items, brand);
         StorageService.setSyncTimestamp('items', company, brand);
         StorageService.setCachedItemPrices(today, priceMap);
-        StorageService.applyPriceMapToItems(priceMap);
+        StorageService.applyPriceMapToItems(priceMap, brand);
         isCatalogEmpty.value = false;
         triggerMessage.value = null;
       } else {
