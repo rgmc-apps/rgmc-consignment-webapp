@@ -236,11 +236,19 @@ function onWelcomeDone() {
   showWelcome.value = false;
 }
 
-const visibleDrafts = computed(() =>
-  sessionStore.drafts
-    .filter((d) => d.customer !== null)
-    .sort((a, b) => a.brand.displayName.localeCompare(b.brand.displayName)),
-);
+const visibleDrafts = computed(() => {
+  const company = authStore.company?.code;
+  const brand   = authStore.brand?.code;
+  return sessionStore.drafts
+    .filter((d) => {
+      if (d.customer === null) return false;
+      if (brand && d.brand.code !== brand) return false;
+      // companyCode is optional on older drafts — only filter when both sides are set
+      if (company && d.companyCode && d.companyCode !== company) return false;
+      return true;
+    })
+    .sort((a, b) => a.brand.displayName.localeCompare(b.brand.displayName));
+});
 
 const allCustomers = ref<Customer[]>([]);
 const searchQuery = ref('');

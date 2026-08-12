@@ -139,8 +139,8 @@ export function useSync() {
 
       if (itemsResult.status === 'fulfilled') {
         const { items, priceMap } = itemsResult.value;
-        // Items are always fetched in full, so always replace the cache.
-        StorageService.setCachedItems(items);
+        // Items are fetched per-brand; replace only this brand's slice of the cache.
+        StorageService.setCachedItems(items, brand || undefined);
         StorageService.setSyncTimestamp('items', company, brand);
         StorageService.setCachedItemPrices(today, priceMap);
         StorageService.applyPriceMapToItems(priceMap);

@@ -206,7 +206,7 @@ export const StorageService = {
   getCachedItems(): Item[] {
     return _itemsMemory;
   },
-  setCachedItems(items: Item[]): void {
+  setCachedItems(items: Item[], brand?: string): void {
     const slim = items.map((i) => ({
       id: i.id,
       number: i.number,
@@ -216,11 +216,17 @@ export const StorageService = {
       familyCode: i.familyCode,
       unitPriceIncVAT: i.unitPriceIncVAT,
     })) as Item[];
-    _itemsMemory = slim;
+    if (brand) {
+      // Keep items from other brands; replace only this brand's items.
+      const others = _itemsMemory.filter((i) => i.familyCode !== brand);
+      _itemsMemory = [...others, ...slim];
+    } else {
+      _itemsMemory = slim;
+    }
     // Persist to IndexedDB — fire and forget so the sync isn't blocked
     openItemsIDB().then((db) => {
       const tx = db.transaction(IDB_ITEMS_STORE, 'readwrite');
-      tx.objectStore(IDB_ITEMS_STORE).put(slim, 'all');
+      tx.objectStore(IDB_ITEMS_STORE).put(_itemsMemory, 'all');
       tx.oncomplete = () => db.close();
       tx.onerror   = () => db.close();
     }).catch(() => {});

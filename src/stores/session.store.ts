@@ -21,10 +21,11 @@ function todayISO(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-function buildSession(brand: Brand, user: Contact): ScanSession {
+function buildSession(brand: Brand, user: Contact, companyCode?: string): ScanSession {
   return {
     id: generateId(),
     brand: { id: brand.id, code: brand.code, displayName: brand.displayName },
+    companyCode,
     user: { displayName: user.displayName },
     customer: null,
     postingDate: todayISO(),
@@ -67,8 +68,8 @@ export const useSessionStore = defineStore('session', () => {
     completedSessions.value = StorageService.getSessions();
   }
 
-  function startNewSession(brand: Brand, user: Contact): void {
-    currentSession.value = buildSession(brand, user);
+  function startNewSession(brand: Brand, user: Contact, companyCode?: string): void {
+    currentSession.value = buildSession(brand, user, companyCode);
     _saveDraft();
   }
 

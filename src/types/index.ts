@@ -102,6 +102,7 @@ export interface OrderLine {
 export interface ScanSession {
   id: string;
   brand: Pick<Brand, 'id' | 'code' | 'displayName'>;
+  companyCode?: string;
   user: { displayName: string };
   customer: Customer | null;
   postingDate?: string;

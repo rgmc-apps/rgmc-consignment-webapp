@@ -278,22 +278,12 @@
           <ion-card-content class="item-form-body">
             <p class="field-label">ADD ITEM</p>
 
-            <!-- Item Category -->
-            <ion-item lines="inset" class="form-row">
+            <!-- Item Category (readonly — set from selected item) -->
+            <ion-item v-if="form.categoryCode" lines="inset" class="form-row form-row--readonly">
               <ion-label>Category</ion-label>
-              <ion-select
-                v-model="form.categoryCode"
-                placeholder="All categories"
-                interface="popover"
-                class="form-select"
-              >
-                <ion-select-option value="">All categories</ion-select-option>
-                <ion-select-option
-                  v-for="cat in categories"
-                  :key="cat.code"
-                  :value="cat.code"
-                >{{ cat.displayName }}</ion-select-option>
-              </ion-select>
+              <ion-note slot="end" class="readonly-val">
+                {{ categories.find(c => c.code === form.categoryCode)?.displayName ?? form.categoryCode }}
+              </ion-note>
             </ion-item>
 
             <!-- Item selector trigger -->
@@ -840,7 +830,7 @@ onMounted(async () => {
   await StorageService.init();
   refreshCache();
   if (!sessionStore.currentSession && authStore.brand && authStore.user) {
-    sessionStore.startNewSession(authStore.brand, authStore.user);
+    sessionStore.startNewSession(authStore.brand, authStore.user, authStore.company?.code);
   }
   if (cachedItems.value.length === 0 && isOnline.value) {
     await sync();
