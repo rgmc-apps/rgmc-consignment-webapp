@@ -253,7 +253,32 @@
           </ion-card-content>
         </ion-card>
 
-        <p class="login-footer">RGMC Group Inc. - IT/MIS &copy; {{ currentYear }}</p>
+        <!-- Footer with settings toggle -->
+        <div class="login-footer-row">
+          <p class="login-footer">RGMC Group Inc. - IT/MIS &copy; {{ currentYear }}</p>
+          <button
+            class="login-settings-btn"
+            :class="{ 'login-settings-btn--active': showSettings }"
+            @click="showSettings = !showSettings"
+          >
+            <ion-icon :icon="settingsOutline" />
+          </button>
+        </div>
+
+        <!-- Settings panel -->
+        <Transition name="settings-panel">
+          <div v-if="showSettings" class="login-settings-panel">
+            <div class="lsp-version-block">
+              <span class="lsp-version-label">Release</span>
+              <span class="lsp-version-main">v{{ appVersion }}</span>
+              <span class="lsp-version-build">{{ appBuild }}</span>
+            </div>
+            <button class="lsp-update-btn" :disabled="isUpdating" @click="onUpdate">
+              <ion-icon :icon="cloudDownloadOutline" />
+              {{ isUpdating ? 'Reloading…' : 'Update Application' }}
+            </button>
+          </div>
+        </Transition>
       </div>
     </ion-content>
   </ion-page>
@@ -276,7 +301,7 @@ import {
   IonIcon,
   IonSpinner,
 } from '@ionic/vue';
-import { eyeOutline, eyeOffOutline, alertCircleOutline, cloudOfflineOutline, warningOutline, pricetagOutline, checkmarkCircleOutline, cloudDoneOutline, chevronDownOutline } from 'ionicons/icons';
+import { eyeOutline, eyeOffOutline, alertCircleOutline, cloudOfflineOutline, warningOutline, pricetagOutline, checkmarkCircleOutline, cloudDoneOutline, chevronDownOutline, settingsOutline, cloudDownloadOutline } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { ApiService, setApiCompany } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
@@ -292,6 +317,26 @@ const isMinimalist = computed(() => theme.value === 'minimalist');
 const logoSrc = computed(() =>
   isMinimalist.value ? '/static/logo-bnw.png' : '/static/cons-logo.png',
 );
+
+const appVersion = __APP_VERSION__;
+const appBuild = __APP_BUILD__;
+const showSettings = ref(false);
+const isUpdating = ref(false);
+
+async function onUpdate() {
+  if (isUpdating.value) return;
+  isUpdating.value = true;
+  if ('serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration('/');
+      if (reg?.waiting) {
+        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        await new Promise(r => setTimeout(r, 400));
+      }
+    } catch { /* ignore */ }
+  }
+  window.location.reload();
+}
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -650,12 +695,7 @@ async function handleLogin() {
 .err-fade-enter-from   { opacity: 0; transform: translateY(-6px); }
 .err-fade-leave-to     { opacity: 0; }
 
-.login-footer {
-  font-size: 12px;
-  color: var(--app-text-muted);
-  margin: 0;
-  text-align: center;
-}
+/* .login-footer styles moved to the .login-footer-row block below */
 
 /* ── Network notice ── */
 .net-notice {
@@ -1290,6 +1330,133 @@ async function handleLogin() {
 }
 
 
+/* ── Footer + settings ── */
+.login-footer-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.login-footer {
+  flex: 1;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin: 0;
+  text-align: center;
+}
+
+.login-settings-btn {
+  background: transparent;
+  border: none;
+  color: var(--app-text-muted);
+  font-size: 17px;
+  padding: 5px;
+  cursor: pointer;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+}
+
+.login-settings-btn:active,
+.login-settings-btn--active {
+  color: var(--app-gold);
+  background: rgba(160, 115, 32, 0.12);
+}
+
+.login-settings-panel {
+  width: 100%;
+  max-width: 420px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.lsp-version-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.lsp-version-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--app-text-muted);
+}
+
+.lsp-version-main {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--app-fg);
+  letter-spacing: -0.3px;
+  line-height: 1.1;
+}
+
+.lsp-version-build {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--app-text-muted);
+  font-family: monospace;
+  letter-spacing: 0.2px;
+  margin-top: 1px;
+}
+
+.lsp-update-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  color: var(--app-gold);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lsp-update-btn:active:not(:disabled) {
+  background: rgba(160, 115, 32, 0.1);
+}
+
+.lsp-update-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.lsp-update-btn ion-icon {
+  font-size: 16px;
+}
+
+.settings-panel-enter-active {
+  transition: opacity 0.22s ease, transform 0.24s var(--ease-out-expo);
+}
+.settings-panel-leave-active {
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+.settings-panel-enter-from {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.97);
+}
+.settings-panel-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   .login-card--shake,
@@ -1319,7 +1486,9 @@ async function handleLogin() {
   .sync-status-fade-enter-active,
   .sync-status-fade-leave-active,
   .sync-label-swap-enter-active,
-  .sync-label-swap-leave-active {
+  .sync-label-swap-leave-active,
+  .settings-panel-enter-active,
+  .settings-panel-leave-active {
     transition: none !important;
   }
   .sync-progress-fill {
