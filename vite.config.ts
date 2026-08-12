@@ -2,15 +2,12 @@ import { defineConfig, loadEnv } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { VitePWA } from 'vite-plugin-pwa';
 import { fileURLToPath, URL } from 'node:url';
-import { execSync } from 'node:child_process';
 import { version } from './package.json';
 
-function getBuildNumber(): string {
-  try {
-    return execSync('git rev-list --count HEAD', { encoding: 'utf-8' }).trim();
-  } catch {
-    return '0';
-  }
+// Stamped at build time — changes every `npm run build` so each GCP deployment
+// gets a unique identifier without relying on git history (shallow clones return 1).
+function getBuildTimestamp(): string {
+  return new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
 }
 
 export default defineConfig(({ mode }) => {
@@ -47,7 +44,7 @@ export default defineConfig(({ mode }) => {
     ],
     define: {
       __APP_VERSION__: JSON.stringify(version),
-      __APP_BUILD__:   JSON.stringify(getBuildNumber()),
+      __APP_BUILD__:   JSON.stringify(getBuildTimestamp()),
     },
     resolve: {
       alias: {

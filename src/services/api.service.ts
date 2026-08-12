@@ -184,12 +184,15 @@ export const ApiService = {
     return extractList<Brand>(res.data);
   },
 
-  async getContacts(timeout?: number): Promise<Contact[]> {
+  async getContacts(timeout?: number, modifiedSince?: string): Promise<Contact[]> {
     const RETRIES = 3;
     let lastErr: unknown;
     for (let attempt = 0; attempt <= RETRIES; attempt++) {
       try {
-        const res = await apiClient.get('/bc/custom/v2/contacts', { timeout });
+        const res = await apiClient.get('/bc/custom/v2/contacts', {
+          params: modifiedSince ? { modified_since: modifiedSince } : undefined,
+          timeout,
+        });
         const raw = extractList<Record<string, unknown>>(res.data);
         return raw.map((c) => ({
           ...c,
@@ -253,13 +256,16 @@ export const ApiService = {
     });
   },
 
-  async getCustomers(brandCode?: string, timeout?: number): Promise<Customer[]> {
+  async getCustomers(brandCode?: string, timeout?: number, modifiedSince?: string): Promise<Customer[]> {
     const RETRIES = 3;
     let lastErr: unknown;
     for (let attempt = 0; attempt <= RETRIES; attempt++) {
       try {
         const res = await apiClient.get('/bc/custom/v2/customers', {
-          params: brandCode ? { brand: brandCode } : undefined,
+          params: {
+            ...(brandCode ? { brand: brandCode } : {}),
+            ...(modifiedSince ? { modified_since: modifiedSince } : {}),
+          },
           timeout,
         });
         const raw = extractList<Record<string, unknown>>(res.data);
@@ -461,12 +467,15 @@ export const ApiService = {
     throw lastErr;
   },
 
-  async getItemCategories(timeout?: number): Promise<ItemCategory[]> {
+  async getItemCategories(timeout?: number, modifiedSince?: string): Promise<ItemCategory[]> {
     const RETRIES = 3;
     let lastErr: unknown;
     for (let attempt = 0; attempt <= RETRIES; attempt++) {
       try {
-        const res = await apiClient.get('/bc/item-categories', { timeout });
+        const res = await apiClient.get('/bc/item-categories', {
+          params: modifiedSince ? { modified_since: modifiedSince } : undefined,
+          timeout,
+        });
         return extractList<ItemCategory>(res.data);
       } catch (err) {
         if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;

@@ -259,13 +259,11 @@ import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 import { formatCurrency } from '@/utils/format';
 import { useTheme } from '@/composables/useTheme';
-import { useAppModeStore } from '@/stores/app-mode.store';
 import { useAuthStore } from '@/stores/auth.store';
 import type { Item, ItemCategory } from '@/types';
 
 const { theme } = useTheme();
 const isMinimalist = computed(() => theme.value === 'minimalist');
-const { mode } = useAppModeStore();
 const authStore = useAuthStore();
 
 const PAGE_SIZE = 100;
@@ -294,16 +292,18 @@ const selectedCat = ref(props.initialCategoryCode ?? '');
 const barcodeNotFound = ref(false);
 const lastScannedBarcode = ref('');
 
-const effectiveItems = computed(() => mode.value === 'online' ? onlineItems.value : props.items);
+// Cache-first: use props.items when available; fall back to API-fetched onlineItems for first use.
+const effectiveItems = computed(() => props.items.length > 0 ? props.items : onlineItems.value);
 
 const effectiveCategories = computed<ItemCategory[]>(() => {
-  if (mode.value === 'online' && onlineItems.value.length > 0) {
+  if (props.categories.length > 0) return props.categories;
+  if (onlineItems.value.length > 0) {
     const seen = new Set<string>();
     return onlineItems.value
       .filter((i) => i.itemCategoryCode && !seen.has(i.itemCategoryCode) && seen.add(i.itemCategoryCode))
       .map((i) => ({ id: i.itemCategoryCode, code: i.itemCategoryCode, displayName: i.itemCategoryCode, lastModifiedDateTime: '' }));
   }
-  return props.categories;
+  return [];
 });
 
 const filteredItems = computed(() => {
@@ -341,71 +341,43 @@ const isFetchingPrices = ref(false);
 const lookupDate = computed(() => props.onDate ?? new Date().toISOString().split('T')[0]);
 
 onMounted(async () => {
-  if (mode.value === 'online') {
-    // Seed from previously loaded items immediately (stale-while-revalidate).
-    // This makes search work instantly on repeat opens without a loading wait.
-    const allCached = StorageService.getCachedItems();
-    const seedItems = props.familyCode
-      ? allCached.filter((i) => i.familyCode === props.familyCode)
-      : allCached;
-    const cachedPrices = StorageService.getCachedItemPrices();
-    if (seedItems.length > 0) {
-      onlineItems.value = seedItems;
-      // Always seed with whatever prices we have — better than blank while loading
-      if (cachedPrices?.prices) {
-        livePrices.value = { ...cachedPrices.prices };
-      }
+  if (props.items.length > 0) {
+    // Cache path: seed from cached prices and batch-fill any gaps for the current page.
+    const cached = StorageService.getCachedItemPrices();
+    if (cached?.date === lookupDate.value) {
+      livePrices.value = { ...cached.prices };
     }
-
-    // Cache hit: exact date match, OR items were synced within 24 h and posting date is today.
-    const pricesMatchDate = cachedPrices?.date === lookupDate.value;
-    const today = new Date().toISOString().split('T')[0];
-    const postingIsToday = lookupDate.value === today;
-    const itemsTs = StorageService.getSyncTimestamps(authStore.company?.code ?? '', authStore.brand?.code ?? '').items;
-    const cacheIsRecent = !!itemsTs && (Date.now() - new Date(itemsTs).getTime()) < 24 * 60 * 60 * 1000;
-
-    if (seedItems.length > 0 && (pricesMatchDate || (cacheIsRecent && postingIsToday))) {
-      isLoadingOnline.value = false;
-      return;
-    }
-
-    // Cache miss or stale data — fetch from API.
-    isLoadingOnline.value = seedItems.length === 0;
-    try {
-      const result = await ApiService.getItemsPage(lookupDate.value, props.familyCode);
-      onlineItems.value = result.items;
-      livePrices.value = result.priceMap;
-
-      // Persist so the next open at the same date is instant.
-      // Merge by familyCode so items from other families aren't overwritten.
-      const existing = StorageService.getCachedItems();
-      const others = props.familyCode
-        ? existing.filter((i) => i.familyCode !== props.familyCode)
-        : [];
-      StorageService.setCachedItems([...others, ...result.items]);
-
-      const existingPrices = StorageService.getCachedItemPrices();
-      StorageService.setCachedItemPrices(
-        lookupDate.value,
-        existingPrices?.date === lookupDate.value
-          ? { ...existingPrices.prices, ...result.priceMap }
-          : result.priceMap,
-      );
-    } catch (err) {
-      // Keep showing seed items if the API call fails.
-    } finally {
-      isLoadingOnline.value = false;
-    }
+    if (priceTimer) clearTimeout(priceTimer);
+    priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 100);
     return;
   }
 
-  // Offline mode: use cached prices and batch-fetch any missing ones for the current page.
-  const cached = StorageService.getCachedItemPrices();
-  if (cached?.date === lookupDate.value) {
-    livePrices.value = { ...cached.prices };
+  // No local cache yet — fetch from API (first-use path).
+  isLoadingOnline.value = true;
+  try {
+    const result = await ApiService.getItemsPage(lookupDate.value, props.familyCode);
+    onlineItems.value = result.items;
+    livePrices.value = result.priceMap;
+
+    // Persist so a full sync can pick these up (and so re-opens are instant).
+    const existing = StorageService.getCachedItems();
+    const others = props.familyCode
+      ? existing.filter((i) => i.familyCode !== props.familyCode)
+      : [];
+    StorageService.setCachedItems([...others, ...result.items]);
+
+    const existingPrices = StorageService.getCachedItemPrices();
+    StorageService.setCachedItemPrices(
+      lookupDate.value,
+      existingPrices?.date === lookupDate.value
+        ? { ...existingPrices.prices, ...result.priceMap }
+        : result.priceMap,
+    );
+  } catch {
+    // Nothing to show — caller (ScanningPage) will surface an error state.
+  } finally {
+    isLoadingOnline.value = false;
   }
-  if (priceTimer) clearTimeout(priceTimer);
-  priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 100);
 });
 
 let priceTimer: ReturnType<typeof setTimeout> | null = null;

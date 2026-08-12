@@ -139,6 +139,7 @@ export interface SyncTimestampEntry {
   customers?: string;
   items?: string;
   itemCategories?: string;
+  contacts?: string;
 }
 
 /** Full map stored in localStorage — keyed by "companyCode::brandCode". */

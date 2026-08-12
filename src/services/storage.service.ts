@@ -129,6 +129,22 @@ export const StorageService = {
     });
     set(KEYS.CACHE_CONTACTS, merged);
   },
+  /** Upsert a partial list of contacts into the cache (incremental sync). */
+  mergeCachedContacts(updates: Contact[]): void {
+    if (!updates.length) return;
+    const existing = get<Contact[]>(KEYS.CACHE_CONTACTS) ?? [];
+    const map = new Map(existing.map((c) => [c.id, c]));
+    for (const c of updates) {
+      const prev = map.get(c.id);
+      map.set(c.id, {
+        ...c,
+        username:     c.username     ?? prev?.username,
+        passwordHash: c.passwordHash ?? prev?.passwordHash,
+      });
+    }
+    set(KEYS.CACHE_CONTACTS, Array.from(map.values()));
+  },
+
   /** Patch a single contact in the cache without a full rewrite. */
   patchContact(id: string, fields: Partial<Contact>): void {
     const contacts = get<Contact[]>(KEYS.CACHE_CONTACTS) ?? [];
@@ -156,6 +172,16 @@ export const StorageService = {
       city: c.city,
     }));
     set(KEYS.CACHE_CUSTOMERS, { company: company ?? '', data: slim });
+  },
+  /** Upsert a partial list of customers into the cache (incremental sync). */
+  mergeCachedCustomers(updates: Customer[], company?: string): void {
+    if (!updates.length) return;
+    const existing = this.getCachedCustomers(company);
+    const map = new Map(existing.map((c) => [c.id, c]));
+    for (const c of updates) {
+      map.set(c.id, { id: c.id, number: c.number, displayName: c.displayName, city: c.city } as Customer);
+    }
+    set(KEYS.CACHE_CUSTOMERS, { company: company ?? '', data: Array.from(map.values()) });
   },
 
   /* Items: in-memory + IndexedDB for offline persistence */
@@ -243,6 +269,14 @@ export const StorageService = {
   },
   setCachedItemCategories(categories: ItemCategory[]): void {
     set(KEYS.CACHE_ITEM_CATEGORIES, categories);
+  },
+  /** Upsert a partial list of categories into the cache (incremental sync). */
+  mergeCachedItemCategories(updates: ItemCategory[]): void {
+    if (!updates.length) return;
+    const existing = this.getCachedItemCategories();
+    const map = new Map(existing.map((c) => [c.id, c]));
+    for (const c of updates) map.set(c.id, c);
+    set(KEYS.CACHE_ITEM_CATEGORIES, Array.from(map.values()));
   },
 
   getCachedItemPrices(): { date: string; prices: Record<string, number> } | null {

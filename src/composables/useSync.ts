@@ -68,40 +68,44 @@ export function useSync() {
       const brandCode = brand || undefined;
       const today = new Date().toISOString().split('T')[0];
 
-      // Tasks run sequentially to limit concurrent BC connections to 1 per user.
+      // Snapshot existing cache state and timestamps *before* the sync starts.
+      // If a type has cached data, fetch only records modified since that timestamp
+      // (incremental). If the cache is empty, fetch everything (full).
+      const ts = StorageService.getSyncTimestamps(company, brand);
+      const hasCustomers  = StorageService.getCachedCustomers(company).length > 0;
+      const hasCategories = StorageService.getCachedItemCategories().length > 0;
+      const hasContacts   = StorageService.getCachedContacts().length > 0;
+
       let done = 0;
       const bump = () => { syncProgress.value = Math.round((++done / 4) * 100); };
       const settle = <T>(p: Promise<T>): Promise<PromiseSettledResult<T>> =>
         p.then((value) => ({ status: 'fulfilled' as const, value }), (reason) => ({ status: 'rejected' as const, reason }));
 
       const customersResult = await settle(
-        ApiService.getCustomers(brandCode, TIMEOUT)
+        ApiService.getCustomers(brandCode, TIMEOUT, hasCustomers ? ts.customers : undefined)
           .then((r) => { syncSubTasks.value[0].status = 'done'; bump(); return r; })
           .catch((e) => { syncSubTasks.value[0].status = 'error'; bump(); throw e; }),
       );
 
       const categoriesResult = await settle(
-        ApiService.getItemCategories(TIMEOUT)
+        ApiService.getItemCategories(TIMEOUT, hasCategories ? ts.itemCategories : undefined)
           .then((r) => { syncSubTasks.value[1].status = 'done'; bump(); return r; })
           .catch((e) => { syncSubTasks.value[1].status = 'error'; bump(); throw e; }),
       );
 
+      // Items are always fetched in full — prices change daily and the endpoint
+      // returns items + prices together, making a partial price refresh impractical.
       const itemsResult = await settle(
         ApiService.getItemsForDate(today, brandCode, undefined, TIMEOUT)
           .then((r) => {
             syncItemsLoaded.value = r.items.length;
             syncItemsTotal.value = r.items.length;
-            syncSubTasks.value[2] = {
-              ...syncSubTasks.value[2],
-              detail: r.items.length.toLocaleString(),
-            };
+            syncSubTasks.value[2] = { ...syncSubTasks.value[2], detail: r.items.length.toLocaleString() };
             return r;
           })
           .then((r) => {
             syncSubTasks.value[2].status = 'done';
-            syncSubTasks.value[2] = { ...syncSubTasks.value[2], detail: `${r.items.length.toLocaleString()}` };
-            syncItemsLoaded.value = r.items.length;
-            syncItemsTotal.value = r.items.length;
+            syncSubTasks.value[2] = { ...syncSubTasks.value[2], detail: r.items.length.toLocaleString() };
             bump();
             return r;
           })
@@ -109,21 +113,33 @@ export function useSync() {
       );
 
       const contactsResult = await settle(
-        ApiService.getContacts(TIMEOUT)
+        ApiService.getContacts(TIMEOUT, hasContacts ? ts.contacts : undefined)
           .then((r) => { syncSubTasks.value[3].status = 'done'; bump(); return r; })
           .catch((e) => { syncSubTasks.value[3].status = 'error'; bump(); throw e; }),
       );
 
+      // ── Persist ──
       if (customersResult.status === 'fulfilled') {
-        StorageService.setCachedCustomers(customersResult.value, company);
+        if (hasCustomers) {
+          StorageService.mergeCachedCustomers(customersResult.value, company);
+        } else {
+          StorageService.setCachedCustomers(customersResult.value, company);
+        }
         StorageService.setSyncTimestamp('customers', company, brand);
       }
+
       if (categoriesResult.status === 'fulfilled') {
-        StorageService.setCachedItemCategories(categoriesResult.value);
+        if (hasCategories) {
+          StorageService.mergeCachedItemCategories(categoriesResult.value);
+        } else {
+          StorageService.setCachedItemCategories(categoriesResult.value);
+        }
         StorageService.setSyncTimestamp('itemCategories', company, brand);
       }
+
       if (itemsResult.status === 'fulfilled') {
         const { items, priceMap } = itemsResult.value;
+        // Items are always fetched in full, so always replace the cache.
         StorageService.setCachedItems(items);
         StorageService.setSyncTimestamp('items', company, brand);
         StorageService.setCachedItemPrices(today, priceMap);
@@ -138,12 +154,13 @@ export function useSync() {
         }
       }
 
-      const contacts = contactsResult.status === 'fulfilled'
-        ? contactsResult.value
-        : StorageService.getCachedContacts();
-      StorageService.setCachedContacts(contacts);
-
       if (contactsResult.status === 'fulfilled') {
+        if (hasContacts) {
+          StorageService.mergeCachedContacts(contactsResult.value);
+        } else {
+          StorageService.setCachedContacts(contactsResult.value);
+        }
+        StorageService.setSyncTimestamp('contacts', company, brand);
         const authUser = authStore.user ?? StorageService.getAuth()?.user;
         if (authUser) {
           const patch: Record<string, string> = {};

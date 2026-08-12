@@ -773,7 +773,6 @@ import { useSync } from '@/composables/useSync';
 import { usePriceListCheck } from '@/composables/usePriceListCheck';
 import { useCustomerFilter } from '@/composables/useCustomerFilter';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
-import { useAppModeStore } from '@/stores/app-mode.store';
 import { useTheme } from '@/composables/useTheme';
 import { useGoldAccent } from '@/composables/useGoldAccent';
 import { StorageService } from '@/services/storage.service';
@@ -795,7 +794,6 @@ const {
 } = useSync();
 const { alerts: priceListAlerts, hasAlerts: hasPriceListAlerts, check: checkPriceLists, dismiss: dismissPriceListAlert } = usePriceListCheck();
 const { isOnline, isSlowConnection } = useNetworkStatus();
-const { mode: appMode } = useAppModeStore();
 const { theme } = useTheme();
 const isMinimalist = computed(() => theme.value === 'minimalist');
 const headerLogoSrc = computed(() =>
@@ -817,10 +815,7 @@ const hasCache = computed(
   () => cachedItems.value.length > 0 && cachedCustomers.value.length > 0 && categories.value.length > 0,
 );
 
-// In online mode, items are fetched live by ItemSelectorModal — no local cache required
-const canScan = computed(
-  () => hasCache.value || (appMode.value === 'online' && isOnline.value),
-);
+const canScan = computed(() => hasCache.value);
 
 function refreshCache() {
   const brandCode = authStore.brand?.code;
@@ -834,9 +829,9 @@ function refreshCache() {
 
 function onItemModalClose() {
   showItemModal.value = false;
-  // In online mode the modal may have saved freshly fetched items to storage.
-  // Refresh so cachedItems reflects what was just persisted.
-  if (appMode.value === 'online') refreshCache();
+  // The modal may have persisted freshly fetched items (first-use API path).
+  // Always refresh so cachedItems reflects whatever was just stored.
+  refreshCache();
 }
 
 onMounted(async () => {
@@ -847,7 +842,7 @@ onMounted(async () => {
   if (!sessionStore.currentSession && authStore.brand && authStore.user) {
     sessionStore.startNewSession(authStore.brand, authStore.user);
   }
-  if (cachedItems.value.length === 0 && isOnline.value && appMode.value === 'offline') {
+  if (cachedItems.value.length === 0 && isOnline.value) {
     await sync();
   } else if (isOnline.value) {
     checkPriceLists();

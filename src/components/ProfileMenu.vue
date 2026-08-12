@@ -157,6 +157,17 @@
 
       <div class="pop-divider" />
 
+      <!-- Update Application -->
+      <button class="pop-item" :disabled="isUpdating" @click="onUpdate">
+        <ion-icon :icon="cloudDownloadOutline" class="pop-icon" />
+        <div class="pop-item-text">
+          <span class="pop-item-label">{{ isUpdating ? 'Reloading…' : 'Update Application' }}</span>
+          <span class="pop-item-sub">v{{ appVersion }} · {{ appBuild }}</span>
+        </div>
+      </button>
+
+      <div class="pop-divider" />
+
       <!-- Sign out -->
       <button class="pop-item pop-item--danger" @click="onLogout">
         <ion-icon :icon="logOutOutline" class="pop-icon" />
@@ -192,6 +203,7 @@ import {
   alertCircleOutline,
   cloudDoneOutline,
   timerOutline,
+  cloudDownloadOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSync } from '@/composables/useSync';
@@ -204,6 +216,9 @@ import UserAvatar from '@/components/UserAvatar.vue';
 const router = useRouter();
 const authStore = useAuthStore();
 const { isSyncing, syncProgress, syncSubTasks, lastSyncLabel, sync, syncDataAge, setSyncDataAge } = useSync();
+
+const appVersion = __APP_VERSION__;
+const appBuild = __APP_BUILD__;
 
 // Step size scales with the current value so large values don't require dozens of taps
 const stepSize = computed(() => syncDataAge.value <= 12 ? 1 : syncDataAge.value <= 48 ? 4 : 24);
@@ -232,6 +247,25 @@ function openProfile() {
 async function onSync() {
   if (isSyncing.value || !isOnline.value) return;
   await sync();
+}
+
+const isUpdating = ref(false);
+
+async function onUpdate() {
+  if (isUpdating.value) return;
+  isUpdating.value = true;
+  isOpen.value = false;
+  await new Promise(r => setTimeout(r, 200));
+  if ('serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration('/');
+      if (reg?.waiting) {
+        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        await new Promise(r => setTimeout(r, 400));
+      }
+    } catch { /* ignore */ }
+  }
+  window.location.reload();
 }
 
 async function onLogout() {
