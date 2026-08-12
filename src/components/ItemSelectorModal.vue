@@ -342,9 +342,10 @@ const lookupDate = computed(() => props.onDate ?? new Date().toISOString().split
 
 onMounted(async () => {
   if (props.items.length > 0) {
-    // Cache path: seed from cached prices and batch-fill any gaps for the current page.
+    // Seed from whatever cached prices exist — date match not required.
+    // fetchMissingPrices will only hit the network for items with no price at all.
     const cached = StorageService.getCachedItemPrices();
-    if (cached?.date === lookupDate.value) {
+    if (cached?.prices) {
       livePrices.value = { ...cached.prices };
     }
     if (priceTimer) clearTimeout(priceTimer);
@@ -413,9 +414,11 @@ watch(displayItems, (items) => {
 });
 
 watch(lookupDate, () => {
-  livePrices.value = {};
+  // Re-seed from cache rather than wiping — avoids a flash of missing prices
+  // and limits the fetch to items that have no cached price at all.
+  const cached = StorageService.getCachedItemPrices();
+  livePrices.value = cached?.prices ? { ...cached.prices } : {};
   if (priceTimer) clearTimeout(priceTimer);
-  // Only fetch prices for the current page — page navigation triggers its own fetch.
   priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 300);
 });
 

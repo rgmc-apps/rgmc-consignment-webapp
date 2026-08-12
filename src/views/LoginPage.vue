@@ -363,7 +363,7 @@ watch([username, password], () => {
 });
 
 const isLoading = computed(() => authStore.isLoading);
-const { isSyncing, syncPhase, syncProgress, syncSubTasks, sync, syncIfStale, lastSyncDate } = useSync();
+const { isSyncing, syncPhase, syncProgress, syncSubTasks, sync, lastSyncDate } = useSync();
 
 const loginLoadingText = useLoadingText(
   ['Signing in…', 'Verifying credentials…', 'Checking permissions…', 'Almost there…'],
@@ -541,18 +541,16 @@ async function handleLogin() {
 
   loginState.value = 'success';
 
-  // If this company+brand already has a sync record, the cache is usable right away.
-  // Navigate home immediately and let the incremental sync run in the background.
-  // On first use (no prior sync), block until the initial full sync completes.
   const hadPriorSync = !!StorageService.getLastSync(
     selectedCompany.value!.code,
     selectedBrand.value!.code,
   );
   if (hadPriorSync) {
+    // Cache exists — go straight in. Sync only when the user explicitly requests it.
     router.replace('/app/home');
-    syncIfStale();
   } else {
-    await syncIfStale();
+    // First use: no cache at all, block until the initial full sync finishes.
+    await sync();
     router.replace('/app/home');
   }
 }

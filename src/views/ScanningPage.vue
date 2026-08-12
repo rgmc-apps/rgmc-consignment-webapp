@@ -1032,16 +1032,19 @@ const confirmTotal = computed(() =>
   ),
 );
 
-// Returns price + priceListCode — cache-first, API only when date isn't cached.
+// Returns price + priceListCode.
+// Tier 1: exact date + item hit in cache (ideal).
+// Tier 2: any cached price for the item (stale date but still useful — avoids a network call).
+// Tier 3: API (only when there is truly no cached price for this item at all).
 async function lookupPrice(itemNumber: string, onDate: string): Promise<{ price: number | null; priceListCode: string | null }> {
   const cached = StorageService.getCachedItemPrices();
-  if (cached?.date === onDate && itemNumber in cached.prices) {
+  if (cached?.prices[itemNumber] !== undefined) {
     return { price: cached.prices[itemNumber], priceListCode: null };
   }
   if (isOnline.value) {
     return ApiService.getActiveItemPrice(itemNumber, onDate);
   }
-  return { price: cached?.prices[itemNumber] ?? null, priceListCode: null };
+  return { price: null, priceListCode: null };
 }
 
 async function fetchActivePrice(itemNumber: string, onDate: string): Promise<void> {
