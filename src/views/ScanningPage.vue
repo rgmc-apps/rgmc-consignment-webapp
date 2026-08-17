@@ -427,7 +427,10 @@
                 <ion-label>
                   <h3>{{ line.itemName }}</h3>
                   <p>
-                    {{ line.itemNumber }} &bull;
+                    {{ line.itemNumber }}
+                    <span v-if="line.categoryCode" class="line-category">&bull; {{ categories.find(c => c.code === line.categoryCode)?.displayName ?? line.categoryCode }}</span>
+                  </p>
+                  <p>
                     Qty {{ line.quantity }} &times;
                     <span :class="{ 'price-stale': isUpdatingLinePrices }">{{ formatCurrency(line.srp) }}</span>
                     <span v-if="line.priceListCode" class="price-list-code">{{ line.priceListCode }}</span>
@@ -1229,6 +1232,7 @@ function doConfirm(orderType: 'sales' | 'returns') {
     itemNumber: item.number,
     itemName: item.displayName,
     description: item.description || item.displayName,
+    categoryCode: item.itemCategoryCode || undefined,
     srp: confirmedSrp.value,
     priceListCode: confirmedPriceListCode.value || undefined,
     quantity: Math.max(1, confirmQty.value || 1),
@@ -1256,10 +1260,12 @@ function doConfirm(orderType: 'sales' | 'returns') {
 /* ─── Add lines ─── */
 async function addToSales() {
   if (!form.itemNumber || !selectedCustomer.value) return;
+  const itemName = form.itemName;
   sessionStore.addSalesOrder({
     itemNumber: form.itemNumber,
     itemName: form.itemName,
     description: form.description,
+    categoryCode: form.categoryCode || undefined,
     srp: form.srp,
     priceListCode: form.priceListCode || undefined,
     quantity: Math.max(1, form.quantity),
@@ -1268,16 +1274,18 @@ async function addToSales() {
   });
   resetItemForm();
   activeTab.value = 'sales';
-  await toast(`${form.itemName || 'Item'} added to Sales`, 'success');
+  await toast(`${itemName || 'Item'} added to Sales`, 'success');
   triggerSubmitFlash();
 }
 
 async function addToReturn() {
   if (!form.itemNumber || !selectedCustomer.value) return;
+  const itemName = form.itemName;
   sessionStore.addReturnOrder({
     itemNumber: form.itemNumber,
     itemName: form.itemName,
     description: form.description,
+    categoryCode: form.categoryCode || undefined,
     srp: form.srp,
     priceListCode: form.priceListCode || undefined,
     quantity: Math.max(1, form.quantity),
@@ -1286,7 +1294,7 @@ async function addToReturn() {
   });
   resetItemForm();
   activeTab.value = 'returns';
-  await toast(`${form.itemName || 'Item'} added to Returns`, 'success');
+  await toast(`${itemName || 'Item'} added to Returns`, 'success');
   triggerSubmitFlash();
 }
 
@@ -1299,7 +1307,7 @@ function deleteActiveLine(lineId: string) {
 }
 
 function resetItemForm() {
-  /* Keep category; clear item-specific fields */
+  form.categoryCode = '';
   form.itemNumber = '';
   form.itemName = '';
   form.description = '';
@@ -1693,6 +1701,11 @@ async function toast(message: string, color: string) {
   justify-content: flex-end;
 }
 .line-price-spinner { width: 16px; height: 16px; }
+
+.line-category {
+  font-weight: 500;
+  color: var(--ion-color-primary);
+}
 
 .price-list-code {
   display: inline-block;

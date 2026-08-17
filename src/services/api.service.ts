@@ -499,6 +499,23 @@ export const ApiService = {
     return items.map((t) => t.brandCode as string).filter(Boolean);
   },
 
+  async searchItemsByNumber(
+    query: string,
+    onDate: string,
+    familyCode?: string,
+  ): Promise<Item[]> {
+    const res = await apiClient.get('/bc/custom/v3/item-prices', {
+      params: {
+        on_date: onDate,
+        product_no: query,
+        ...(familyCode ? { family_code: familyCode } : {}),
+      },
+      timeout: 30_000,
+    });
+    const rows = extractList<Record<string, unknown>>(res.data);
+    return rows.map(mapItemRow).filter((i) => Boolean(i.number));
+  },
+
   async getActiveItemPrice(productNo: string, onDate: string): Promise<{ price: number | null; priceListCode: string | null }> {
     try {
       const res = await apiClient.get('/bc/custom/v3/item-prices', {

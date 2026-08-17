@@ -133,9 +133,68 @@
             </ion-button>
           </div>
 
-          <div v-if="!displayItems.length" class="empty-results">
+          <!-- BC search results — shown when a BC lookup returned items -->
+          <div v-if="bcSearchResults.length" class="bc-results-wrap">
+            <div class="bc-results-header">
+              <ion-icon :icon="cloudDownloadOutline" class="bc-hdr-icon" />
+              <span class="bc-hdr-label">Business Central results for "{{ bcSearchedQuery }}"</span>
+              <ion-button fill="clear" size="small" class="bc-hdr-clear" @click="clearBcResults">
+                <ion-icon :icon="closeOutline" slot="icon-only" />
+              </ion-button>
+            </div>
+            <ion-list lines="full" class="item-list">
+              <ion-item
+                v-for="item in bcSearchResults"
+                :key="item.id"
+                button
+                :detail="false"
+                @click="handleSelect(item)"
+              >
+                <ion-label>
+                  <h3>{{ item.displayName }}</h3>
+                  <p>{{ item.number }} &bull; {{ item.itemCategoryCode }}</p>
+                  <p v-if="item.description && item.description !== item.displayName" class="item-desc">
+                    {{ item.description }}
+                  </p>
+                </ion-label>
+                <ion-note slot="end" color="dark" class="item-price">
+                  {{ formatCurrency(item.unitPriceIncVAT) }}
+                </ion-note>
+              </ion-item>
+            </ion-list>
+          </div>
+
+          <!-- Empty state — only when no local results and no BC results -->
+          <div v-if="!displayItems.length && !bcSearchResults.length" class="empty-results">
             <ion-icon :icon="searchOutline" />
-            <p>No items found.<br />Try a different search term or category.</p>
+            <p v-if="!searchQuery.trim()">No items found.<br />Try a different search term or category.</p>
+            <p v-else>No local items match "{{ searchQuery }}".</p>
+
+            <!-- BC search option: visible when online and a query is typed -->
+            <template v-if="searchQuery.trim() && props.isOnline">
+              <div class="bc-search-area">
+                <p class="bc-search-hint">Not in local cache? Search Business Central directly:</p>
+                <ion-button
+                  v-if="!isBcSearching"
+                  expand="block"
+                  fill="outline"
+                  color="primary"
+                  class="bc-search-btn"
+                  @click="searchInBC"
+                >
+                  <ion-icon :icon="cloudDownloadOutline" slot="start" />
+                  {{ bcSearchedQuery ? 'Search BC Again' : 'Search Business Central' }}
+                </ion-button>
+                <div v-else class="bc-searching">
+                  <ion-spinner name="dots" class="bc-spinner" />
+                  <span>Searching Business Central…</span>
+                </div>
+                <p v-if="bcSearchedQuery && !isBcSearching && !bcSearchError" class="bc-no-results">
+                  No results found in Business Central for "{{ bcSearchedQuery }}".
+                </p>
+                <p v-if="bcSearchError" class="bc-search-error">{{ bcSearchError }}</p>
+              </div>
+            </template>
           </div>
         </template>
 
@@ -254,6 +313,7 @@ import {
   checkmarkCircleOutline,
   chevronBackOutline,
   chevronForwardOutline,
+  cloudDownloadOutline,
 } from 'ionicons/icons';
 import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
@@ -426,6 +486,55 @@ watch(
 
 function handleSelect(item: Item) {
   emit('select', item);
+}
+
+/* ─── Business Central search ─── */
+const bcSearchResults = ref<Item[]>([]);
+const isBcSearching = ref(false);
+const bcSearchError = ref('');
+const bcSearchedQuery = ref('');
+let _bcSearchId = 0;
+
+// Clear BC results whenever the local search query or category changes
+watch([searchQuery, selectedCat], () => {
+  clearBcResults();
+});
+
+// Auto-trigger BC search when the scanner finds no local match
+watch(barcodeNotFound, (found) => {
+  if (found && props.isOnline && searchQuery.value.trim()) {
+    searchInBC();
+  }
+});
+
+async function searchInBC() {
+  const q = searchQuery.value.trim();
+  if (!q || !props.isOnline) return;
+  const id = ++_bcSearchId;
+  isBcSearching.value = true;
+  bcSearchError.value = '';
+  bcSearchedQuery.value = q;
+  try {
+    const results = await ApiService.searchItemsByNumber(q, lookupDate.value, props.familyCode);
+    if (id !== _bcSearchId) return;
+    bcSearchResults.value = results;
+    for (const item of results) {
+      if (item.unitPriceIncVAT) livePrices.value[item.number] = item.unitPriceIncVAT;
+    }
+  } catch {
+    if (id !== _bcSearchId) return;
+    bcSearchError.value = 'Failed to search Business Central. Please try again.';
+  } finally {
+    if (id === _bcSearchId) isBcSearching.value = false;
+  }
+}
+
+function clearBcResults() {
+  _bcSearchId++;
+  bcSearchResults.value = [];
+  bcSearchError.value = '';
+  bcSearchedQuery.value = '';
+  isBcSearching.value = false;
 }
 
 /* ─── Scanner state ─── */
@@ -707,13 +816,99 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 48px 24px;
+  padding: 36px 24px 28px;
   gap: 12px;
   text-align: center;
   color: var(--app-text-muted);
 }
 .empty-results ion-icon { font-size: 48px; }
 .empty-results p { font-size: 14px; line-height: 1.6; margin: 0; }
+
+/* ── BC search area (inside empty state) ── */
+.bc-search-area {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  border-top: 1px solid var(--app-border);
+  padding-top: 16px;
+  margin-top: 4px;
+}
+
+.bc-search-hint {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin: 0;
+  text-align: center;
+}
+
+.bc-search-btn {
+  --border-radius: 10px;
+}
+
+.bc-searching {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  font-size: 13px;
+  color: var(--ion-color-primary);
+}
+
+.bc-spinner { width: 16px; height: 16px; }
+
+.bc-no-results {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin: 0;
+  text-align: center;
+}
+
+.bc-search-error {
+  font-size: 12px;
+  color: var(--ion-color-danger);
+  margin: 0;
+  text-align: center;
+}
+
+/* ── BC results section ── */
+.bc-results-wrap {
+  border-top: 2px solid color-mix(in srgb, var(--ion-color-primary) 30%, transparent);
+  margin-top: 4px;
+}
+
+.bc-results-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 6px;
+  background: color-mix(in srgb, var(--ion-color-primary) 8%, transparent);
+}
+
+.bc-hdr-icon {
+  font-size: 16px;
+  color: var(--ion-color-primary);
+  flex-shrink: 0;
+}
+
+.bc-hdr-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ion-color-primary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bc-hdr-clear {
+  flex-shrink: 0;
+  --padding-start: 4px;
+  --padding-end: 4px;
+}
 
 /* ── Scanner ── */
 .scanner-wrap {

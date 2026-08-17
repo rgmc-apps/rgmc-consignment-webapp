@@ -2,42 +2,45 @@
 
 ## Goal
 
-Fix multiple inter-related issues in the RGMC Consignment Web App:
+Maintain and harden the RGMC Consignment Web App — an Ionic/Vue 3 offline-first PWA for sales reps to scan items and submit sales/return orders. This session's work focused on making all cached data (customers, items, drafts) fully isolated per company+brand combination, fixing 7 data-processing bugs surfaced by a code review, and shipping several UX improvements.
 
-1. **Item price list staleness alerting** — Add a composable (`usePriceListCheck`) that warns users when BC price lists have expired or new ones became effective after their last sync, so they know to re-sync.
-2. **Customer cache cross-company contamination** — Scope the customer cache by company code so switching BC companies doesn't show stale customers from the previous company.
-3. **Task polling 404 loop** — Fix `GET /tasks/{taskId}` always returning `index.html` (the SPA fallback) because the `/tasks/` path was never proxied through nginx or Vite — so orders always appeared to fail even when BC processed them successfully.
-4. **Submit page UX** — Replace the spinner button during order submission with an animated "signal broadcast" loading panel showing Queued → Processing → Confirming steps.
+All changes are committed and the working tree is clean.
 
 ---
 
 ## Current State
 
-**All changes from this session are committed and clean. Repo is at `origin/master` HEAD.**
+**Working tree:** Clean. All changes committed through `03d1fff` ("fix code review findings"). `vue-tsc --noEmit` passes with zero errors.
 
-### What was done (all committed):
+### What is complete and working:
 
-1. **`usePriceListCheck` composable added** (`src/composables/usePriceListCheck.ts`) — Module-level singleton that calls `GET /bc/custom/price-list-headers?status=Active&type=Sale`, compares headers against today's date and the cached price date, and surfaces two alert types: `expired` (endingDate < today) and `new-available` (startingDate > cachedDate). Alerts are shown as a dismissible banner in `ScanningPage.vue`.
+- **Brand-isolated customer cache** — `getCachedCustomers(company?, brand?)` / `setCachedCustomers(customers, company?, brand?)` / `mergeCachedCustomers(updates, company?, brand?)` all support a `brand` param. Strict equality filter (`c.brandCode === brand`) — no bleeding across brands. `setCachedCustomers` with a brand replaces only that brand's slice; other brands are preserved. `mergeCachedCustomers` keys by `"brandCode::id"` composite so cross-brand customers with identical IDs coexist without overwriting each other.
 
-2. **`getPriceListHeaderCatalog` added to ApiService** (`src/services/api.service.ts`) — New method to fetch price list headers with optional `status` and `type` query params.
+- **Brand-isolated item cache** — `setCachedItems(items, brand?)` keeps other brands' items intact. Uses a `slimIds` Set to deduplicate: items returned by the new sync that have the same `id` as existing items (including null-`familyCode` ambiguous ones) replace rather than accumulate. IDB write uses a captured `snapshot` reference (assigned immediately after `_itemsMemory` is reassigned) to prevent async race where a concurrent second call overwrites the first IDB write.
 
-3. **`PriceListHeader` type added** (`src/types/index.ts`) — Fields: `code`, `description`, `startingDate`, `endingDate`, `currencyCode`.
+- **`applyPriceMapToItems(prices, brand?)`** — skips items whose `familyCode !== brand`, preventing cross-brand price corruption when brands share SKU numbers.
 
-4. **Price list alert banner added to ScanningPage** (`src/views/ScanningPage.vue`) — Shows dismissible alert rows above the scan form when `hasPriceListAlerts` is true. The `check()` is called on mount and after each sync.
+- **`useSync.ts` guard** — if `company` or `brand` resolves to `''` (empty string), sync aborts immediately with an error message before any cache operations. The `brandCode = brand || undefined` variable was removed; all downstream calls (`getCustomers`, `getItemsForDate`, `setCachedItems`, `applyPriceMapToItems`) now use `brand` directly, which is guaranteed non-empty past the guard. This fixes both the `getCachedCustomers(company, '')` falsy-bypass bug and the `'' || undefined = undefined` item-wipe bug.
 
-5. **Customer cache scoped by company** (`src/services/storage.service.ts`) — `getCachedCustomers(company?)` / `setCachedCustomers(customers, company?)` now store `{ company, data }` objects. Old plain-array cache format detected via `Array.isArray(raw)` and treated as stale (returns `[]`) when a company code is expected. All callers updated: `useSync.ts`, `LandingPage.vue` (3 calls), `ScanningPage.vue`.
+- **`ItemSelectorModal` `watch(lookupDate)`** — checks `cached?.date === newDate` before seeding `livePrices`. Date mismatch wipes `livePrices` to `{}` so `fetchMissingPrices` re-fetches all prices for the new date instead of showing stale prices.
 
-6. **`/tasks/` proxy added** (`nginx.conf` + `vite.config.ts`) — Root-cause fix for the polling loop. Added a `location /tasks/` block in nginx.conf with identical settings to `/bc/` and `/internal/`. Added `'/tasks'` to Vite dev proxy. Previously, `GET /tasks/{taskId}` hit the nginx SPA fallback (`try_files $uri /index.html`) and returned HTML, causing the poller to loop indefinitely.
+- **`ItemSelectorModal` first-use path** — removed manual `others` computation (`existing.filter(i => i.familyCode !== props.familyCode)`). Now calls `StorageService.setCachedItems(result.items, props.familyCode || undefined)` and lets `setCachedItems` handle brand isolation. Prevents the `familyCode`-undefined edge case from wiping all items.
 
-7. **Submit loading panel** (`src/views/SubmitPage.vue`) — When `salesStatus === 'submitting'` or `returnsStatus === 'submitting'`, the submit button is replaced via `<Transition name="queue-swap">` with a `.queue-loading-panel` div containing animated concentric rings (`.queue-ring--1/2/3`), a queue-icon-wrap, headline, sub-text, step indicators (Queued/Processing/Confirming), and a shimmer bar. Returns variant uses `--returns` modifier classes for danger/red color.
+- **Drafts filtered by company+brand** — `ScanSession` has optional `companyCode?: string`. `buildSession` / `startNewSession` accept it. `ScanningPage.onMounted` passes `authStore.company?.code`. `visibleDrafts` in `LandingPage` filters by `brand.code` AND `companyCode` (old drafts without `companyCode` still show — backwards-compat).
 
-8. **`pollUntilDone` error-resilient** (`src/views/SubmitPage.vue:488`) — Catches transient HTTP errors and retries; only fails after 10 consecutive errors (~30 s). Previously, one transient error immediately propagated as a submission failure.
+- **Category display on scan page** — the `<ion-select>` category filter is gone. Replaced with a `v-if="form.categoryCode"` readonly `ion-item` showing the category `displayName` (looked up from `categories` ref). The row only appears after an item is selected, since `form.categoryCode` is set from `onItemSelected`.
 
-### What still needs verification:
+- **Login settings panel** — gear button in footer reveals: version (`__APP_VERSION__`), build timestamp (`__APP_BUILD__`), and Update Application button (sends `SKIP_WAITING` to waiting SW, waits 400ms, calls `location.reload()`).
 
-- **End-to-end test after Docker rebuild** — The `nginx.conf` `/tasks/` fix only takes effect after rebuilding and redeploying the webapp Docker image. The commit is in but the image may not have been rebuilt/pushed yet.
-- **Price list alert banner styling** — Added but not visually tested in a browser.
-- **Old `order_tasks` Firestore collection** — Still orphaned from the previous session. Safe to delete from the Firestore console; nothing writes to it. Active collection is `order_tasks_production`.
+- **ProfileMenu** — same Update Application button with version/build display.
+
+- **Cache-first login** — if `StorageService.getLastSync(company, brand)` has a prior record, navigates straight to `/app/home` with no sync. On absolute first use (no prior sync record), blocks on `await sync()` before navigating. `syncIfStale` is no longer called anywhere after login.
+
+- **`ScanningPage.onMounted` auto-sync** — triggers only when `cachedItems.value.length === 0 && isOnline.value` (brand has no cached items yet).
+
+### Known dead code (harmless, do not delete unless asked):
+- `src/stores/app-mode.store.ts` — online/offline toggle store. Never imported anywhere. Contains `getCachedCustomers()` with no args (would return all brands), but the file is unreachable at runtime.
+- `syncIfStale()` in `useSync.ts` (lines 213–225) — still exists but has zero callers. Would be the right place to wire up stale-data background refresh if ever re-introduced.
 
 ---
 
@@ -45,67 +48,65 @@ Fix multiple inter-related issues in the RGMC Consignment Web App:
 
 All committed. No files in mid-edit state.
 
-- `src/composables/usePriceListCheck.ts` — **New file.** Module-level singleton for price list staleness checks. Calls bc-api headers endpoint, compares against today and `cachedDate`, emits `expired` / `new-available` alerts.
-- `src/services/api.service.ts` — Added `getPriceListHeaderCatalog(status?, type?)` method.
-- `src/types/index.ts` — Added `PriceListHeader` interface and `PriceListAlertType` / `PriceListAlert` types.
-- `src/views/ScanningPage.vue` — Added price list alert banner (template + CSS), imported `usePriceListCheck`, wired `check()` calls on mount and post-sync.
-- `src/services/storage.service.ts` — `getCachedCustomers` / `setCachedCustomers` now accept and store `company` code. Old array format treated as stale.
-- `src/composables/useSync.ts` — `setCachedCustomers()` call now passes `authStore.company?.code`.
-- `src/views/LandingPage.vue` — Three `getCachedCustomers()` calls updated to pass `authStore.company?.code`.
-- `nginx.conf` — Added `/tasks/` proxy location block. This was the root-cause fix for the polling loop.
-- `vite.config.ts` — Added `'/tasks'` to Vite dev proxy.
-- `src/views/SubmitPage.vue` — Loading animation panel for `submitting` state; `pollUntilDone` now retries on transient errors.
-- `dist/index.html` — Updated JS bundle hash (rebuilt artifact, committed alongside source changes).
+- `src/services/storage.service.ts` — Brand-isolation for customers (`getCachedCustomers`, `setCachedCustomers`, `mergeCachedCustomers`) and items (`setCachedItems`, `applyPriceMapToItems`). IDB snapshot race fix. `slimIds` deduplication for null-`familyCode` items.
+- `src/composables/useSync.ts` — Empty-string brand guard; `brandCode` variable removed; `brand` passed directly to all calls; `applyPriceMapToItems` now receives `brand`.
+- `src/components/ItemSelectorModal.vue` — `watch(lookupDate)` date-match check; first-use `setCachedItems` simplified to use brand param.
+- `src/views/ScanningPage.vue` — `refreshCache()` passes brand to `getCachedCustomers`; `startNewSession` passes `authStore.company?.code`; category selector replaced with readonly label.
+- `src/views/LandingPage.vue` — `visibleDrafts` filters by brand+company; all `getCachedCustomers` calls pass brand.
+- `src/views/LoginPage.vue` — Settings panel added; cache-first login (`syncIfStale` removed from post-login flow); `__APP_VERSION__`/`__APP_BUILD__` displayed.
+- `src/components/ProfileMenu.vue` — Update Application button added with version/build display.
+- `src/stores/session.store.ts` — `buildSession` and `startNewSession` accept `companyCode?`.
+- `src/types/index.ts` — `ScanSession` has `companyCode?: string`.
+- `vite.config.ts` — `__APP_BUILD__` is a build timestamp, not git commit count.
 
 ---
 
 ## Failed Attempts
 
-- **Firebase REST API for direct Firestore task lookup**: Attempted to bypass bc-api polling by calling the Firestore REST API directly from the webapp. **Why it failed**: No Firebase project — GCP-only Firestore. Client-side access requires Firebase Auth/OAuth2, which the webapp doesn't have. All Firebase env vars and `getTaskDirect()` helper were fully removed after this dead end.
-- **Attributing "order success but webapp shows error" to Firestore write failure**: Suspected `update_task(status="done")` was silently failing. **Why it failed**: The actual cause was the `/tasks/` nginx proxy missing — poll requests never reached bc-api at all.
-- **Price list header endpoint path uncertainty**: The exact bc-api endpoint path for price list headers needed to be verified before `getPriceListHeaderCatalog` was wired up. The endpoint is `GET /bc/custom/price-list-headers` with `?status=` and `?type=` params.
+- **`!c.brandCode || c.brandCode === brand` backwards-compat filter** — Intended to let legacy untagged customer entries show up in any brand view. Caused all pre-existing customers (stored before `brandCode` was introduced) to bleed into every brand's scan/landing page. Removed; replaced with strict equality. Users with old untagged data see empty customer lists until they re-sync.
+
+- **Keying `mergeCachedCustomers` map by `c.id` alone** — If the same customer ID exists in two brands (same customer appears under Brand A and Brand B), the second merge overwrote the first brand's entry. Fixed with composite key `"brandCode::id"`.
+
+- **`setCachedItems` writing `slim` to IDB** — After brand-isolation logic was added, the IDB write still wrote `slim` (only the new batch) instead of the full merged `_itemsMemory`. Items from other brands were lost from IDB on every sync. Fixed: IDB writes `snapshot = _itemsMemory` captured after the merge.
+
+- **`setCachedItems(items, brand || undefined)` in useSync** — When `brand = ''`, `'' || undefined` evaluates to `undefined`, taking the no-brand path that replaces all of `_itemsMemory` with only the current sync's items. Fixed by the empty-string guard that aborts sync before reaching this call.
+
+- **Manual `others` computation in `ItemSelectorModal` first-use path** — `getCachedItems().filter(i => i.familyCode !== props.familyCode)` then `setCachedItems([...others, ...result.items])` without a brand arg. When `props.familyCode` was undefined, `others` became `[]` and all existing items were wiped. Fixed by delegating to `setCachedItems(result.items, props.familyCode || undefined)`.
+
+- **`git rev-list --count HEAD` for build number** — Always returns `1` on GCP Cloud Build (shallow clone). Replaced with `new Date().toISOString()` formatted as `YYYY-MM-DD HH:MM UTC`.
 
 ---
 
 ## Next Step
 
-**Rebuild and redeploy the webapp Docker container** so the `nginx.conf` `/tasks/` proxy fix takes effect in production:
+The codebase is clean and stable. Recommended next actions (in priority order):
 
-```bash
-# In rgmc-consignment-webapp root:
-docker build -t <registry>/rgmc-consignment-webapp:latest .
-docker push <registry>/rgmc-consignment-webapp:latest
-# Then redeploy on Cloud Run
-```
+1. **Deploy to GCP** — run the Cloud Build trigger so brand-isolation fixes and price-date fix go live. Verify in production.
 
-After redeployment, do a full end-to-end test:
-1. Submit a sales order → loading panel (rings + steps) should appear
-2. Wait for BC processing (10–30 s typically)
-3. Webapp should transition to `salesStatus === 'done'` and show the BC order number
-4. Check `order_tasks_production` in Firestore — document should show `status: "done"`
+2. **Manual multi-brand test** — Log in as Brand A, sync, log out. Log in as Brand B on same device, sync. Verify each brand's scan page shows only its own customers and items. Verify drafts are isolated. Verify changing posting date in item modal re-fetches prices (no stale price seeding).
 
-If polling still fails, check bc-api Cloud Run logs for `GET /tasks/{taskId}` — you should see them arriving. If not, the nginx proxy is still not routing.
+3. **Clean up dead code if asked** — `src/stores/app-mode.store.ts` (unreferenced) and `syncIfStale()` in `useSync.ts` (zero callers) can be removed safely.
 
 ---
 
 ## Context & Gotchas
 
-- **`/tasks/` proxy was the root cause**: The SPA's `try_files $uri /index.html` fallback was silently returning 200 HTML for every task poll. The poller never detected an error, just looped until the 5-minute timeout. Adding the explicit `location /tasks/` block before the SPA fallback fixes this.
+- **Brand code = `familyCode` on items** — `Item.familyCode` equals `Brand.code`. `refreshCache()` in ScanningPage filters `allItems.filter(i => i.familyCode === brandCode)` to show only the current brand's items. The API also accepts `brandCode` as a filter when fetching items.
 
-- **`usePriceListCheck` is a module-level singleton**: `alerts`, `isChecking`, `isDismissed` are declared outside the composable function. All components that call `usePriceListCheck()` share the same state. Dismissing in one component dismisses globally.
+- **Customer `brandCode` is only in the slim cache format** — The public `Customer` type has no `brandCode` field. It lives only in the localStorage slim entry `{ id, number, displayName, city, brandCode? }`. `getCachedCustomers` returns `Customer[]` via `as unknown as Customer[]` cast, so callers never see `brandCode`.
 
-- **Customer cache backwards compatibility**: Old localStorage format is a plain array. `Array.isArray(raw)` detects it and returns `[]` (stale) when a company is passed. Users will be prompted to re-sync once on upgrade — expected behavior.
+- **Items are stored as a single flat array in IndexedDB** — `rgmc-cache` db, `items` store, key `'all'`. Multi-brand coexistence is by `familyCode` partitioning on write; there are no separate IDB stores per brand.
 
-- **`getPriceListHeaderCatalog` bc-api endpoint**: `GET /bc/custom/price-list-headers` — same company injection as all other `/bc/` calls (interceptor adds `?company=...`). Accepts optional `status` (`Active`, `Inactive`, etc.) and `type` (`Sale`, `Purchase`) query params.
+- **Customers stored in a single localStorage key** — `rgmc_cache_customers` as `{ company: string, data: SlimCustomer[] }`. Multiple brands' customers coexist in the same `data` array, differentiated only by `brandCode`.
 
-- **Price list alert is advisory only**: The `check()` call wraps in try/catch and silently ignores errors. A failed header fetch doesn't block scanning — users just won't see the staleness warning.
+- **`applyPriceMapToItems` brand scoping** — The price map from a brand's sync is now only applied to items with `familyCode === brand`. If brands share item numbers (same SKU), each brand's sync updates only its own items' prices. This is correct behavior.
 
-- **`GCP_ENV` on bc-api Cloud Run**: Must be `Production` (capital P; code lowercases internally). Controls which `order_tasks_{env}` Firestore collection is used. If unset or wrong, tasks go to the wrong collection.
+- **Sync timestamps keyed by `"companyCode::brandCode"`** in localStorage (`rgmc_sync_timestamps`). Old flat-key format is detected and wiped on read.
 
-- **`pollUntilDone` still uses 3-second intervals**: 5-minute timeout, 10 consecutive error limit. If BC takes >5 min (e.g., large return with many 409 retries), webapp will time out and show "Order is taking too long." Not yet reported as an issue.
+- **`__APP_VERSION__` and `__APP_BUILD__`** are Vite `define` constants. TypeScript declaration is in `src/env.d.ts`. Build timestamp format: `YYYY-MM-DD HH:MM UTC`. `__APP_VERSION__` comes from `package.json` version field.
 
-- **The old `order_tasks` Firestore collection is orphaned**: Safe to delete from console. No code writes to it. Active collection is `order_tasks_production`.
+- **PWA / Service Worker** — `registerType: 'autoUpdate'`. Update Application button posts `{ type: 'SKIP_WAITING' }` to `reg.waiting`, waits 400ms, then `location.reload()`. If no SW is waiting, goes straight to reload.
 
-- **Two async submit routes exist**: `POST /bc/sales-orders/submit` (v1, sales orders) and `POST /bc/custom/v2/sales-orders/submit` (v2, return orders). Both create Cloud Tasks that always hit `/internal/tasks/process-order/{task_id}`. Both use the same `/tasks/{task_id}` polling endpoint.
+- **`vue-tsc --noEmit`** passes cleanly. Plain `tsc --noEmit` shows false-positive `.vue` module errors — ignore those, they are a known limitation without `moduleResolution: bundler`.
 
-- **Vite proxy only applies in dev**: In production, nginx.conf is authoritative. Both were fixed. Docker image must be rebuilt for the nginx change to apply.
+- **Existing users with old untagged customer data** will see an empty customer list on the scan/landing page after this update until they perform a manual sync. The sync will write fresh data tagged with `brandCode`. This is expected and intentional — the strict brand filter cannot safely assume which brand old untagged entries belong to.

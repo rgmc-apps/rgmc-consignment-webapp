@@ -91,6 +91,7 @@ export interface OrderLine {
   itemNumber: string;
   itemName: string;
   description: string;
+  categoryCode?: string;
   srp: number;
   priceListCode?: string;
   quantity: number;
