@@ -213,7 +213,9 @@ export const StorageService = {
       displayName: i.displayName,
       description: i.description ? i.description.slice(0, 120) : '',
       itemCategoryCode: i.itemCategoryCode,
-      familyCode: i.familyCode,
+      // When syncing for a specific brand, tag items that lack a familyCode so the
+      // brand filter in refreshCache() can resolve them after a cache restore.
+      familyCode: i.familyCode ?? (brand || undefined),
       unitPriceIncVAT: i.unitPriceIncVAT,
     })) as Item[];
     if (brand) {

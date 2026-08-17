@@ -835,7 +835,11 @@ onMounted(async () => {
   if (!sessionStore.currentSession && authStore.brand && authStore.user) {
     sessionStore.startNewSession(authStore.brand, authStore.user, authStore.company?.code);
   }
-  if (cachedItems.value.length === 0 && isOnline.value) {
+  const hadPriorSync = !!StorageService.getLastSync(
+    authStore.company?.code ?? '',
+    authStore.brand?.code ?? '',
+  );
+  if (cachedItems.value.length === 0 && isOnline.value && !hadPriorSync) {
     await sync();
   } else if (isOnline.value) {
     checkPriceLists();
