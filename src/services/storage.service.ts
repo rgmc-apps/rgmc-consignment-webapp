@@ -163,10 +163,21 @@ export const StorageService = {
     }
     if (company && raw.company && raw.company !== company) return [];
     const data = raw.data ?? [];
-    // Strict brand filter — entries without a brandCode are untagged legacy data and
-    // are excluded when a brand is specified so they don't bleed across brand views.
-    const filtered = brand ? data.filter((c) => c.brandCode === brand) : data;
-    return filtered as unknown as Customer[];
+    if (!brand) return data as unknown as Customer[];
+    const branded = data.filter((c) => c.brandCode === brand);
+    if (branded.length > 0) return branded as unknown as Customer[];
+    // Migration fallback: customers cached before brandCode tagging was introduced
+    // have no brandCode and are excluded by the strict filter above. When the brand
+    // filter returns empty but untagged entries exist, treat them as this brand's
+    // customers and tag them in-place so subsequent reads don't need this fallback.
+    const untagged = data.filter((c) => !c.brandCode);
+    if (untagged.length === 0) return [];
+    const tagged = untagged.map((c) => ({ ...c, brandCode: brand }));
+    set(KEYS.CACHE_CUSTOMERS, {
+      company: raw.company ?? '',
+      data: [...data.filter((c) => c.brandCode), ...tagged],
+    });
+    return tagged as unknown as Customer[];
   },
   setCachedCustomers(customers: Customer[], company?: string, brand?: string): void {
     const slim = customers.map((c) => ({
@@ -217,6 +228,7 @@ export const StorageService = {
       // brand filter in refreshCache() can resolve them after a cache restore.
       familyCode: i.familyCode ?? (brand || undefined),
       unitPriceIncVAT: i.unitPriceIncVAT,
+      priceListCode: i.priceListCode,
     })) as Item[];
     if (brand) {
       // Keep items from other brands; replace this brand's items.
