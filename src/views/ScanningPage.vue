@@ -246,14 +246,19 @@
             <!-- Order date -->
             <div class="order-date-section">
               <p class="field-label">POSTING DATE</p>
-              <div class="order-date-row">
-                <ion-icon :icon="calendarOutline" color="medium" class="order-date-icon" />
+              <div :class="['order-date-row', { 'order-date-row--updating': isUpdatingLinePrices }]">
+                <ion-icon
+                  :icon="calendarOutline"
+                  :color="isUpdatingLinePrices ? 'primary' : 'medium'"
+                  class="order-date-icon"
+                />
                 <input
                   type="date"
                   :value="orderDateValue"
                   @change="(e) => { orderDateValue = (e.target as HTMLInputElement).value }"
                   class="order-date-input"
                 />
+                <ion-spinner v-if="isUpdatingLinePrices" name="dots" class="date-update-spinner" />
               </div>
             </div>
 
@@ -311,8 +316,8 @@
                 <ion-note slot="end" class="readonly-val readonly-val--gold">
                   <ion-spinner v-if="fetchingPrice" name="dots" style="width:16px;height:16px;vertical-align:middle" />
                   <template v-else>
-                    {{ formatCurrency(form.srp) }}
-                    <span v-if="form.priceListCode" class="price-list-code">{{ form.priceListCode }}</span>
+                    <span :class="{ 'price-stale': isUpdatingLinePrices && !!form.itemNumber }">{{ formatCurrency(form.srp) }}</span>
+                    <span v-if="form.priceListCode" class="price-list-code" :class="{ 'price-stale': isUpdatingLinePrices && !!form.itemNumber }">{{ form.priceListCode }}</span>
                   </template>
                 </ion-note>
               </ion-item>
@@ -1132,7 +1137,7 @@ watch(orderDateValue, async (newDate) => {
   isUpdatingLinePrices.value = true;
   let updatedCount = 0;
   try {
-    const priceMap = await ApiService.getAllItemPricesForDate(newDate, allNos, signal);
+    const { priceMap, priceListMap } = await ApiService.getAllItemPricesForDate(newDate, allNos, signal);
 
     if (hasFormItem) {
       const price = priceMap[form.itemNumber] ?? null;
@@ -1141,12 +1146,8 @@ watch(orderDateValue, async (newDate) => {
         form.srp = price;
         StorageService.patchCachedItemPrice(form.itemNumber, price);
       }
-      // getAllItemPricesForDate returns only prices — fetch priceListCode separately.
-      ApiService.getActiveItemPrice(form.itemNumber, newDate)
-        .then(({ priceListCode }) => {
-          if (priceListCode !== null) { form.priceListCode = priceListCode; confirmedPriceListCode.value = priceListCode; }
-        })
-        .catch(() => { /* best effort — UI keeps previous code on failure */ });
+      const plc = priceListMap[form.itemNumber] ?? null;
+      if (plc !== null) { form.priceListCode = plc; confirmedPriceListCode.value = plc; }
     }
 
     for (const { line, type } of allLines) {
@@ -1193,7 +1194,7 @@ watch(isOnline, async (online, wasOnline) => {
           const hasFormItem = !!form.itemNumber;
           const lineNos = allLines.map(({ line }) => line.itemNumber);
           const allNos = [...new Set(hasFormItem ? [form.itemNumber, ...lineNos] : lineNos)];
-          const priceMap = await ApiService.getAllItemPricesForDate(orderDateValue.value, allNos);
+          const { priceMap } = await ApiService.getAllItemPricesForDate(orderDateValue.value, allNos);
           if (hasFormItem) {
             const price = priceMap[form.itemNumber] ?? null;
             if (price !== null) {
@@ -1763,7 +1764,8 @@ async function toast(message: string, color: string) {
   .skel-form-card,
   .skel-form-card--delay,
   .skel-sync-status,
-  .cycling-text {
+  .cycling-text,
+  .order-date-row--updating .order-date-input {
     animation: none !important;
   }
   .order-item-enter-active,
@@ -2359,5 +2361,23 @@ async function toast(message: string, color: string) {
   color: var(--app-fg);
   font-family: inherit;
   padding: 4px 0;
+  transition: color 180ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.order-date-row--updating .order-date-input {
+  color: var(--ion-color-primary);
+  animation: date-updating-pulse 1.5s ease-in-out infinite;
+}
+
+.date-update-spinner {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--ion-color-primary);
+}
+
+@keyframes date-updating-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%       { opacity: 1; }
 }
 </style>

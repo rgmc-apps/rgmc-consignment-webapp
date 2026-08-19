@@ -446,7 +446,7 @@ async function fetchMissingPrices(items: typeof displayItems.value) {
   if (!missing.length) return;
   isFetchingPrices.value = true;
   try {
-    const priceMap = await ApiService.getAllItemPricesForDate(
+    const { priceMap } = await ApiService.getAllItemPricesForDate(
       lookupDate.value,
       missing.map((i) => i.number),
       undefined,

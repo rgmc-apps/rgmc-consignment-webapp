@@ -539,15 +539,19 @@ export const ApiService = {
     signal?: AbortSignal,
     onChunkDone?: () => void,
     familyCode?: string,
-  ): Promise<Record<string, number>> {
-    const buildMap = (rows: Record<string, unknown>[]): Record<string, number> => {
-      const map: Record<string, number> = {};
+  ): Promise<{ priceMap: Record<string, number>; priceListMap: Record<string, string | null> }> {
+    const buildMaps = (rows: Record<string, unknown>[]): { priceMap: Record<string, number>; priceListMap: Record<string, string | null> } => {
+      const priceMap: Record<string, number> = {};
+      const priceListMap: Record<string, string | null> = {};
       for (const row of rows) {
         const no = row['productNo'] as string | undefined;
         const price = (row['unitPriceIncVAT'] ?? row['unitPrice'] ?? row['unit_price']) as number | undefined;
-        if (no && typeof price === 'number' && !(no in map)) map[no] = price;
+        if (no && typeof price === 'number' && !(no in priceMap)) {
+          priceMap[no] = price;
+          priceListMap[no] = (row['priceListCode'] as string | undefined) ?? null;
+        }
       }
-      return map;
+      return { priceMap, priceListMap };
     };
 
     // Fast path: single call — backend filters from its in-memory full-catalog cache.
@@ -561,14 +565,14 @@ export const ApiService = {
           timeout: 300000,
         });
         onChunkDone?.();
-        return buildMap(extractList<Record<string, unknown>>(res.data));
+        return buildMaps(extractList<Record<string, unknown>>(res.data));
       } catch (err) {
         if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
-        return {};
+        return { priceMap: {}, priceListMap: {} };
       }
     }
 
-    if (!productNos.length) return {};
+    if (!productNos.length) return { priceMap: {}, priceListMap: {} };
     // Chunk into batches of 150 — item numbers are short (≤15 chars) so 150 per request
     // stays well within BC's URL length limit while reducing round-trip count 3×.
     const CHUNK = 150;
@@ -591,7 +595,7 @@ export const ApiService = {
       ).flat();
       allRows.push(...rows);
     }
-    return buildMap(allRows);
+    return buildMaps(allRows);
   },
 
   async triggerItemPricesSync(company: string): Promise<void> {
