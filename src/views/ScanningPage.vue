@@ -372,11 +372,11 @@
 
               <!-- Action buttons -->
               <div v-if="selectedCustomer" class="action-btns">
-                <ion-button expand="block" color="primary" @click="addToSales">
+                <ion-button expand="block" color="primary" :disabled="isUpdatingLinePrices" @click="addToSales">
                   <ion-icon :icon="addCircleOutline" slot="start" />
                   Add to Sales
                 </ion-button>
-                <ion-button expand="block" fill="outline" color="danger" @click="addToReturn">
+                <ion-button expand="block" fill="outline" color="danger" :disabled="isUpdatingLinePrices" @click="addToReturn">
                   <ion-icon :icon="returnDownBackOutline" slot="start" />
                   Add to Return
                 </ion-button>
@@ -498,7 +498,7 @@
         </span>
         <span class="submit-bar__amount">{{ formatCurrency(sessionStore.salesTotal + sessionStore.returnTotal) }}</span>
       </div>
-      <ion-button class="submit-bar__btn" router-link="/app/submit">
+      <ion-button class="submit-bar__btn" :disabled="isUpdatingLinePrices" router-link="/app/submit">
         Review &amp; Submit
         <ion-icon :icon="arrowForwardOutline" slot="end" />
       </ion-button>
@@ -677,7 +677,7 @@
           <ion-button
             expand="block"
             color="primary"
-            :disabled="!selectedCustomer"
+            :disabled="!selectedCustomer || fetchingPrice"
             class="conf-btn"
             @click="doConfirm('sales')"
           >
@@ -688,7 +688,7 @@
             expand="block"
             fill="outline"
             color="danger"
-            :disabled="!selectedCustomer"
+            :disabled="!selectedCustomer || fetchingPrice"
             class="conf-btn"
             @click="doConfirm('returns')"
           >
