@@ -26,6 +26,14 @@ All changes are committed and the working tree is clean through `015ccd0`.
 
 #### New in this session
 
+0. **Customer dropdown works offline** (`storage.service.ts`)
+   - `getCachedCustomers()` migration fallback: when strict `brandCode` filter returns empty but untagged entries exist, treats them as the current brand's customers and tags them in-place.
+
+0. **`priceListCode` badge on scan page** (`storage.service.ts`, `ScanningPage.vue`)
+   - `setCachedItems` slim map now includes `priceListCode: i.priceListCode`.
+   - `lookupPrice()` Tier 1 (cache hit) only returns cached `priceListCode` when `cached.date === onDate`; otherwise calls live API (Tier 2) to get the date-accurate code.
+   - `watch(orderDateValue)` now updates `form.priceListCode` and `confirmedPriceListCode` when posting date changes: cache-hit path reads from item memory; API path fires a non-blocking `getActiveItemPrice` call.
+
 1. **Category filter resets after adding item** (`ScanningPage.vue`)
    - `resetItemForm()` now clears `form.categoryCode = ''`. Previously it retained the last category.
    - `OrderLine` interface in `src/types/index.ts` has `categoryCode?: string`.
@@ -79,13 +87,14 @@ All committed. No files in mid-edit state.
 
 ## Next Step
 
-**Test the spurious-sync fix on a real device:**
+**Device testing (no code changes needed):**
 
 1. Log in with a brand that shows the "cached" badge on the login page.
 2. Verify the scan page loads WITHOUT triggering a sync (sync bar shows previous sync time, not "Syncing…").
 3. If scan page shows "Data not loaded" (items = 0 after skipping sync), this is the migration case — old items lack `familyCode`. Pull-to-refresh once to re-sync and permanently fix that device's cache.
 4. Log out and log in again — confirm no auto-sync fires.
 5. Confirm BC search works: search for a term with no local results → "Search Business Central" button appears → tap it → results appear from BC.
+6. Select an item, then change the posting date — verify `priceListCode` badge updates to match the correct price list for the new date.
 
 ---
 

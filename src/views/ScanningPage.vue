@@ -1030,18 +1030,31 @@ const confirmTotal = computed(() =>
 );
 
 // Returns price + priceListCode.
-// Tier 1: exact date + item hit in cache (ideal).
-// Tier 2: any cached price for the item (stale date but still useful — avoids a network call).
-// Tier 3: API (only when there is truly no cached price for this item at all).
+// Tier 1 (cache hit, same date): cached price + priceListCode from item memory.
+//   Only valid when cached.date === onDate — both came from the same sync so
+//   the priceListCode is accurate for that date.
+// Tier 2 (online, date mismatch or no cached priceListCode): live API call.
+//   Guarantees price and priceListCode are both correct for onDate.
+// Tier 3 (offline): cached price only; priceListCode stays null.
 async function lookupPrice(itemNumber: string, onDate: string): Promise<{ price: number | null; priceListCode: string | null }> {
   const cached = StorageService.getCachedItemPrices();
-  if (cached?.prices[itemNumber] !== undefined) {
-    return { price: cached.prices[itemNumber], priceListCode: null };
-  }
+  const cachedPrice = cached?.prices[itemNumber];
+
   if (isOnline.value) {
+    // Use cache only when the stored prices are for this exact posting date and
+    // the item already carries its priceListCode (populated after a sync with the
+    // updated storage format). Any date mismatch means we need the API anyway.
+    if (cached?.date === onDate && cachedPrice !== undefined) {
+      const itemPriceListCode = cachedItems.value.find((i) => i.number === itemNumber)?.priceListCode ?? null;
+      if (itemPriceListCode !== null) {
+        return { price: cachedPrice, priceListCode: itemPriceListCode };
+      }
+    }
     return ApiService.getActiveItemPrice(itemNumber, onDate);
   }
-  return { price: null, priceListCode: null };
+
+  // Offline — best effort: use cached price, priceListCode unavailable.
+  return { price: cachedPrice ?? null, priceListCode: null };
 }
 
 async function fetchActivePrice(itemNumber: string, onDate: string): Promise<void> {
@@ -1097,6 +1110,9 @@ watch(orderDateValue, async (newDate) => {
     if (hasFormItem) {
       const price = priceMap[form.itemNumber] ?? null;
       if (price !== null) { confirmedSrp.value = price; form.srp = price; }
+      // Cache date matches posting date — item memory priceListCode is accurate for this date.
+      const plc = cachedItems.value.find((i) => i.number === form.itemNumber)?.priceListCode ?? null;
+      if (plc !== null) { form.priceListCode = plc; confirmedPriceListCode.value = plc; }
     }
     for (const { line, type } of allLines) {
       const price = priceMap[line.itemNumber] ?? null;
@@ -1125,6 +1141,12 @@ watch(orderDateValue, async (newDate) => {
         form.srp = price;
         StorageService.patchCachedItemPrice(form.itemNumber, price);
       }
+      // getAllItemPricesForDate returns only prices — fetch priceListCode separately.
+      ApiService.getActiveItemPrice(form.itemNumber, newDate)
+        .then(({ priceListCode }) => {
+          if (priceListCode !== null) { form.priceListCode = priceListCode; confirmedPriceListCode.value = priceListCode; }
+        })
+        .catch(() => { /* best effort — UI keeps previous code on failure */ });
     }
 
     for (const { line, type } of allLines) {
