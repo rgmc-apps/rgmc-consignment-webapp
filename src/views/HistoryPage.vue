@@ -13,9 +13,11 @@
           <ion-button
             v-if="filteredSessions.length"
             fill="clear"
+            size="small"
             @click="downloadHistory"
           >
-            <ion-icon :icon="downloadOutline" slot="icon-only" />
+            <ion-icon :icon="downloadOutline" slot="start" />
+            Export
           </ion-button>
           <bug-report-button />
         </ion-buttons>
@@ -51,7 +53,7 @@
             class="filter-chip"
           >
             <ion-icon :icon="cloudDoneOutline" />
-            BC Orders
+            Business Central
           </ion-chip>
         </div>
       </ion-toolbar>
@@ -112,9 +114,9 @@
                 </span>
               </p>
               <p v-if="session.salesOrderSeries || session.returnOrderSeries" class="session-series">
-                <span v-if="session.salesOrderSeries">SO# {{ session.salesOrderSeries }}</span>
+                <span v-if="session.salesOrderSeries">Sales Order: {{ session.salesOrderSeries }}</span>
                 <span v-if="session.salesOrderSeries && session.returnOrderSeries"> &bull; </span>
-                <span v-if="session.returnOrderSeries">SRO# {{ session.returnOrderSeries }}</span>
+                <span v-if="session.returnOrderSeries">Return Order: {{ session.returnOrderSeries }}</span>
               </p>
               <p v-if="session.status === 'failed' && session.errorMessage" class="session-error">
                 {{ session.errorMessage }}
@@ -132,6 +134,7 @@
 
       <!-- ── BC Orders Panel ── -->
       <div v-else class="bc-panel">
+        <p class="bc-panel-intro">Orders posted to Business Central for the selected date. Tap an order to see its line items.</p>
         <!-- Date picker -->
         <div class="bc-date-bar">
           <ion-icon :icon="calendarOutline" class="bc-date-icon" />
@@ -286,11 +289,11 @@
                   </ion-badge>
                 </div>
                 <div v-if="selectedSession.salesOrderSeries" class="info-row">
-                  <span class="info-label">SO#</span>
+                  <span class="info-label">Sales Order</span>
                   <span class="info-value series-num">{{ selectedSession.salesOrderSeries }}</span>
                 </div>
                 <div v-if="selectedSession.returnOrderSeries" class="info-row">
-                  <span class="info-label">SRO#</span>
+                  <span class="info-label">Return Order</span>
                   <span class="info-value series-num">{{ selectedSession.returnOrderSeries }}</span>
                 </div>
               </div>
@@ -1090,6 +1093,14 @@ ion-list ion-item:nth-child(8) { animation: fade-slide-up 0.28s var(--ease-out-q
 /* ── BC Orders Panel ── */
 .bc-panel {
   padding-bottom: 32px;
+}
+
+.bc-panel-intro {
+  padding: 10px 16px 0;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin: 0;
+  line-height: 1.5;
 }
 
 .bc-date-bar {

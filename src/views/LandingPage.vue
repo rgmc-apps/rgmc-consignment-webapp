@@ -146,6 +146,7 @@
           Customers — {{ authStore.brand?.displayName }}
           <span class="section-count">({{ customers.length }})</span>
         </p>
+        <p class="section-sublabel">Synced customer list — select one when starting a session.</p>
         <ion-list lines="full" class="customers-list">
           <ion-item v-for="c in customers.slice(0, 8)" :key="c.id" class="customer-item">
             <div slot="start" class="customer-avatar">{{ c.displayName?.charAt(0)?.toUpperCase() ?? '?' }}</div>
@@ -527,6 +528,15 @@ async function confirmDeleteDraft(id: string) {
 
 .see-more { --min-height: 36px; }
 .see-more p { font-size: 13px; text-align: center; }
+
+/* ── Section sublabel ── */
+.section-sublabel {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  margin: -6px 16px 6px;
+  line-height: 1.4;
+  opacity: 0.8;
+}
 
 /* ── Empty state ── */
 .empty-customers {

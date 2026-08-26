@@ -129,6 +129,9 @@
             <ion-icon v-else :icon="cloudDownloadOutline" slot="start" />
             {{ isTriggering ? 'Triggering…' : 'Trigger Server Sync' }}
           </ion-button>
+          <p v-if="!triggerMessage" class="trigger-server-hint">
+            Asks Business Central to rebuild the item price catalog on the server. Wait 2–3 minutes, then tap Sync Now.
+          </p>
           <p v-if="triggerMessage" class="trigger-msg" :class="{ 'trigger-msg--error': triggerMessage.startsWith('Failed') }">
             {{ triggerMessage }}
           </p>
@@ -245,7 +248,12 @@
 
             <!-- Order date -->
             <div class="order-date-section">
-              <p class="field-label">POSTING DATE</p>
+              <div class="field-label-row">
+                <p class="field-label">POSTING DATE</p>
+                <button class="info-icon-btn" aria-label="About posting date" @click="showInfo('Posting Date', 'The posting date determines which price list applies to each item. Business Central prices are date-sensitive — using the correct date ensures the right retail price is fetched. Changing this date will update all prices in your current session.')">
+                  <ion-icon :icon="informationCircleOutline" />
+                </button>
+              </div>
               <div :class="['order-date-row', { 'order-date-row--updating': isUpdatingLinePrices }]">
                 <ion-icon
                   :icon="calendarOutline"
@@ -266,7 +274,7 @@
             <div class="no-sales-row">
               <div class="no-sales-label-group">
                 <span class="no-sales-label">No Sales</span>
-                <span class="no-sales-hint">Submit a sales order without items</span>
+                <span class="no-sales-hint">Record a store visit — no items sold</span>
               </div>
               <ion-toggle
                 :checked="sessionStore.currentSession?.noSales ?? false"
@@ -312,12 +320,17 @@
 
               <!-- SRP -->
               <ion-item lines="inset" class="form-row form-row--readonly">
-                <ion-label>SRP</ion-label>
+                <ion-label>Retail Price <span class="label-note">SRP</span></ion-label>
                 <ion-note slot="end" class="readonly-val readonly-val--gold">
                   <ion-spinner v-if="fetchingPrice" name="dots" style="width:16px;height:16px;vertical-align:middle" />
                   <template v-else>
                     <span :class="{ 'price-stale': isUpdatingLinePrices && !!form.itemNumber }">{{ formatCurrency(form.srp) }}</span>
-                    <span v-if="form.priceListCode" class="price-list-code" :class="{ 'price-stale': isUpdatingLinePrices && !!form.itemNumber }">{{ form.priceListCode }}</span>
+                    <button
+                      v-if="form.priceListCode"
+                      class="price-list-code price-list-code--btn"
+                      :class="{ 'price-stale': isUpdatingLinePrices && !!form.itemNumber }"
+                      @click.stop="showPriceListInfo(form.priceListCode)"
+                    >{{ form.priceListCode }}</button>
                   </template>
                 </ion-note>
               </ion-item>
@@ -421,6 +434,7 @@
               </ion-label>
             </ion-segment-button>
           </ion-segment>
+          <p class="swipe-hint">Swipe an item left to remove it</p>
 
           <ion-list class="order-list" lines="full">
             <TransitionGroup name="order-item">
@@ -438,7 +452,11 @@
                   <p>
                     Qty {{ line.quantity }} &times;
                     <span :class="{ 'price-stale': isUpdatingLinePrices }">{{ formatCurrency(line.srp) }}</span>
-                    <span v-if="line.priceListCode" class="price-list-code">{{ line.priceListCode }}</span>
+                    <button
+                      v-if="line.priceListCode"
+                      class="price-list-code price-list-code--btn"
+                      @click.stop="showPriceListInfo(line.priceListCode)"
+                    >{{ line.priceListCode }}</button>
                   </p>
                   <p>
                     Disc: {{ formatDiscount(line.discountType, line.discountValue) }}
@@ -599,7 +617,11 @@
                 </span>
                 <span v-else :key="priceRevealKey" class="conf-srp-value">
                   {{ formatCurrency(confirmedSrp) }} <span class="conf-srp-label">SRP</span>
-                  <span v-if="confirmedPriceListCode" class="price-list-code">{{ confirmedPriceListCode }}</span>
+                  <button
+                    v-if="confirmedPriceListCode"
+                    class="price-list-code price-list-code--btn"
+                    @click.stop="showPriceListInfo(confirmedPriceListCode)"
+                  >{{ confirmedPriceListCode }}</button>
                 </span>
               </Transition>
             </p>
@@ -1034,32 +1056,21 @@ const confirmTotal = computed(() =>
   ),
 );
 
-// Returns price + priceListCode.
-// Tier 1 (cache hit, same date): cached price + priceListCode from item memory.
-//   Only valid when cached.date === onDate — both came from the same sync so
-//   the priceListCode is accurate for that date.
-// Tier 2 (online, date mismatch or no cached priceListCode): live API call.
-//   Guarantees price and priceListCode are both correct for onDate.
-// Tier 3 (offline): cached price only; priceListCode stays null.
+// Returns price + priceListCode for a single item on the given posting date.
+// Online: always calls the API so deduplication by latest startingDate is always
+//   applied — the local cache cannot be trusted here because priceListCode values
+//   stored before the dedup fix was deployed would silently return the wrong list.
+// Offline: uses cached price and priceListCode from item memory (best effort).
 async function lookupPrice(itemNumber: string, onDate: string): Promise<{ price: number | null; priceListCode: string | null }> {
-  const cached = StorageService.getCachedItemPrices();
-  const cachedPrice = cached?.prices[itemNumber];
-
   if (isOnline.value) {
-    // Use cache only when the stored prices are for this exact posting date and
-    // the item already carries its priceListCode (populated after a sync with the
-    // updated storage format). Any date mismatch means we need the API anyway.
-    if (cached?.date === onDate && cachedPrice !== undefined) {
-      const itemPriceListCode = cachedItems.value.find((i) => i.number === itemNumber)?.priceListCode ?? null;
-      if (itemPriceListCode !== null) {
-        return { price: cachedPrice, priceListCode: itemPriceListCode };
-      }
-    }
     return ApiService.getActiveItemPrice(itemNumber, onDate);
   }
 
-  // Offline — best effort: use cached price, priceListCode unavailable.
-  return { price: cachedPrice ?? null, priceListCode: null };
+  // Offline — use cached price; priceListCode from item memory (best effort).
+  const cached = StorageService.getCachedItemPrices();
+  const cachedPrice = cached?.prices[itemNumber] ?? null;
+  const itemPriceListCode = cachedItems.value.find((i) => i.number === itemNumber)?.priceListCode ?? null;
+  return { price: cachedPrice, priceListCode: itemPriceListCode };
 }
 
 async function fetchActivePrice(itemNumber: string, onDate: string): Promise<void> {
@@ -1353,6 +1364,20 @@ async function toast(message: string, color: string) {
     position: 'bottom',
   });
   t.present();
+}
+
+async function showInfo(header: string, message: string) {
+  const alert = await alertController.create({ header, message, buttons: ['Got it'] });
+  await alert.present();
+}
+
+async function showPriceListInfo(code: string) {
+  const alert = await alertController.create({
+    header: 'Price List',
+    message: `<strong>${code}</strong><br><br>This is the Business Central price list that applies to this item on the selected posting date. Different dates or customer segments may resolve to different price lists.`,
+    buttons: ['Got it'],
+  });
+  await alert.present();
 }
 </script>
 
@@ -2306,6 +2331,71 @@ async function toast(message: string, color: string) {
    spin buttons) in light mode even when the app is dark */
 .order-date-input { color-scheme: light; }
 [data-theme="dark"] .order-date-input { color-scheme: dark; }
+
+/* ── Field label row (label + info button) ── */
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.field-label-row .field-label { margin-bottom: 0; }
+
+.info-icon-btn {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  cursor: pointer;
+  color: var(--app-text-muted);
+  display: flex;
+  align-items: center;
+  font-size: 16px;
+  opacity: 0.65;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.info-icon-btn:active { opacity: 1; }
+
+/* ── Label note (SRP abbreviation) ── */
+.label-note {
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.5;
+  margin-left: 3px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* ── Price list code as tappable button ── */
+.price-list-code--btn {
+  background: none;
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+.price-list-code--btn:active {
+  background: rgba(var(--ion-color-medium-rgb), 0.2);
+  border-radius: 3px;
+}
+
+/* ── Swipe hint ── */
+.swipe-hint {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  text-align: center;
+  margin: 5px 12px 0;
+  opacity: 0.6;
+}
+
+/* ── Trigger server sync hint ── */
+.trigger-server-hint {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  text-align: center;
+  line-height: 1.5;
+  max-width: 270px;
+  margin: 4px 0 0;
+}
 
 /* ── Order date ── */
 .order-date-section {

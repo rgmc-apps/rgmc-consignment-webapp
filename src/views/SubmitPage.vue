@@ -56,6 +56,10 @@
             <ion-badge v-if="session?.noSales" color="warning" class="no-sales-badge">No Sales</ion-badge>
           </p>
           <p class="section-sub">{{ sessionStore.salesQty }} units &bull; {{ formatCurrency(sessionStore.salesTotal) }}</p>
+          <p v-if="salesStatus === 'pending'" class="section-edit-hint">
+            <ion-icon :icon="createOutline" />
+            Adjust discount or remove items before submitting
+          </p>
         </div>
 
         <div v-if="session?.noSales && !sessionStore.salesOrders.length" class="no-sales-notice">
@@ -192,6 +196,10 @@
             <ion-badge color="danger">{{ sessionStore.returnOrders.length }}</ion-badge>
           </p>
           <p class="section-sub">{{ sessionStore.returnQty }} units &bull; {{ formatCurrency(sessionStore.returnTotal) }}</p>
+          <p v-if="returnsStatus === 'pending'" class="section-edit-hint">
+            <ion-icon :icon="createOutline" />
+            Adjust discount or remove items before submitting
+          </p>
         </div>
 
         <ion-list lines="full" class="order-table">
@@ -390,6 +398,7 @@ import {
   trashOutline,
   bugOutline,
   banOutline,
+  createOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
 import { useGoldAccent } from '@/composables/useGoldAccent';
@@ -853,6 +862,18 @@ async function showToast(message: string, color: string) {
 }
 
 .status-badge p { margin: 0; }
+
+/* ── Section edit hint ── */
+.section-edit-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--ion-color-medium);
+  margin: 5px 0 0;
+  opacity: 0.75;
+}
+.section-edit-hint ion-icon { font-size: 12px; }
 
 /* ── No customer ── */
 .no-customer-warn {
