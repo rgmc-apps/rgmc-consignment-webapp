@@ -110,46 +110,48 @@ export function useSync() {
       const settle = <T>(p: Promise<T>): Promise<PromiseSettledResult<T>> =>
         p.then((value) => ({ status: 'fulfilled' as const, value }), (reason) => ({ status: 'rejected' as const, reason }));
 
-      const customersResult = await settle(
-        ApiService.getCustomers(brand, TIMEOUT, hasCustomers ? ts.customers : undefined)
-          .then((r) => { syncSubTasks.value[0].status = 'done'; bump(); return r; })
-          .catch((e) => { syncSubTasks.value[0].status = 'error'; bump(); throw e; }),
-      );
-
-      const categoriesResult = await settle(
-        ApiService.getItemCategories(TIMEOUT, hasCategories ? ts.itemCategories : undefined)
-          .then((r) => { syncSubTasks.value[1].status = 'done'; bump(); return r; })
-          .catch((e) => { syncSubTasks.value[1].status = 'error'; bump(); throw e; }),
-      );
-
       // Delta sync when we have cached items and a prior timestamp — only fetch records
       // modified since the last sync. Full fetch when the cache is empty.
       const itemsModifiedSince = hasItems && ts.items ? ts.items : undefined;
       isSyncDelta.value = !!itemsModifiedSince;
-      const itemsResult = await settle(
-        ApiService.getItemsForDate(today, brand, undefined, TIMEOUT, itemsModifiedSince)
-          .then((r) => {
-            syncItemsLoaded.value = r.items.length;
-            syncItemsTotal.value = r.items.length;
-            const detail = itemsModifiedSince
-              ? `${r.items.length.toLocaleString()} updated`
-              : r.items.length.toLocaleString();
-            syncSubTasks.value[2] = { ...syncSubTasks.value[2], detail };
-            return r;
-          })
-          .then((r) => {
-            syncSubTasks.value[2].status = 'done';
-            bump();
-            return r;
-          })
-          .catch((e) => { syncSubTasks.value[2].status = 'error'; bump(); throw e; }),
-      );
 
-      const contactsResult = await settle(
-        ApiService.getContacts(TIMEOUT, hasContacts ? ts.contacts : undefined)
-          .then((r) => { syncSubTasks.value[3].status = 'done'; bump(); return r; })
-          .catch((e) => { syncSubTasks.value[3].status = 'error'; bump(); throw e; }),
-      );
+      // All four data types are independent — run them in parallel so total time
+      // is bounded by the slowest request (items/prices) rather than their sum.
+      const [customersResult, categoriesResult, itemsResult, contactsResult] = await Promise.all([
+        settle(
+          ApiService.getCustomers(brand, TIMEOUT, hasCustomers ? ts.customers : undefined)
+            .then((r) => { syncSubTasks.value[0].status = 'done'; bump(); return r; })
+            .catch((e) => { syncSubTasks.value[0].status = 'error'; bump(); throw e; }),
+        ),
+        settle(
+          ApiService.getItemCategories(TIMEOUT, hasCategories ? ts.itemCategories : undefined)
+            .then((r) => { syncSubTasks.value[1].status = 'done'; bump(); return r; })
+            .catch((e) => { syncSubTasks.value[1].status = 'error'; bump(); throw e; }),
+        ),
+        settle(
+          ApiService.getItemsForDate(today, brand, undefined, TIMEOUT, itemsModifiedSince)
+            .then((r) => {
+              syncItemsLoaded.value = r.items.length;
+              syncItemsTotal.value = r.items.length;
+              const detail = itemsModifiedSince
+                ? `${r.items.length.toLocaleString()} updated`
+                : r.items.length.toLocaleString();
+              syncSubTasks.value[2] = { ...syncSubTasks.value[2], detail };
+              return r;
+            })
+            .then((r) => {
+              syncSubTasks.value[2].status = 'done';
+              bump();
+              return r;
+            })
+            .catch((e) => { syncSubTasks.value[2].status = 'error'; bump(); throw e; }),
+        ),
+        settle(
+          ApiService.getContacts(TIMEOUT, hasContacts ? ts.contacts : undefined)
+            .then((r) => { syncSubTasks.value[3].status = 'done'; bump(); return r; })
+            .catch((e) => { syncSubTasks.value[3].status = 'error'; bump(); throw e; }),
+        ),
+      ]);
 
       // ── Persist ──
       if (customersResult.status === 'fulfilled') {
