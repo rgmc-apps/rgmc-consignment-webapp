@@ -309,6 +309,7 @@ export const ApiService = {
     familyCode?: string,
     signal?: AbortSignal,
     timeout?: number,
+    modifiedSince?: string,
   ): Promise<{ items: Item[]; priceMap: Record<string, number> }> {
     // The backend blocks internally until the catalog is ready (up to 40 s), so a
     // single request normally succeeds on first try even from a cold start.
@@ -318,7 +319,11 @@ export const ApiService = {
     for (let attempt = 0; attempt <= RETRIES; attempt++) {
       try {
         const res = await apiClient.get('/bc/custom/v3/item-prices', {
-          params: { on_date: date, ...(familyCode ? { family_code: familyCode } : {}) },
+          params: {
+            on_date: date,
+            ...(familyCode ? { family_code: familyCode } : {}),
+            ...(modifiedSince ? { modified_since: modifiedSince } : {}),
+          },
           signal,
           timeout: timeout ?? 120_000,
         });

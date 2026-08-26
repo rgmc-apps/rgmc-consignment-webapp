@@ -80,6 +80,7 @@ export function useSync() {
       const hasCustomers  = StorageService.getCachedCustomers(company, brand).length > 0;
       const hasCategories = StorageService.getCachedItemCategories().length > 0;
       const hasContacts   = StorageService.getCachedContacts().length > 0;
+      const hasItems      = StorageService.getCachedItems().length > 0;
 
       let done = 0;
       const bump = () => { syncProgress.value = Math.round((++done / 4) * 100); };
@@ -98,19 +99,22 @@ export function useSync() {
           .catch((e) => { syncSubTasks.value[1].status = 'error'; bump(); throw e; }),
       );
 
-      // Items are always fetched in full — prices change daily and the endpoint
-      // returns items + prices together, making a partial price refresh impractical.
+      // Delta sync when we have cached items and a prior timestamp — only fetch records
+      // modified since the last sync. Full fetch when the cache is empty.
+      const itemsModifiedSince = hasItems && ts.items ? ts.items : undefined;
       const itemsResult = await settle(
-        ApiService.getItemsForDate(today, brand, undefined, TIMEOUT)
+        ApiService.getItemsForDate(today, brand, undefined, TIMEOUT, itemsModifiedSince)
           .then((r) => {
             syncItemsLoaded.value = r.items.length;
             syncItemsTotal.value = r.items.length;
-            syncSubTasks.value[2] = { ...syncSubTasks.value[2], detail: r.items.length.toLocaleString() };
+            const detail = itemsModifiedSince
+              ? `${r.items.length.toLocaleString()} updated`
+              : r.items.length.toLocaleString();
+            syncSubTasks.value[2] = { ...syncSubTasks.value[2], detail };
             return r;
           })
           .then((r) => {
             syncSubTasks.value[2].status = 'done';
-            syncSubTasks.value[2] = { ...syncSubTasks.value[2], detail: r.items.length.toLocaleString() };
             bump();
             return r;
           })
@@ -144,10 +148,18 @@ export function useSync() {
 
       if (itemsResult.status === 'fulfilled') {
         const { items, priceMap } = itemsResult.value;
-        // Items are fetched per-brand; replace only this brand's slice of the cache.
-        StorageService.setCachedItems(items, brand);
+        if (itemsModifiedSince) {
+          // Delta: upsert only the changed items; merge prices so unchanged items keep
+          // their cached prices and only the refreshed ones are overwritten.
+          StorageService.mergeCachedItems(items, brand);
+          const existingPrices = StorageService.getCachedItemPrices();
+          StorageService.setCachedItemPrices(today, { ...(existingPrices?.prices ?? {}), ...priceMap });
+        } else {
+          // Full: replace the entire brand slice and the whole price cache.
+          StorageService.setCachedItems(items, brand);
+          StorageService.setCachedItemPrices(today, priceMap);
+        }
         StorageService.setSyncTimestamp('items', company, brand);
-        StorageService.setCachedItemPrices(today, priceMap);
         StorageService.applyPriceMapToItems(priceMap, brand);
         isCatalogEmpty.value = false;
         triggerMessage.value = null;

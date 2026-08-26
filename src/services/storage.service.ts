@@ -251,6 +251,35 @@ export const StorageService = {
     }).catch(() => {});
   },
 
+  /** Upsert a partial list of items into the cache (incremental sync). Existing items are
+   *  replaced in-place by id; new items are appended. Items from other brands are untouched. */
+  mergeCachedItems(items: Item[], brand?: string): void {
+    if (!items.length) return;
+    const slim = items.map((i) => ({
+      id: i.id,
+      number: i.number,
+      displayName: i.displayName,
+      description: i.description ? i.description.slice(0, 120) : '',
+      itemCategoryCode: i.itemCategoryCode,
+      familyCode: i.familyCode ?? (brand || undefined),
+      unitPriceIncVAT: i.unitPriceIncVAT,
+      priceListCode: i.priceListCode,
+    })) as Item[];
+    const incomingById = new Map(slim.map((i) => [i.id, i]));
+    const existingIds = new Set(_itemsMemory.map((i) => i.id));
+    _itemsMemory = [
+      ..._itemsMemory.map((i) => incomingById.get(i.id) ?? i),
+      ...slim.filter((i) => !existingIds.has(i.id)),
+    ];
+    const snapshot = _itemsMemory;
+    openItemsIDB().then((db) => {
+      const tx = db.transaction(IDB_ITEMS_STORE, 'readwrite');
+      tx.objectStore(IDB_ITEMS_STORE).put(snapshot, 'all');
+      tx.oncomplete = () => db.close();
+      tx.onerror   = () => db.close();
+    }).catch(() => {});
+  },
+
   patchCachedItemPrice(itemNumber: string, unitPrice: number): void {
     const item = _itemsMemory.find((i) => i.number === itemNumber);
     if (!item) return;
