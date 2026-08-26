@@ -5,6 +5,8 @@ import { useAuthStore } from '@/stores/auth.store';
 
 // Module-level singleton so all components share the same sync state
 const isSyncing = ref(false);
+const syncElapsed = ref(0);
+let _syncTimer: ReturnType<typeof setInterval> | null = null;
 const isSyncDelta = ref(false); // true when this run is a delta (modified_since) sync, false for full
 const syncPhase = ref('');
 const syncProgress = ref(0);
@@ -24,6 +26,12 @@ const syncDataAge = ref<number>(StorageService.getSyncDataAge());
 
 export function useSync() {
   const authStore = useAuthStore();
+
+  const syncElapsedLabel = computed(() => {
+    const m = Math.floor(syncElapsed.value / 60);
+    const s = syncElapsed.value % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  });
 
   // lastSyncLabel reads the stored timestamp for the current company+brand.
   // lastSyncDate.value is touched so the computed re-evaluates after a sync.
@@ -48,6 +56,8 @@ export function useSync() {
     if (!navigator.onLine) return;
 
     isSyncing.value = true;
+    syncElapsed.value = 0;
+    _syncTimer = setInterval(() => { syncElapsed.value += 1; }, 1000);
     syncPhase.value = 'Syncing…';
     syncProgress.value = 0;
     syncError.value = null;
@@ -73,6 +83,10 @@ export function useSync() {
         syncError.value = 'No company or brand selected. Please log in again.';
         return;
       }
+
+      // Ensure IDB items are loaded before checking cache state — without this,
+      // _itemsMemory is empty on a page refresh and every sync becomes a full fetch.
+      await StorageService.init();
 
       // Snapshot existing cache state and timestamps *before* the sync starts.
       // If a type has cached data, fetch only records modified since that timestamp
@@ -209,6 +223,7 @@ export function useSync() {
     } catch (err) {
       syncError.value = err instanceof Error ? err.message : 'Sync failed. Check your connection.';
     } finally {
+      if (_syncTimer !== null) { clearInterval(_syncTimer); _syncTimer = null; }
       syncPhase.value = '';
       syncSubTasks.value = [];
       isSyncing.value = false;
@@ -258,6 +273,8 @@ export function useSync() {
   return {
     isSyncing,
     isSyncDelta,
+    syncElapsed,
+    syncElapsedLabel,
     syncPhase,
     syncProgress,
     syncSubTasks,

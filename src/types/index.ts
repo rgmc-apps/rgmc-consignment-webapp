@@ -104,7 +104,7 @@ export interface ScanSession {
   id: string;
   brand: Pick<Brand, 'id' | 'code' | 'displayName'>;
   companyCode?: string;
-  user: { displayName: string };
+  user: { displayName: string; id?: string; email?: string; number?: string };
   customer: Customer | null;
   postingDate?: string;
   noSales?: boolean;

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { Brand, Contact, Customer, OrderLine, ScanSession, DiscountType } from '@/types';
 import { StorageService } from '@/services/storage.service';
+import { ApiService } from '@/services/api.service';
 
 function generateId(): string {
   return typeof crypto !== 'undefined' && crypto.randomUUID
@@ -26,7 +27,12 @@ function buildSession(brand: Brand, user: Contact, companyCode?: string): ScanSe
     id: generateId(),
     brand: { id: brand.id, code: brand.code, displayName: brand.displayName },
     companyCode,
-    user: { displayName: user.displayName },
+    user: {
+      displayName: user.displayName,
+      id: user.id || undefined,
+      email: user.email || undefined,
+      number: user.number || undefined,
+    },
     customer: null,
     postingDate: todayISO(),
     salesOrders: [],
@@ -186,6 +192,7 @@ export const useSessionStore = defineStore('session', () => {
     StorageService.removeDraft(currentSession.value.id);
     completedSessions.value = StorageService.getSessions();
     drafts.value = StorageService.getDrafts();
+    ApiService.saveSessionHistory({ ...currentSession.value }).catch(() => {});
     currentSession.value = null;
   }
 
@@ -197,6 +204,7 @@ export const useSessionStore = defineStore('session', () => {
     StorageService.removeDraft(currentSession.value.id);
     completedSessions.value = StorageService.getSessions();
     drafts.value = StorageService.getDrafts();
+    ApiService.saveSessionHistory({ ...currentSession.value }).catch(() => {});
   }
 
   function retryFailedSession(session: ScanSession): void {

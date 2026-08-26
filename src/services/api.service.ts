@@ -697,4 +697,69 @@ export const ApiService = {
     const res = await apiClient.get(`/bc/custom/v2/sales-return-orders/${orderId}/lines`);
     return res.data;
   },
+
+  async saveSessionHistory(session: import('@/types').ScanSession): Promise<void> {
+    await apiClient.post('/session-history', {
+      id: session.id,
+      companyCode: session.companyCode ?? null,
+      userId: session.user.id ?? null,
+      userDisplayName: session.user.displayName,
+      userEmail: session.user.email ?? null,
+      userNumber: session.user.number ?? null,
+      brandCode: session.brand.code,
+      brandDisplayName: session.brand.displayName,
+      customerNumber: session.customer?.number ?? null,
+      customerDisplayName: session.customer?.displayName ?? null,
+      postingDate: session.postingDate ?? null,
+      noSales: session.noSales ?? false,
+      salesOrders: session.salesOrders,
+      returnOrders: session.returnOrders,
+      status: session.status,
+      salesOrderSeries: session.salesOrderSeries ?? null,
+      returnOrderSeries: session.returnOrderSeries ?? null,
+      errorMessage: session.errorMessage ?? null,
+      createdAt: session.createdAt,
+      submittedAt: session.submittedAt ?? null,
+      updatedAt: session.updatedAt,
+    });
+  },
+
+  async getSessionHistory(companyCode: string, userId?: string, limit = 100): Promise<import('@/types').ScanSession[]> {
+    const params: Record<string, string | number> = { company_code: companyCode, limit };
+    if (userId) params.user_id = userId;
+    const res = await apiClient.get('/session-history', { params });
+    const rows = extractList<Record<string, unknown>>(res.data);
+    return rows.map((r) => ({
+      id: (r['id'] as string) ?? '',
+      brand: {
+        id: (r['brandId'] as string | undefined) ?? '',
+        code: (r['brandCode'] as string) ?? '',
+        displayName: (r['brandDisplayName'] as string) ?? '',
+      },
+      companyCode: (r['companyCode'] as string | undefined) ?? undefined,
+      user: {
+        displayName: (r['userDisplayName'] as string) ?? '',
+        id: (r['userId'] as string | undefined) ?? undefined,
+        email: (r['userEmail'] as string | undefined) ?? undefined,
+        number: (r['userNumber'] as string | undefined) ?? undefined,
+      },
+      customer: r['customerNumber']
+        ? ({
+            number: r['customerNumber'] as string,
+            displayName: (r['customerDisplayName'] as string) ?? '',
+          } as import('@/types').Customer)
+        : null,
+      postingDate: (r['postingDate'] as string | undefined) ?? undefined,
+      noSales: (r['noSales'] as boolean | undefined) ?? false,
+      salesOrders: (r['salesOrders'] as import('@/types').OrderLine[]) ?? [],
+      returnOrders: (r['returnOrders'] as import('@/types').OrderLine[]) ?? [],
+      status: (r['status'] as import('@/types').SessionStatus) ?? 'submitted',
+      salesOrderSeries: (r['salesOrderSeries'] as string | undefined) ?? undefined,
+      returnOrderSeries: (r['returnOrderSeries'] as string | undefined) ?? undefined,
+      errorMessage: (r['errorMessage'] as string | undefined) ?? undefined,
+      createdAt: (r['createdAt'] as string) ?? '',
+      updatedAt: (r['updatedAt'] as string | undefined) ?? (r['createdAt'] as string) ?? '',
+      submittedAt: (r['submittedAt'] as string | undefined) ?? undefined,
+    }));
+  },
 };

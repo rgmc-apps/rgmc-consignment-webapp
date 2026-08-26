@@ -216,7 +216,10 @@
                   <div class="sync-status-top">
                     <span class="sync-status-mode-label">{{ isSyncDelta ? 'Updating catalog' : 'Loading catalog' }}</span>
                     <span :key="syncHeaderText" class="sync-status-label cycling-text">{{ syncHeaderText }}</span>
-                    <span class="sync-status-pct">{{ syncProgress }}%</span>
+                    <div class="sync-status-nums">
+                      <span class="sync-status-elapsed">{{ syncElapsedLabel }}</span>
+                      <span class="sync-status-pct">{{ syncProgress }}%</span>
+                    </div>
                   </div>
                   <!-- Per-table rows — shown for all phases -->
                   <div v-if="syncSubTasks.length" class="sync-subtasks">
@@ -363,7 +366,7 @@ watch([username, password], () => {
 });
 
 const isLoading = computed(() => authStore.isLoading);
-const { isSyncing, isSyncDelta, syncPhase, syncProgress, syncSubTasks, sync, lastSyncDate } = useSync();
+const { isSyncing, isSyncDelta, syncPhase, syncProgress, syncSubTasks, sync, lastSyncDate, syncElapsedLabel } = useSync();
 
 const loginLoadingText = useLoadingText(
   ['Signing in…', 'Verifying credentials…', 'Checking permissions…', 'Almost there…'],
@@ -1055,6 +1058,21 @@ async function handleLogin() {
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
+}
+
+.sync-status-nums {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.sync-status-elapsed {
+  font-size: 11px;
+  font-weight: 700;
+  color: oklch(60% 0.10 145 / 0.65);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.3px;
 }
 
 .sync-status-pct {

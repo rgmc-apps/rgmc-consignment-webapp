@@ -30,7 +30,7 @@
             :color="activeFilter === 'all' ? 'primary' : 'medium'"
             @click="activeFilter = 'all'"
             class="filter-chip"
-          >All ({{ sessionStore.completedSessions.length }})</ion-chip>
+          >All ({{ mergedSessions.length }})</ion-chip>
           <ion-chip
             :color="activeFilter === 'submitted' ? 'success' : 'medium'"
             @click="activeFilter = 'submitted'"
@@ -73,7 +73,7 @@
 
       <!-- Local session history -->
       <template v-if="activeFilter !== 'bc'">
-        <div v-if="!sessionStore.completedSessions.length" class="empty-history">
+        <div v-if="!mergedSessions.length" class="empty-history">
           <ion-icon :icon="timeOutline" color="medium" />
           <p>No submitted sessions yet.<br />Completed sessions will appear here.</p>
         </div>
@@ -100,7 +100,7 @@
             <ion-label>
               <h3 class="session-customer">{{ session.customer?.displayName ?? '— No customer —' }}</h3>
               <p class="session-meta">
-                {{ session.brand.displayName }} &bull; {{ session.postingDate ? formatDate(session.postingDate) : formatDate(session.createdAt) }}
+                {{ session.user.displayName }} &bull; {{ session.brand.displayName }} &bull; {{ session.postingDate ? formatDate(session.postingDate) : formatDate(session.createdAt) }}
               </p>
               <p class="session-counts">
                 <span v-if="session.salesOrders.length">
@@ -514,7 +514,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   IonPage,
@@ -558,6 +558,7 @@ import { useTheme } from '@/composables/useTheme';
 import { formatCurrency, formatDate, formatDateTime, formatDiscount } from '@/utils/format';
 import { useErrorReporter } from '@/composables/useErrorReporter';
 import { ApiService } from '@/services/api.service';
+import { StorageService } from '@/services/storage.service';
 import BugReportButton from '@/components/BugReportButton.vue';
 import type { ScanSession } from '@/types';
 
@@ -577,8 +578,42 @@ const headerLogoSrc = computed(() =>
   isMinimalist.value ? '/static/logo-bnw.png' : '/static/cons-logo.png',
 );
 
-function onPullRefresh(ev: CustomEvent) {
+/* ─── Firestore history ─── */
+const firestoreSessions = ref<ScanSession[]>([]);
+const firestoreLoading = ref(false);
+
+async function loadFirestoreHistory() {
+  const auth = StorageService.getAuth();
+  const company = StorageService.getCompany();
+  if (!auth || !company) return;
+  firestoreLoading.value = true;
+  try {
+    const records = await ApiService.getSessionHistory(company.code, auth.user.id);
+    firestoreSessions.value = records;
+  } catch {
+    // non-fatal — local history still shows
+  } finally {
+    firestoreLoading.value = false;
+  }
+}
+
+onMounted(() => {
+  loadFirestoreHistory();
+});
+
+/** Merge Firestore records with local sessions, deduplicated by id.
+ *  Local sessions take precedence (they may be more up to date for retries). */
+const mergedSessions = computed<ScanSession[]>(() => {
+  const localIds = new Set(sessionStore.completedSessions.map((s) => s.id));
+  const fromFirestore = firestoreSessions.value.filter((s) => !localIds.has(s.id));
+  return [...sessionStore.completedSessions, ...fromFirestore].sort(
+    (a, b) => (b.submittedAt ?? b.createdAt) > (a.submittedAt ?? a.createdAt) ? 1 : -1,
+  );
+});
+
+async function onPullRefresh(ev: CustomEvent) {
   sessionStore.loadFromStorage();
+  await loadFirestoreHistory();
   (ev.target as HTMLIonRefresherElement).complete();
 }
 
@@ -587,15 +622,15 @@ type FilterType = 'all' | 'submitted' | 'failed' | 'bc';
 const activeFilter = ref<FilterType>('all');
 
 const submittedCount = computed(() =>
-  sessionStore.completedSessions.filter((s) => s.status === 'submitted').length,
+  mergedSessions.value.filter((s) => s.status === 'submitted').length,
 );
 const failedCount = computed(() =>
-  sessionStore.completedSessions.filter((s) => s.status === 'failed').length,
+  mergedSessions.value.filter((s) => s.status === 'failed').length,
 );
 
 const filteredSessions = computed(() => {
-  if (activeFilter.value === 'all') return sessionStore.completedSessions;
-  return sessionStore.completedSessions.filter((s) => s.status === activeFilter.value);
+  if (activeFilter.value === 'all') return mergedSessions.value;
+  return mergedSessions.value.filter((s) => s.status === activeFilter.value);
 });
 
 /* ─── Session helpers ─── */

@@ -72,6 +72,10 @@
           <div class="pop-progress-bar">
             <div class="pop-progress-fill" :style="{ width: syncProgress + '%' }" />
           </div>
+          <div class="pop-sync-timing">
+            <span class="pop-sync-pct-small">{{ syncProgress }}%</span>
+            <span class="pop-sync-elapsed">{{ syncElapsedLabel }}</span>
+          </div>
           <div class="pop-sync-tasks">
             <div v-for="task in syncSubTasks" :key="task.label" class="pop-task-row">
               <ion-icon
@@ -215,7 +219,7 @@ import UserAvatar from '@/components/UserAvatar.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
-const { isSyncing, syncProgress, syncSubTasks, lastSyncLabel, sync, syncDataAge, setSyncDataAge } = useSync();
+const { isSyncing, syncProgress, syncSubTasks, lastSyncLabel, sync, syncDataAge, setSyncDataAge, syncElapsedLabel } = useSync();
 
 const appVersion = __APP_VERSION__;
 const appBuild = __APP_BUILD__;
@@ -507,7 +511,30 @@ async function onLogout() {
   border-radius: 3px;
   background: var(--app-border);
   overflow: hidden;
-  margin-bottom: 10px;
+  margin-bottom: 5px;
+}
+
+.pop-sync-timing {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.pop-sync-pct-small {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--app-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pop-sync-elapsed {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--app-gold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.3px;
+  opacity: 0.85;
 }
 
 .pop-progress-fill {
