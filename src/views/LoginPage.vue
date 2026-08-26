@@ -214,7 +214,7 @@
                 <ion-spinner name="dots" class="sync-status-dots" />
                 <div class="sync-status-text">
                   <div class="sync-status-top">
-                    <span class="sync-status-mode-label">Loading catalog</span>
+                    <span class="sync-status-mode-label">{{ isSyncDelta ? 'Updating catalog' : 'Loading catalog' }}</span>
                     <span :key="syncHeaderText" class="sync-status-label cycling-text">{{ syncHeaderText }}</span>
                     <span class="sync-status-pct">{{ syncProgress }}%</span>
                   </div>
@@ -363,17 +363,23 @@ watch([username, password], () => {
 });
 
 const isLoading = computed(() => authStore.isLoading);
-const { isSyncing, syncPhase, syncProgress, syncSubTasks, sync, lastSyncDate } = useSync();
+const { isSyncing, isSyncDelta, syncPhase, syncProgress, syncSubTasks, sync, lastSyncDate } = useSync();
 
 const loginLoadingText = useLoadingText(
   ['Signing in…', 'Verifying credentials…', 'Checking permissions…', 'Almost there…'],
   isLoading,
 );
-const syncHeaderText = useLoadingText(
+const syncHeaderTextFull = useLoadingText(
   ['Syncing data…', 'Fetching customer list…', 'Loading product catalog…', 'Retrieving contacts…', 'Getting latest prices…', 'Almost done…'],
   isSyncing,
 );
-const syncSubCycleText = useLoadingText(
+const syncHeaderTextDelta = useLoadingText(
+  ['Checking for updates…', 'Syncing recent changes…', 'Merging catalog updates…', 'Refreshing prices…', 'Almost done…'],
+  isSyncing,
+);
+const syncHeaderText = computed(() => isSyncDelta.value ? syncHeaderTextDelta.value : syncHeaderTextFull.value);
+
+const syncSubCycleTextFull = useLoadingText(
   [
     'Preparing your workspace for offline use',
     'Building local data cache…',
@@ -384,6 +390,17 @@ const syncSubCycleText = useLoadingText(
   isSyncing,
   3200,
 );
+const syncSubCycleTextDelta = useLoadingText(
+  [
+    'Syncing only changes since your last update',
+    'Keeping your cached catalog fresh…',
+    'Applying item and price updates…',
+    'Almost up to date…',
+  ],
+  isSyncing,
+  3200,
+);
+const syncSubCycleText = computed(() => isSyncDelta.value ? syncSubCycleTextDelta.value : syncSubCycleTextFull.value);
 
 onUnmounted(() => {
   if (syncSlowTimer) { clearTimeout(syncSlowTimer); syncSlowTimer = null; }

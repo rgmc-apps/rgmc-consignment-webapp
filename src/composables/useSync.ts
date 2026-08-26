@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth.store';
 
 // Module-level singleton so all components share the same sync state
 const isSyncing = ref(false);
+const isSyncDelta = ref(false); // true when this run is a delta (modified_since) sync, false for full
 const syncPhase = ref('');
 const syncProgress = ref(0);
 const syncSubTasks = ref<{ label: string; status: 'pending' | 'done' | 'error'; detail?: string }[]>([]);
@@ -102,6 +103,7 @@ export function useSync() {
       // Delta sync when we have cached items and a prior timestamp — only fetch records
       // modified since the last sync. Full fetch when the cache is empty.
       const itemsModifiedSince = hasItems && ts.items ? ts.items : undefined;
+      isSyncDelta.value = !!itemsModifiedSince;
       const itemsResult = await settle(
         ApiService.getItemsForDate(today, brand, undefined, TIMEOUT, itemsModifiedSince)
           .then((r) => {
@@ -210,6 +212,7 @@ export function useSync() {
       syncPhase.value = '';
       syncSubTasks.value = [];
       isSyncing.value = false;
+      isSyncDelta.value = false;
     }
   }
 
@@ -254,6 +257,7 @@ export function useSync() {
 
   return {
     isSyncing,
+    isSyncDelta,
     syncPhase,
     syncProgress,
     syncSubTasks,
