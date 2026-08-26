@@ -124,6 +124,27 @@ async function fetchPriceChunk(
   return [];
 }
 
+/**
+ * When the same item appears in multiple price lists that are all valid on the requested
+ * date, the backend returns one row per price list entry. We must keep the entry with the
+ * latest startingDate — that is the most recently effective price list for each item.
+ * "First seen" (the old approach) picked whichever the backend happened to order first,
+ * which was the earliest start date and therefore the wrong price list code.
+ */
+function dedupeByLatestStart(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  const best = new Map<string, { row: Record<string, unknown>; startDate: string }>();
+  for (const row of rows) {
+    const no = (row['productNo'] ?? '') as string;
+    if (!no) continue;
+    const startDate = (row['startingDate'] as string | undefined) ?? '';
+    const existing = best.get(no);
+    if (!existing || startDate > existing.startDate) {
+      best.set(no, { row, startDate });
+    }
+  }
+  return Array.from(best.values()).map((e) => e.row);
+}
+
 function mapItemRow(row: Record<string, unknown>): Item {
   const number = (row['productNo'] ?? '') as string;
   return {
@@ -327,14 +348,12 @@ export const ApiService = {
           signal,
           timeout: timeout ?? 120_000,
         });
-        const rows = extractList<Record<string, unknown>>(res.data);
+        const rows = dedupeByLatestStart(extractList<Record<string, unknown>>(res.data));
         const items: Item[] = [];
         const priceMap: Record<string, number> = {};
-        const seen = new Set<string>();
         for (const row of rows) {
           const item = mapItemRow(row);
-          if (!item.number || seen.has(item.number)) continue;
-          seen.add(item.number);
+          if (!item.number) continue;
           items.push(item);
           priceMap[item.number] = item.unitPriceIncVAT;
         }
@@ -375,17 +394,15 @@ export const ApiService = {
           timeout: timeout ?? 300_000,
         });
         const body = res.data as Record<string, unknown>;
-        const rows: Record<string, unknown>[] = Array.isArray(body.data)
+        const rawRows: Record<string, unknown>[] = Array.isArray(body.data)
           ? (body.data as Record<string, unknown>[])
           : extractList<Record<string, unknown>>(body);
         const total = typeof body.total === 'number' ? (body.total as number) : null;
         const items: Item[] = [];
         const priceMap: Record<string, number> = {};
-        const seen = new Set<string>();
-        for (const row of rows) {
+        for (const row of dedupeByLatestStart(rawRows)) {
           const item = mapItemRow(row);
-          if (!item.number || seen.has(item.number)) continue;
-          seen.add(item.number);
+          if (!item.number) continue;
           items.push(item);
           priceMap[item.number] = item.unitPriceIncVAT;
         }
@@ -441,17 +458,15 @@ export const ApiService = {
           timeout: timeout ?? 120_000,
         });
         const body = res.data as Record<string, unknown>;
-        const rows = Array.isArray(body.data)
+        const rawRows = Array.isArray(body.data)
           ? (body.data as Record<string, unknown>[])
           : extractList<Record<string, unknown>>(body);
         const total = typeof body.total === 'number' ? body.total : 0;
         const items: Item[] = [];
         const priceMap: Record<string, number> = {};
-        const seen = new Set<string>();
-        for (const row of rows) {
+        for (const row of dedupeByLatestStart(rawRows)) {
           const item = mapItemRow(row);
-          if (!item.number || seen.has(item.number)) continue;
-          seen.add(item.number);
+          if (!item.number) continue;
           items.push(item);
           priceMap[item.number] = item.unitPriceIncVAT;
         }
@@ -517,7 +532,7 @@ export const ApiService = {
       },
       timeout: 30_000,
     });
-    const rows = extractList<Record<string, unknown>>(res.data);
+    const rows = dedupeByLatestStart(extractList<Record<string, unknown>>(res.data));
     return rows.map(mapItemRow).filter((i) => Boolean(i.number));
   },
 
@@ -526,7 +541,7 @@ export const ApiService = {
       const res = await apiClient.get('/bc/custom/v3/item-prices', {
         params: { product_no: productNo, on_date: onDate },
       });
-      const rows = extractList<Record<string, unknown>>(res.data);
+      const rows = dedupeByLatestStart(extractList<Record<string, unknown>>(res.data));
       const d = rows[0];
       const raw = d?.unitPriceIncVAT ?? d?.unitPrice ?? d?.unit_price ?? d?.price;
       return {
@@ -548,10 +563,10 @@ export const ApiService = {
     const buildMaps = (rows: Record<string, unknown>[]): { priceMap: Record<string, number>; priceListMap: Record<string, string | null> } => {
       const priceMap: Record<string, number> = {};
       const priceListMap: Record<string, string | null> = {};
-      for (const row of rows) {
+      for (const row of dedupeByLatestStart(rows)) {
         const no = row['productNo'] as string | undefined;
         const price = (row['unitPriceIncVAT'] ?? row['unitPrice'] ?? row['unit_price']) as number | undefined;
-        if (no && typeof price === 'number' && !(no in priceMap)) {
+        if (no && typeof price === 'number') {
           priceMap[no] = price;
           priceListMap[no] = (row['priceListCode'] as string | undefined) ?? null;
         }
