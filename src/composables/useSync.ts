@@ -23,6 +23,7 @@ const isCatalogEmpty = ref(false);
 const isTriggering = ref(false);
 const triggerMessage = ref<string | null>(null);
 const syncDataAge = ref<number>(StorageService.getSyncDataAge());
+const lastSyncDurationSecs = ref<number | null>(StorageService.getSyncDuration());
 
 export function useSync() {
   const authStore = useAuthStore();
@@ -31,6 +32,13 @@ export function useSync() {
     const m = Math.floor(syncElapsed.value / 60);
     const s = syncElapsed.value % 60;
     return `${m}:${String(s).padStart(2, '0')}`;
+  });
+
+  const lastSyncDurationLabel = computed(() => {
+    if (lastSyncDurationSecs.value === null) return null;
+    const m = Math.floor(lastSyncDurationSecs.value / 60);
+    const s = lastSyncDurationSecs.value % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
   });
 
   // lastSyncLabel reads the stored timestamp for the current company+brand.
@@ -224,6 +232,10 @@ export function useSync() {
       syncError.value = err instanceof Error ? err.message : 'Sync failed. Check your connection.';
     } finally {
       if (_syncTimer !== null) { clearInterval(_syncTimer); _syncTimer = null; }
+      if (syncElapsed.value > 0) {
+        StorageService.setSyncDuration(syncElapsed.value);
+        lastSyncDurationSecs.value = syncElapsed.value;
+      }
       syncPhase.value = '';
       syncSubTasks.value = [];
       isSyncing.value = false;
@@ -275,6 +287,8 @@ export function useSync() {
     isSyncDelta,
     syncElapsed,
     syncElapsedLabel,
+    lastSyncDurationSecs,
+    lastSyncDurationLabel,
     syncPhase,
     syncProgress,
     syncSubTasks,

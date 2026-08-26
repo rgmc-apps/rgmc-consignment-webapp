@@ -63,6 +63,9 @@
           <span :key="isSyncing ? syncSubCycleText : lastSyncLabel" class="pop-item-sub cycling-text">
             {{ isSyncing ? syncSubCycleText : lastSyncLabel }}
           </span>
+          <span v-if="!isSyncing && lastSyncDurationLabel" class="pop-item-duration">
+            took {{ lastSyncDurationLabel }}
+          </span>
         </div>
       </button>
 
@@ -219,7 +222,7 @@ import UserAvatar from '@/components/UserAvatar.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
-const { isSyncing, syncProgress, syncSubTasks, lastSyncLabel, sync, syncDataAge, setSyncDataAge, syncElapsedLabel } = useSync();
+const { isSyncing, syncProgress, syncSubTasks, lastSyncLabel, sync, syncDataAge, setSyncDataAge, syncElapsedLabel, lastSyncDurationLabel } = useSync();
 
 const appVersion = __APP_VERSION__;
 const appBuild = __APP_BUILD__;
@@ -472,6 +475,15 @@ async function onLogout() {
   font-size: 11px;
   font-weight: 400;
   color: var(--app-text-muted);
+}
+
+.pop-item-duration {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--app-text-muted);
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
 }
 
 .pop-chevron {

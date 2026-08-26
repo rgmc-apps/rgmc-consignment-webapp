@@ -22,6 +22,7 @@ const KEYS = {
   CACHE_ITEM_PRICES: 'rgmc_cache_item_prices',
   SYNC_TIMESTAMPS: 'rgmc_sync_timestamps',
   SYNC_DATA_AGE: 'rgmc_sync_data_age',
+  SYNC_DURATION: 'rgmc_sync_duration',
   SESSIONS: 'rgmc_sessions',
   DRAFTS: 'rgmc_drafts',
   WELCOME_SEEN: 'rgmc_welcome_seen',
@@ -407,6 +408,16 @@ export const StorageService = {
   },
   setSyncDataAge(hours: number): void {
     localStorage.setItem(KEYS.SYNC_DATA_AGE, String(Math.max(1, Math.round(hours))));
+  },
+
+  /* ─── Last sync duration (seconds) ─── */
+  getSyncDuration(): number | null {
+    const raw = localStorage.getItem(KEYS.SYNC_DURATION);
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  },
+  setSyncDuration(seconds: number): void {
+    localStorage.setItem(KEYS.SYNC_DURATION, String(Math.round(seconds)));
   },
 
   /* ─── Sessions (history) ─── */
