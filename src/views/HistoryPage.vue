@@ -296,6 +296,23 @@
                   <span class="info-label">Return Order</span>
                   <span class="info-value series-num">{{ selectedSession.returnOrderSeries }}</span>
                 </div>
+                <div
+                  v-if="selectedSession.status === 'submitted' && missingOrderNumber(selectedSession)"
+                  class="info-row"
+                >
+                  <span class="info-label">BC Order No.</span>
+                  <ion-button
+                    size="small"
+                    fill="outline"
+                    color="primary"
+                    :disabled="fetchingOrderNo"
+                    @click="fetchOrderNumber(selectedSession)"
+                  >
+                    <ion-spinner v-if="fetchingOrderNo" name="crescent" slot="start" />
+                    <ion-icon v-else :icon="cloudDownloadOutline" slot="start" />
+                    {{ fetchingOrderNo ? 'Fetching…' : 'Fetch from BC' }}
+                  </ion-button>
+                </div>
               </div>
 
               <!-- Error message for failed sessions -->
@@ -536,6 +553,8 @@ import {
   IonModal,
   IonRefresher,
   IonRefresherContent,
+  IonSpinner,
+  toastController,
 } from '@ionic/vue';
 import {
   timeOutline,
@@ -552,6 +571,7 @@ import {
   cloudDoneOutline,
   calendarOutline,
   searchOutline,
+  cloudDownloadOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
 import { useTheme } from '@/composables/useTheme';
@@ -649,6 +669,92 @@ const selectedSession = ref<ScanSession | null>(null);
 
 function openDetail(session: ScanSession) {
   selectedSession.value = session;
+}
+
+/* ─── Fetch BC order number ─── */
+const fetchingOrderNo = ref(false);
+
+function missingOrderNumber(session: ScanSession): boolean {
+  return (
+    (session.salesOrders.length > 0 && !session.salesOrderSeries) ||
+    (session.returnOrders.length > 0 && !session.returnOrderSeries)
+  );
+}
+
+async function fetchOrderNumber(session: ScanSession): Promise<void> {
+  if (fetchingOrderNo.value) return;
+  const date = session.postingDate ?? session.submittedAt?.slice(0, 10);
+  if (!date || !session.customer?.number) {
+    const t = await toastController.create({
+      message: 'No posting date or customer on this session.',
+      duration: 3000,
+      color: 'warning',
+      position: 'bottom',
+    });
+    await t.present();
+    return;
+  }
+  fetchingOrderNo.value = true;
+  try {
+    type BCData = { data?: Array<Record<string, unknown>> };
+    const needSales   = session.salesOrders.length > 0 && !session.salesOrderSeries;
+    const needReturns = session.returnOrders.length > 0 && !session.returnOrderSeries;
+    const [soRes, sroRes] = await Promise.allSettled([
+      needSales   ? ApiService.getBCSalesOrders(date)       : Promise.resolve(null),
+      needReturns ? ApiService.getBCSalesReturnOrders(date) : Promise.resolve(null),
+    ]);
+    const customerNo = session.customer.number;
+    let salesOrderSeries   = session.salesOrderSeries;
+    let returnOrderSeries  = session.returnOrderSeries;
+    if (soRes.status === 'fulfilled' && soRes.value !== null) {
+      const orders = (soRes.value as BCData)?.data ?? [];
+      const match  = orders.find((o) => o.sellToCustomerNo === customerNo);
+      if (match?.no) salesOrderSeries = match.no as string;
+    }
+    if (sroRes.status === 'fulfilled' && sroRes.value !== null) {
+      const orders = (sroRes.value as BCData)?.data ?? [];
+      const match  = orders.find((o) => o.sellToCustomerNo === customerNo);
+      if (match?.no) returnOrderSeries = match.no as string;
+    }
+    const didFind =
+      (needSales   && salesOrderSeries   !== session.salesOrderSeries) ||
+      (needReturns && returnOrderSeries  !== session.returnOrderSeries);
+    if (didFind) {
+      const updated: ScanSession = { ...session, salesOrderSeries, returnOrderSeries };
+      StorageService.saveSession(updated);
+      sessionStore.loadFromStorage();
+      ApiService.saveSessionHistory(updated).catch(() => {});
+      selectedSession.value = updated;
+      const parts: string[] = [];
+      if (needSales   && salesOrderSeries)   parts.push(`Sales: ${salesOrderSeries}`);
+      if (needReturns && returnOrderSeries)  parts.push(`Returns: ${returnOrderSeries}`);
+      const t = await toastController.create({
+        message: `Saved — ${parts.join(' · ')}`,
+        duration: 4000,
+        color: 'success',
+        position: 'bottom',
+      });
+      await t.present();
+    } else {
+      const t = await toastController.create({
+        message: 'No matching BC order found for this customer on the posting date.',
+        duration: 4000,
+        color: 'warning',
+        position: 'bottom',
+      });
+      await t.present();
+    }
+  } catch {
+    const t = await toastController.create({
+      message: 'Failed to fetch from BC. Check your connection.',
+      duration: 3000,
+      color: 'danger',
+      position: 'bottom',
+    });
+    await t.present();
+  } finally {
+    fetchingOrderNo.value = false;
+  }
 }
 
 /* ─── BC Orders ─── */
