@@ -1238,7 +1238,8 @@ function onItemSelected(item: Item) {
   form.quantity = 1;
   form.discountType = 'percent';
   form.discountValue = 0;
-  showItemModal.value = false;
+  // Keep the item modal open so search results are retained — the confirm
+  // sheet slides up on top, and when dismissed the modal is ready for the next pick.
   confirmItem.value = item;
   confirmedSrp.value = item.unitPriceIncVAT;
   confirmedPriceListCode.value = item.priceListCode ?? '';
