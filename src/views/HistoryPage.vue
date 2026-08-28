@@ -697,23 +697,34 @@ async function fetchOrderNumber(session: ScanSession): Promise<void> {
   fetchingOrderNo.value = true;
   try {
     type BCData = { data?: Array<Record<string, unknown>> };
+    const customerNo = session.customer.number;
     const needSales   = session.salesOrders.length > 0 && !session.salesOrderSeries;
     const needReturns = session.returnOrders.length > 0 && !session.returnOrderSeries;
     const [soRes, sroRes] = await Promise.allSettled([
-      needSales   ? ApiService.getBCSalesOrders(date)       : Promise.resolve(null),
-      needReturns ? ApiService.getBCSalesReturnOrders(date) : Promise.resolve(null),
+      needSales   ? ApiService.getBCSalesOrders(date, customerNo)       : Promise.resolve(null),
+      needReturns ? ApiService.getBCSalesReturnOrders(date, customerNo) : Promise.resolve(null),
     ]);
-    const customerNo = session.customer.number;
     let salesOrderSeries   = session.salesOrderSeries;
     let returnOrderSeries  = session.returnOrderSeries;
+
+    function matchOrder(orders: Array<Record<string, unknown>>): Record<string, unknown> | undefined {
+      const exact = orders.find((o) => o.sellToCustomerNo === customerNo);
+      if (exact) return exact;
+      const q = customerNo.toLowerCase();
+      return orders.find((o) => {
+        const bc = ((o.sellToCustomerNo as string) ?? '').toLowerCase();
+        return bc.includes(q) || q.includes(bc);
+      });
+    }
+
     if (soRes.status === 'fulfilled' && soRes.value !== null) {
       const orders = (soRes.value as BCData)?.data ?? [];
-      const match  = orders.find((o) => o.sellToCustomerNo === customerNo);
+      const match  = matchOrder(orders);
       if (match?.no) salesOrderSeries = match.no as string;
     }
     if (sroRes.status === 'fulfilled' && sroRes.value !== null) {
       const orders = (sroRes.value as BCData)?.data ?? [];
-      const match  = orders.find((o) => o.sellToCustomerNo === customerNo);
+      const match  = matchOrder(orders);
       if (match?.no) returnOrderSeries = match.no as string;
     }
     const didFind =

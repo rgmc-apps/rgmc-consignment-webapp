@@ -678,13 +678,23 @@ export const ApiService = {
     return res.data;
   },
 
-  async getBCSalesOrders(date: string): Promise<unknown> {
-    const res = await apiClient.get('/bc/sales-orders', { params: { filter: `postingDate eq ${date}` } });
+  async getBCSalesOrders(date: string, customerNo?: string): Promise<unknown> {
+    const res = await apiClient.get('/bc/sales-orders', {
+      params: {
+        filter: `postingDate eq ${date}`,
+        ...(customerNo ? { customer_no: customerNo } : {}),
+      },
+    });
     return res.data;
   },
 
-  async getBCSalesReturnOrders(date: string): Promise<unknown> {
-    const res = await apiClient.get('/bc/custom/v2/sales-return-orders', { params: { filter: `postingDate eq ${date}` } });
+  async getBCSalesReturnOrders(date: string, customerNo?: string): Promise<unknown> {
+    const res = await apiClient.get('/bc/custom/v2/sales-return-orders', {
+      params: {
+        filter: `postingDate eq ${date}`,
+        ...(customerNo ? { customer_no: customerNo } : {}),
+      },
+    });
     return res.data;
   },
 
