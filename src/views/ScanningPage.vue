@@ -761,6 +761,7 @@ import {
   IonToggle,
   toastController,
   alertController,
+  onIonViewWillEnter,
 } from '@ionic/vue';
 import {
   syncOutline,
@@ -871,6 +872,15 @@ onMounted(async () => {
   } else if (isOnline.value) {
     checkPriceLists();
     prefetchAllPrices(orderDateValue.value);
+  }
+});
+
+// Ionic keep-alive: ion-router-outlet caches tab views, so onMounted only fires once.
+// onIonViewWillEnter fires every time the tab becomes active — ensuring a session exists
+// when the user returns after saveDraftAndGoHome / markSubmitted / clearCurrentSession.
+onIonViewWillEnter(() => {
+  if (!sessionStore.currentSession && authStore.brand && authStore.user) {
+    sessionStore.startNewSession(authStore.brand, authStore.user, authStore.company?.code);
   }
 });
 
