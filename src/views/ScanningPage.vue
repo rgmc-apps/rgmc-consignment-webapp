@@ -870,6 +870,7 @@ onMounted(async () => {
     await sync();
   } else if (isOnline.value) {
     checkPriceLists();
+    prefetchAllPrices(orderDateValue.value);
   }
 });
 
@@ -925,6 +926,8 @@ watch(isSyncing, (active) => {
     isSyncingSlow.value = false;
     refreshCache();
     if (isOnline.value) checkPriceLists();
+    sessionPriceCache.value = null;
+    if (isOnline.value) prefetchAllPrices(orderDateValue.value);
     // Apply fresh prices to any open session lines — uses the price map already
     // written by sync, so no extra API calls are needed.
     const priceCache = StorageService.getCachedItemPrices();
@@ -1047,6 +1050,14 @@ const fetchingPrice = ref(false);
 const isUpdatingLinePrices = ref(false);
 const priceRevealKey = ref(0);
 
+// In-memory price cache for the current session date — populated once by prefetchAllPrices
+// so that each item scan is served from memory instead of triggering a per-item API call.
+const sessionPriceCache = ref<{
+  date: string;
+  prices: Record<string, number>;
+  priceListCodes: Record<string, string | null>;
+} | null>(null);
+
 const confirmTotal = computed(() =>
   computeTotal(
     confirmedSrp.value,
@@ -1056,13 +1067,35 @@ const confirmTotal = computed(() =>
   ),
 );
 
+// Bulk-fetches all item prices for the given date and stores them in sessionPriceCache.
+// Called once on mount (and after each sync / date change) so subsequent item scans
+// are served from memory without a per-item round-trip.
+async function prefetchAllPrices(date: string): Promise<void> {
+  if (!isOnline.value) return;
+  const familyCode = authStore.brand?.code;
+  const allNos = cachedItems.value.map((i) => i.number);
+  if (!familyCode && !allNos.length) return;
+  try {
+    const { priceMap, priceListMap } = await ApiService.getAllItemPricesForDate(
+      date, allNos, undefined, undefined, familyCode,
+    );
+    sessionPriceCache.value = { date, prices: priceMap, priceListCodes: priceListMap };
+  } catch {
+    // non-fatal — lookupPrice will fall back to per-item API call on cache miss
+  }
+}
+
 // Returns price + priceListCode for a single item on the given posting date.
-// Online: always calls the API so deduplication by latest startingDate is always
-//   applied — the local cache cannot be trusted here because priceListCode values
-//   stored before the dedup fix was deployed would silently return the wrong list.
-// Offline: uses cached price and priceListCode from item memory (best effort).
+// Online: checks sessionPriceCache first (populated by prefetchAllPrices); falls back
+//   to a per-item API call only on cache miss (prefetch not yet done / item not in catalog).
+// Offline: uses local storage cache and item memory.
 async function lookupPrice(itemNumber: string, onDate: string): Promise<{ price: number | null; priceListCode: string | null }> {
   if (isOnline.value) {
+    if (sessionPriceCache.value?.date === onDate) {
+      const price = sessionPriceCache.value.prices[itemNumber] ?? null;
+      const priceListCode = sessionPriceCache.value.priceListCodes[itemNumber] ?? null;
+      if (price !== null) return { price, priceListCode };
+    }
     return ApiService.getActiveItemPrice(itemNumber, onDate);
   }
 
@@ -1098,12 +1131,18 @@ let _dateWatchAbort: AbortController | null = null;
 watch(orderDateValue, async (newDate) => {
   if (!newDate) return;
 
+  // Invalidate session cache immediately so stale prices from the old date aren't served.
+  sessionPriceCache.value = null;
+
   const allLines = [
     ...sessionStore.salesOrders.map((l) => ({ line: l, type: 'sales' as const })),
     ...sessionStore.returnOrders.map((l) => ({ line: l, type: 'returns' as const })),
   ];
   const hasFormItem = !!form.itemNumber;
-  if (!allLines.length && !hasFormItem) return;
+  if (!allLines.length && !hasFormItem) {
+    prefetchAllPrices(newDate);
+    return;
+  }
 
   // Offline: apply cached prices immediately — no network call, no loading state.
   if (!isOnline.value) {
@@ -1134,6 +1173,7 @@ watch(orderDateValue, async (newDate) => {
       const price = priceMap[line.itemNumber] ?? null;
       if (price !== null) sessionStore.updateLineSrp(line.id, type, price);
     }
+    prefetchAllPrices(newDate);
     return;
   }
 
@@ -1179,6 +1219,8 @@ watch(orderDateValue, async (newDate) => {
       });
       await t.present();
     }
+    // Warm the full session cache in the background for future item scans.
+    prefetchAllPrices(newDate);
   } catch (err) {
     if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) return;
     throw err;
