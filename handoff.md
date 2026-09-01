@@ -1,68 +1,107 @@
 # Handoff
 
 ## Goal
+Maintain and improve the RGMC Consignment Web App — an Ionic 7 + Vue 3 + Pinia + TypeScript scanning app that allows sales reps to log sales/return orders against Business Central (BC). The backend is a FastAPI Python service at `C:\claude\rgmc-bc-api` that proxies BC OData v4 and Firestore for item prices.
 
-Build and polish the RGMC Consignment Web App — an Ionic/Vue 3 scanning app for sales and return orders backed by a GCP API (Business Central integration). The goal for this session was to improve sync reliability/speed and add a way to retrieve missing BC order numbers for submitted sessions from the History page.
-
-Acceptance criteria met this session:
-- Sync shows live elapsed timer (M:SS) in ProfileMenu and LoginPage
-- Sync only fetches new/modified records (delta sync), not a full dataset on every run
-- Last sync duration is persisted to localStorage and shown as "took Xm Ys" in ProfileMenu
-- All 4 sync tasks (customers, categories, items, contacts) run in parallel
-- History page: submitted sessions missing a BC order number show a "Fetch from BC" button that queries BC, saves locally, and upserts to Firestore
+This session completed three distinct fixes across two repos:
+1. **IC price list code filter fix** (backend) — `USGI_IC0001_426234`-format IC codes were wrongly included as price list candidates; now correctly excluded
+2. **Session-level price prefetch** (frontend) — item prices fetched once per session date instead of one API call per scanned item
+3. **Customer dropdown silent-fail fix** (frontend) — `onIonViewWillEnter` ensures a session always exists when returning to the scan tab
 
 ## Current State
 
-All work is **complete and TypeScript-clean** (`npx vue-tsc --noEmit` returns zero output).
+**All edits are complete. TypeScript check (`npx vue-tsc --noEmit` from `C:\claude\rgmc-consignment-webapp`) passes clean.**
 
-- `src/composables/useSync.ts` — fully updated with timer, delta sync, parallel fetches, duration persistence
-- `src/services/storage.service.ts` — fully updated with `getSyncDuration` / `setSyncDuration`
-- `src/components/ProfileMenu.vue` — fully updated with elapsed label, duration receipt
-- `src/views/LoginPage.vue` — fully updated with elapsed label in sync panel
-- `src/views/HistoryPage.vue` — fully updated with "Fetch from BC" feature
+### Fix 1 — IC Price List Code Filter (COMPLETE)
+`C:\claude\rgmc-bc-api\src\services\price_firestore_service.py`
 
-No files are mid-edit or in a broken state.
+`get_active_price_list_codes_for_date` (~line 358) previously excluded IC codes using `not code.upper().startswith("IC")`, which missed codes like `USGI_IC0001_426234` (IC is in position 1, not 0). Fixed to split on `_` and check both prefix and second segment.
+
+A previous session also rewrote `_price_list_items_to_override_map` to pick the price list code with the most recent **line-level** `startingDate` (not header priority order). Both backend fixes together resolve item `A013350800101` getting `USGI_S00001_426234` (2026-01-01) instead of the correct `USGI_S00002_3910000` (2026-06-30).
+
+**Requires backend deploy + price re-sync to take effect.**
+
+### Fix 2 — Session-Level Price Prefetch (COMPLETE)
+`C:\claude\rgmc-consignment-webapp\src\views\ScanningPage.vue`
+
+Added `sessionPriceCache` ref (in-memory dict keyed by date) and `prefetchAllPrices(date)` function that bulk-fetches all brand item prices in a single call. `lookupPrice` now checks session cache first — eliminates the "Fetching price…" spinner on every item scan after the prefetch warms the cache.
+
+`prefetchAllPrices` is triggered from:
+- `onMounted` (non-blocking, after sync/cache check)
+- `isSyncing` watcher `else` branch (after sync completes)
+- `orderDateValue` watcher (cache invalidated at start, re-prefetched after existing lines updated)
+
+### Fix 3 — Customer Dropdown Silent-Fail (COMPLETE)
+`C:\claude\rgmc-consignment-webapp\src\views\ScanningPage.vue`
+
+**Root cause**: `TabsPage` uses `<ion-router-outlet>` which Ionic caches with keep-alive. `onMounted` only runs once. Multiple flows set `currentSession = null` (`saveDraftAndGoHome`, `LandingPage.startNewSession`, `markSubmitted` in SubmitPage) and when the user returns to the scan tab `onMounted` does not re-run, leaving `currentSession = null`. `setCustomer(c)` has a guard `if (!currentSession.value) return` that bails silently — modal closes, no customer stored.
+
+**Fix**: Added `onIonViewWillEnter` (Ionic's hook that fires on every tab re-entry):
+```typescript
+onIonViewWillEnter(() => {
+  if (!sessionStore.currentSession && authStore.brand && authStore.user) {
+    sessionStore.startNewSession(authStore.brand, authStore.user, authStore.company?.code);
+  }
+});
+```
 
 ## Files Actively Being Edited
 
-- `src/composables/useSync.ts` — Added module-level `syncElapsed`, `_syncTimer`, `lastSyncDurationSecs` refs; `syncElapsedLabel` and `lastSyncDurationLabel` computeds; timer start/stop in `sync()`; `await StorageService.init()` before cache snapshot (IDB race fix); `isSyncDelta` set before `Promise.all`; changed 4 sequential `await settle()` calls to single `await Promise.all([...])`. Returns `syncElapsed`, `syncElapsedLabel`, `lastSyncDurationSecs`, `lastSyncDurationLabel`.
+- `C:\claude\rgmc-bc-api\src\services\price_firestore_service.py`
+  — IC filter fix in `get_active_price_list_codes_for_date` (~line 358–363)
+  — `_price_list_items_to_override_map` rewritten (prior session) to use line-level `startingDate`
 
-- `src/services/storage.service.ts` — Added `SYNC_DURATION: 'rgmc_sync_duration'` to KEYS; added `getSyncDuration(): number | null` and `setSyncDuration(seconds: number): void` methods.
+- `C:\claude\rgmc-consignment-webapp\src\views\ScanningPage.vue`
+  — Added `sessionPriceCache` ref (after `priceRevealKey`, ~line 1050–1062)
+  — Added `prefetchAllPrices(date)` function (before `lookupPrice`)
+  — Rewrote `lookupPrice` to check session cache before API call
+  — Added `prefetchAllPrices` trigger calls in `onMounted`, `isSyncing` watcher, `orderDateValue` watcher
+  — Added `onIonViewWillEnter` to ionic import and added the hook after `onMounted`
 
-- `src/components/ProfileMenu.vue` — Destructuring updated with `syncElapsedLabel`, `lastSyncDurationLabel`. Added `.pop-sync-timing` row (flex, space-between) between progress bar and subtasks showing `syncProgress%` and `syncElapsedLabel` in gold tabular-nums. Added "took Xm Ys" span under sync item when not syncing. CSS: `.pop-sync-timing`, `.pop-sync-pct-small`, `.pop-sync-elapsed`, `.pop-item-duration`.
+- `C:\claude\rgmc-consignment-webapp\src\services\api.service.ts`
+  — (Prior session) `getBCSalesOrders` and `getBCSalesReturnOrders` accept optional `customerNo` param; passes as `customer_no` query param
 
-- `src/views/LoginPage.vue` — Destructuring updated with `syncElapsedLabel`. Wrapped elapsed + pct in `.sync-status-nums` div. CSS: `.sync-status-nums`, `.sync-status-elapsed` (green, tabular-nums).
+- `C:\claude\rgmc-bc-api\src\routers\bc_routes\sales_order_routes.py`
+  — (Prior session) Added `customer_no: Optional[str]` param to `list_sales_orders`; two-step OData filter (exact eq → contains fallback)
 
-- `src/views/HistoryPage.vue` — Added `IonSpinner`, `toastController` to Ionic imports; `cloudDownloadOutline` to ionicons imports. Added "Fetch from BC" button row in session detail modal info-grid (visible only when `status === 'submitted'` and `missingOrderNumber()` is true). Added `fetchingOrderNo` ref, `missingOrderNumber()` helper, and `fetchOrderNumber()` async function (queries BC by posting date + customer number, saves found order numbers to localStorage + Firestore, shows toast).
+- `C:\claude\rgmc-bc-api\src\routers\bc_routes\rgmc_sales_return_order_v2_routes.py`
+  — (Prior session) Same `customer_no` two-step filter for `list_sales_return_orders_v2`
+
+- `C:\claude\rgmc-consignment-webapp\src\views\HistoryPage.vue`
+  — (Prior session) `fetchOrderNumber` passes `customerNo` to both API calls; `matchOrder()` client-side exact-then-substring fallback; `customerNo` declaration moved before `needSales`/`needReturns`/`Promise.allSettled`
 
 ## Failed Attempts
 
-- **What was tried**: Globbing `session_history_service.py` and `session_history_routes.py` in `C:\claude\rgmc-bc-api` in the prior session — **Why it failed**: Glob returned no results (likely a path/casing issue). Resolved in this session by globbing all `.py` files in `C:\claude\rgmc-bc-api` which found both files at their actual paths (`src/services/session_history_service.py`, `src/routers/bc_routes/session_history_routes.py`). Backend confirmed to use `ref.set()` = upsert.
+- **What was tried**: Looked for customer dropdown bug in Ionic scroll-swallow, ghost click, CSS pointer-events, backdrop intercept, debounce race conditions — **Why it failed**: None were the actual cause. Reading `main.ts` and `TabsPage.vue` revealed the real issue: Ionic keep-alive + `onMounted`-only session guard.
+
+- **What was tried**: Hypothesized that `authStore.loadFromStorage()` might not be called by mount time, leaving `brand`/`user` null — **Why it failed**: `main.ts` calls `loadFromStorage()` synchronously before `app.mount('#app')`, so auth is always ready by the time any view mounts.
+
+- **What was tried**: Checking `filteredCustomers` recompute mid-tap (debounce or `refreshCache()` during sync) as the cause of missed taps — **Why it failed**: Plausible but not the primary cause; the silent `setCustomer` early-return is the definitive explanation for "modal closes, nothing selected."
 
 ## Next Step
 
-No immediate blockers. The next feature work to pick up would be either:
+**No pending code work.** All three fixes are committed-ready and type-clean.
 
-1. **UX tooltips / clarify pass** — The `/impeccable clarify` skill was invoked with the goal: *"clarify all the screens with unclear UX, make all the processes have tooltips if the process needs explaining."* This was never completed — no code was written for it. Target files to clarify: `src/views/ScanPage.vue`, `src/views/SubmitPage.vue`, `src/views/LoginPage.vue`, and any other screens with ambiguous actions.
-
-2. **Testing the "Fetch from BC" feature** — Start the dev server (`npm run dev`), navigate to History, open a submitted session that is missing `salesOrderSeries`, tap "Fetch from BC", verify it finds and saves the BC order number.
-
-To start dev server: `npm run dev` from `C:\claude\rgmc-consignment-webapp`.
+Most useful immediate follow-up:
+1. **Deploy backend** (`rgmc-bc-api`) and trigger a full price re-sync to validate the IC filter + line-date selection fixes for `A013350800101`.
+2. **Manual test the customer fix**: start dev server (`npm run dev`), complete a session with a customer, save as draft and go home, return to scan tab, verify the customer modal now saves selections properly.
 
 ## Context & Gotchas
 
-- **IDB race condition**: `StorageService.getCachedItems()` reads from `_itemsMemory` (in-memory array) which starts empty on page refresh before the async IDB load completes. The fix (`await StorageService.init()` in `sync()`) must remain — removing it breaks delta sync on every page reload.
+- **Two repos**: frontend `C:\claude\rgmc-consignment-webapp`, backend `C:\claude\rgmc-bc-api`. AL extension at `C:\RGMC\AL\RGMC_ERAR_AL` — no changes made to AL in this session.
 
-- **Module-level singleton refs in useSync**: `isSyncing`, `syncElapsed`, `_syncTimer`, `lastSyncDurationSecs`, etc. are declared at module scope (outside `useSync()`). This is intentional — it means all components share the same sync state. The computeds inside `useSync()` (like `syncElapsedLabel`) are recreated per call but reference the shared module-level refs.
+- **Backend price fix needs re-sync**: The Firestore `price_list_headers_{env}` and `price_list_items_{env}` data is cached server-side. The code fixes are applied in Python; the old cached price decisions persist until a sync rewrites them. Trigger via internal endpoint or "Trigger Server Sync" button.
 
-- **`isSyncDelta` must be set before `Promise.all`**: It was previously set inside the items `.then()` chain, which caused a timing issue. Now it's computed from `itemsModifiedSince` before the parallel fetch block starts.
+- **`sessionPriceCache` vs `StorageService.getCachedItemPrices()`**: The storage cache is persistent (written during sync). The session cache is in-memory only. `lookupPrice` checks session cache first (has correct `priceListCode` post-fix), then falls back to per-item API. It does NOT fall back to the storage cache when online — this is intentional to avoid serving stale `priceListCode` values from before the dedup fix.
 
-- **Firestore upsert confirmed**: Backend `session_history_service.py` uses `ref.set({...})` not `ref.create()`, so `saveSessionHistory` is safe to call with any session state — it always overwrites the Firestore document.
+- **`prefetchAllPrices` uses `familyCode` as fast path**: Calls `/bc/custom/v3/item-prices?on_date=X&family_code=Y` — single call returning full brand catalog from GCS cache. Falls back to chunked per-item calls (CHUNK=150, CONCURRENCY=3) if no family code.
 
-- **BC order number matching**: `fetchOrderNumber()` matches by `sellToCustomerNo === session.customer.number`. If two sessions for the same customer were submitted on the same posting date, both could match the same BC order. This is an edge case the current code doesn't handle — it takes the first match. No multi-match disambiguation UI was built.
+- **`onIonViewWillEnter` fires on first entry too**: In Ionic Vue keep-alive, `onIonViewWillEnter` fires both on the very first navigation to the tab AND on every return. `onMounted` runs first on the initial mount (async, awaits IndexedDB init). `onIonViewWillEnter` runs after. The `!sessionStore.currentSession` guard prevents double session creation.
 
-- **Sessions from Firestore only (no localStorage copy)**: When `fetchOrderNumber` saves via `StorageService.saveSession(updated)` + `sessionStore.loadFromStorage()`, if the session was previously only in Firestore (not in local storage), it now gets added to localStorage. The `mergedSessions` computed then picks it up from `completedSessions` (local takes precedence) so it reflects the updated order number.
+- **`useSync` is a module-level singleton**: `isSyncing`, `syncElapsed`, etc. are created outside `useSync()`. All components share this state. The `isSyncing` watcher on ScanningPage fires even when the scan tab is not in the foreground (keep-alive = watchers stay active).
 
-- **Stack**: Ionic 7 + Vue 3 + Pinia + TypeScript. API calls go through `src/services/api.service.ts` → axios client configured with base URL from env. Storage in localStorage (simple data) and IndexedDB (items catalog via Dexie in StorageService).
+- **`orderDateValue` watcher cache invalidation**: `sessionPriceCache.value = null` is set at the very top of the watcher (before any early returns) so stale prices from the old date are never served. Then `prefetchAllPrices(newDate)` is called at the end of both the storage-cache-hit path and the API-fetch path.
 
-- **TypeScript**: Project uses strict mode. Always run `npx vue-tsc --noEmit` from `C:\claude\rgmc-consignment-webapp` to verify before committing.
+- **TypeScript**: `npx vue-tsc --noEmit` from `C:\claude\rgmc-consignment-webapp`. No output = clean. Run after every edit.
+
+- **Stack**: Ionic 7 + Vue 3 + Pinia + TypeScript frontend. FastAPI Python backend (GCP Cloud Run). Business Central OData v4. Firestore + GCS for price catalog. Capacitor for mobile packaging.

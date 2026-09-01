@@ -479,11 +479,6 @@ watch(lookupDate, (newDate) => {
   priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 300);
 });
 
-watch(
-  () => props.initialCategoryCode,
-  (v) => { if (v) selectedCat.value = v; },
-);
-
 function handleSelect(item: Item) {
   emit('select', item);
 }
@@ -494,6 +489,14 @@ const isBcSearching = ref(false);
 const bcSearchError = ref('');
 const bcSearchedQuery = ref('');
 let _bcSearchId = 0;
+
+// Sync category filter from parent — but not while BC results are showing, because
+// the parent updates initialCategoryCode when an item is selected, which would
+// change selectedCat and immediately wipe the BC results the user is still browsing.
+watch(
+  () => props.initialCategoryCode,
+  (v) => { if (v && !bcSearchResults.value.length) selectedCat.value = v; },
+);
 
 // Clear BC results whenever the local search query or category changes
 watch([searchQuery, selectedCat], () => {
