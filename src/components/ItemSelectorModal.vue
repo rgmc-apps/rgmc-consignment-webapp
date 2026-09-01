@@ -260,6 +260,30 @@
               </button>
             </div>
 
+            <!-- Not found in cache (online) — BC search prompt -->
+            <div v-if="scanStatus === 'not-found'" class="not-found-wrap">
+              <div class="not-found-header">
+                <ion-icon :icon="alertCircleOutline" class="not-found-icon" />
+                <p class="not-found-title">Item not in local cache</p>
+              </div>
+              <p class="not-found-code">{{ lastScannedBarcode }}</p>
+              <ion-button
+                expand="block"
+                color="primary"
+                class="not-found-bc-btn"
+                :disabled="isBcSearching"
+                @click="searchScannedInBC"
+              >
+                <ion-spinner v-if="isBcSearching" name="dots" slot="start" class="bc-spinner" />
+                <ion-icon v-else :icon="cloudDownloadOutline" slot="start" />
+                {{ isBcSearching ? 'Searching…' : 'Search Business Central' }}
+              </ion-button>
+              <button class="multi-rescan-btn" @click="resumeScanning">
+                <ion-icon :icon="refreshOutline" />
+                Scan Again
+              </button>
+            </div>
+
             <!-- Manual input fallback -->
             <div class="manual-wrap">
               <p class="manual-label">Or enter barcode manually:</p>
@@ -542,7 +566,7 @@ function clearBcResults() {
 
 /* ─── Scanner state ─── */
 type ViewMode = 'list' | 'scanner';
-type ScanStatus = 'starting' | 'scanning' | 'detected' | 'error' | 'multiple' | 'confirm';
+type ScanStatus = 'starting' | 'scanning' | 'detected' | 'error' | 'multiple' | 'confirm' | 'not-found';
 
 interface DetectedBarcode { rawValue: string; format: string; }
 
@@ -572,8 +596,9 @@ const scanHintText = computed(() => {
     case 'scanning':  return 'Point camera at barcode';
     case 'detected':  return 'Barcode detected!';
     case 'confirm':   return 'Barcode detected — confirm to use it';
-    case 'multiple':  return 'Multiple barcodes found — select one below';
-    case 'error':     return 'Camera unavailable — use manual input';
+    case 'multiple':   return 'Multiple barcodes found — select one below';
+    case 'not-found':  return 'Item not found in local cache';
+    case 'error':      return 'Camera unavailable — use manual input';
     default: return '';
   }
 });
@@ -684,6 +709,12 @@ function pickBarcode(code: string) {
 function resumeScanning() {
   detectedBarcodes.value = [];
   confirmedBarcode.value = '';
+  // Camera was fully stopped (e.g. after resolveBarcode in not-found path) — restart it.
+  // In confirm/multiple states the stream is still active; only detection was paused.
+  if (!videoStream.value) {
+    void openScanner();
+    return;
+  }
   scanStatus.value = 'scanning';
   if ('BarcodeDetector' in window) startAutoDetection();
 }
@@ -724,11 +755,25 @@ function resolveBarcode(code: string) {
     emit('select', partialMatch);
     return;
   }
-  /* No match — switch to list mode with barcode as search query */
+  /* No match — if online, show BC search prompt on the scanner page;
+     if offline, fall back to list view so the user can see the miss banner. */
   lastScannedBarcode.value = code;
+  if (props.isOnline) {
+    scanStatus.value = 'not-found';
+  } else {
+    searchQuery.value = code;
+    barcodeNotFound.value = true;
+    viewMode.value = 'list';
+  }
+}
+
+function searchScannedInBC() {
+  const code = lastScannedBarcode.value;
+  if (!code || !props.isOnline) return;
   searchQuery.value = code;
   barcodeNotFound.value = true;
   viewMode.value = 'list';
+  // barcodeNotFound watcher auto-triggers searchInBC()
 }
 
 onUnmounted(() => {
@@ -1109,8 +1154,56 @@ onUnmounted(() => {
   -webkit-tap-highlight-color: transparent;
 }
 
-.scan-hint--multiple { color: var(--app-gold); }
-.scan-hint--confirm  { color: var(--ion-color-success); }
+.scan-hint--multiple   { color: var(--app-gold); }
+.scan-hint--confirm    { color: var(--ion-color-success); }
+.scan-hint--not-found  { color: var(--ion-color-warning); }
+
+/* ── Not found panel (scanner view, online) ── */
+.not-found-wrap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  background: rgba(10, 10, 10, 0.96);
+  border-top: 1px solid #2a2a2a;
+  padding: 20px 16px 12px;
+  pointer-events: all;
+}
+
+.not-found-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.not-found-icon {
+  font-size: 22px;
+  color: var(--ion-color-warning);
+  flex-shrink: 0;
+}
+
+.not-found-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+}
+
+.not-found-code {
+  font-size: 13px;
+  font-family: monospace;
+  color: #888;
+  margin: 0 0 16px;
+  padding-left: 32px;
+  word-break: break-all;
+}
+
+.not-found-bc-btn {
+  --border-radius: 10px;
+  margin-bottom: 10px;
+}
 
 /* ── Single barcode confirm panel ── */
 .single-confirm {
