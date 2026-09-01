@@ -28,3 +28,6 @@ fable-suggestions.md
 /screenshots/
 screenshot-tour.js
 handoff.py
+
+# Credentials — never commit
+credentials.txt
