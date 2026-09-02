@@ -169,32 +169,32 @@
             <ion-icon :icon="searchOutline" />
             <p v-if="!searchQuery.trim()">No items found.<br />Try a different search term or category.</p>
             <p v-else>No local items match "{{ searchQuery }}".</p>
+          </div>
 
-            <!-- BC search option: visible when online and a query is typed -->
-            <template v-if="searchQuery.trim() && props.isOnline">
-              <div class="bc-search-area">
-                <p class="bc-search-hint">Not in local cache? Search Business Central directly:</p>
-                <ion-button
-                  v-if="!isBcSearching"
-                  expand="block"
-                  fill="outline"
-                  color="primary"
-                  class="bc-search-btn"
-                  @click="searchInBC"
-                >
-                  <ion-icon :icon="cloudDownloadOutline" slot="start" />
-                  {{ bcSearchedQuery ? 'Search BC Again' : 'Search Business Central' }}
-                </ion-button>
-                <div v-else class="bc-searching">
-                  <ion-spinner name="dots" class="bc-spinner" />
-                  <span>Searching Business Central…</span>
-                </div>
-                <p v-if="bcSearchedQuery && !isBcSearching && !bcSearchError" class="bc-no-results">
-                  No results found in Business Central for "{{ bcSearchedQuery }}".
-                </p>
-                <p v-if="bcSearchError" class="bc-search-error">{{ bcSearchError }}</p>
-              </div>
-            </template>
+          <!-- BC search — always available when a query is typed and online -->
+          <div v-if="searchQuery.trim() && props.isOnline" class="bc-search-area">
+            <p class="bc-search-hint">
+              {{ displayItems.length || bcSearchResults.length ? 'Not finding it? Search Business Central directly:' : 'Not in local cache? Search Business Central directly:' }}
+            </p>
+            <ion-button
+              v-if="!isBcSearching"
+              expand="block"
+              fill="outline"
+              color="primary"
+              class="bc-search-btn"
+              @click="searchInBC"
+            >
+              <ion-icon :icon="cloudDownloadOutline" slot="start" />
+              {{ bcSearchedQuery ? 'Search BC Again' : 'Search Business Central' }}
+            </ion-button>
+            <div v-else class="bc-searching">
+              <ion-spinner name="dots" class="bc-spinner" />
+              <span>Searching Business Central…</span>
+            </div>
+            <p v-if="bcSearchedQuery && !isBcSearching && !bcSearchError && !bcSearchResults.length" class="bc-no-results">
+              No results found in Business Central for "{{ bcSearchedQuery }}".
+            </p>
+            <p v-if="bcSearchError" class="bc-search-error">{{ bcSearchError }}</p>
           </div>
         </template>
 
@@ -548,6 +548,18 @@ async function searchInBC() {
     for (const item of results) {
       if (item.unitPriceIncVAT) livePrices.value[item.number] = item.unitPriceIncVAT;
     }
+    if (results.length) {
+      StorageService.mergeCachedItems(results, props.familyCode || undefined);
+      const priceMap: Record<string, number> = {};
+      for (const item of results) {
+        if (item.unitPriceIncVAT) priceMap[item.number] = item.unitPriceIncVAT;
+      }
+      if (Object.keys(priceMap).length) {
+        const existing = StorageService.getCachedItemPrices();
+        StorageService.setCachedItemPrices(lookupDate.value, { ...(existing?.prices ?? {}), ...priceMap });
+        StorageService.applyPriceMapToItems(priceMap, props.familyCode || undefined);
+      }
+    }
   } catch {
     if (id !== _bcSearchId) return;
     bcSearchError.value = 'Failed to search Business Central. Please try again.';
@@ -875,13 +887,12 @@ onUnmounted(() => {
 /* ── BC search area (inside empty state) ── */
 .bc-search-area {
   width: 100%;
-  max-width: 320px;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 8px;
   border-top: 1px solid var(--app-border);
-  padding-top: 16px;
+  padding: 12px 16px 8px;
   margin-top: 4px;
 }
 
