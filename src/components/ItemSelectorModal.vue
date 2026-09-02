@@ -133,8 +133,8 @@
             </ion-button>
           </div>
 
-          <!-- BC search results — shown when a BC lookup returned items -->
-          <div v-if="bcSearchResults.length" class="bc-results-wrap">
+          <!-- BC search results — shown when a BC lookup returned items not already in local results -->
+          <div v-if="dedupedBcResults.length" class="bc-results-wrap">
             <div class="bc-results-header">
               <ion-icon :icon="cloudDownloadOutline" class="bc-hdr-icon" />
               <span class="bc-hdr-label">Business Central results for "{{ bcSearchedQuery }}"</span>
@@ -144,7 +144,7 @@
             </div>
             <ion-list lines="full" class="item-list">
               <ion-item
-                v-for="item in bcSearchResults"
+                v-for="item in dedupedBcResults"
                 :key="item.id"
                 button
                 :detail="false"
@@ -165,7 +165,7 @@
           </div>
 
           <!-- Empty state — only when no local results and no BC results -->
-          <div v-if="!displayItems.length && !bcSearchResults.length" class="empty-results">
+          <div v-if="!displayItems.length && !dedupedBcResults.length" class="empty-results">
             <ion-icon :icon="searchOutline" />
             <p v-if="!searchQuery.trim()">No items found.<br />Try a different search term or category.</p>
             <p v-else>No local items match "{{ searchQuery }}".</p>
@@ -174,7 +174,7 @@
           <!-- BC search — always available when a query is typed and online -->
           <div v-if="searchQuery.trim() && props.isOnline" class="bc-search-area">
             <p class="bc-search-hint">
-              {{ displayItems.length || bcSearchResults.length ? 'Not finding it? Search Business Central directly:' : 'Not in local cache? Search Business Central directly:' }}
+              {{ displayItems.length || dedupedBcResults.length ? 'Not finding it? Search Business Central directly:' : 'Not in local cache? Search Business Central directly:' }}
             </p>
             <ion-button
               v-if="!isBcSearching"
@@ -513,6 +513,13 @@ const isBcSearching = ref(false);
 const bcSearchError = ref('');
 const bcSearchedQuery = ref('');
 let _bcSearchId = 0;
+
+// Exclude items already visible in local results so BC results don't repeat them.
+const dedupedBcResults = computed(() => {
+  if (!bcSearchResults.value.length) return [];
+  const localNos = new Set(filteredItems.value.map((i) => i.number));
+  return bcSearchResults.value.filter((i) => !localNos.has(i.number));
+});
 
 // Sync category filter from parent — but not while BC results are showing, because
 // the parent updates initialCategoryCode when an item is selected, which would
