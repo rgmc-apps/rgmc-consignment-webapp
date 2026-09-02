@@ -286,123 +286,22 @@
           </ion-card-content>
         </ion-card>
 
-        <!-- ══ Item Form Card ══ -->
-        <ion-card class="form-card">
-          <ion-card-content class="item-form-body">
-            <p class="field-label">ADD ITEM</p>
-
-            <!-- Item Category (readonly — set from selected item) -->
-            <ion-item v-if="form.categoryCode" lines="inset" class="form-row form-row--readonly">
-              <ion-label>Category</ion-label>
-              <ion-note slot="end" class="readonly-val">
-                {{ categories.find(c => c.code === form.categoryCode)?.displayName ?? form.categoryCode }}
-              </ion-note>
-            </ion-item>
-
-            <!-- Item selector trigger -->
-            <ion-item lines="inset" button :detail="false" class="form-row" @click="showItemModal = true">
-              <ion-label>Item</ion-label>
-              <div slot="end" class="item-trigger-end">
-                <span v-if="form.itemName" class="item-trigger-name">{{ form.itemName }}</span>
-                <span v-else class="item-trigger-placeholder">Select or scan</span>
-                <ion-icon :icon="barcodeOutline" color="primary" />
-              </div>
-            </ion-item>
-
-            <!-- Fields below only visible once item is selected -->
-            <Transition name="form-fields">
-            <div v-if="form.itemNumber" class="form-fields-group">
-              <!-- Description -->
-              <ion-item lines="inset" class="form-row form-row--readonly">
-                <ion-label>Description</ion-label>
-                <ion-note slot="end" class="readonly-val">{{ form.description || '—' }}</ion-note>
-              </ion-item>
-
-              <!-- SRP -->
-              <ion-item lines="inset" class="form-row form-row--readonly">
-                <ion-label>Retail Price <span class="label-note">SRP</span></ion-label>
-                <ion-note slot="end" class="readonly-val readonly-val--gold">
-                  <ion-spinner v-if="fetchingPrice" name="dots" style="width:16px;height:16px;vertical-align:middle" />
-                  <template v-else>
-                    <span :class="{ 'price-stale': isUpdatingLinePrices && !!form.itemNumber }">{{ formatCurrency(form.srp) }}</span>
-                    <button
-                      v-if="form.priceListCode"
-                      class="price-list-code price-list-code--btn"
-                      :class="{ 'price-stale': isUpdatingLinePrices && !!form.itemNumber }"
-                      @click.stop="showPriceListInfo(form.priceListCode)"
-                    >{{ form.priceListCode }}</button>
-                  </template>
-                </ion-note>
-              </ion-item>
-              <p class="srp-date-hint">
-                <ion-icon :icon="informationCircleOutline" />
-                Price reflects the posting date above. Changing the date updates all prices.
-              </p>
-
-              <!-- Quantity -->
-              <ion-item lines="inset" class="form-row">
-                <ion-label>Quantity</ion-label>
-                <ion-input
-                  v-model.number="form.quantity"
-                  type="number"
-                  inputmode="numeric"
-                  min="1"
-                  slot="end"
-                  class="num-input"
-                />
-              </ion-item>
-
-              <!-- Discount type + value (same row) -->
-              <ion-item lines="inset" class="form-row">
-                <ion-label>Discount</ion-label>
-                <ion-select
-                  v-model="form.discountType"
-                  interface="popover"
-                  slot="end"
-                  class="disc-type-select"
-                >
-                  <ion-select-option value="percent">%</ion-select-option>
-                  <ion-select-option value="amount">₱ Amt</ion-select-option>
-                </ion-select>
-                <ion-input
-                  v-model.number="form.discountValue"
-                  type="number"
-                  inputmode="decimal"
-                  min="0"
-                  placeholder="0"
-                  slot="end"
-                  class="num-input"
-                />
-              </ion-item>
-
-              <!-- Total amount -->
-              <ion-item lines="none" class="form-row total-row">
-                <ion-label><strong>Total Amount</strong></ion-label>
-                <ion-note slot="end" class="total-val">
-                  {{ formatCurrency(totalAmount) }}
-                </ion-note>
-              </ion-item>
-
-              <!-- Action buttons -->
-              <div v-if="selectedCustomer" class="action-btns">
-                <ion-button expand="block" color="primary" :disabled="isUpdatingLinePrices" @click="addToSales">
-                  <ion-icon :icon="addCircleOutline" slot="start" />
-                  Add to Sales
-                </ion-button>
-                <ion-button expand="block" fill="outline" color="danger" :disabled="isUpdatingLinePrices" @click="addToReturn">
-                  <ion-icon :icon="returnDownBackOutline" slot="start" />
-                  Add to Return
-                </ion-button>
-              </div>
-
-              <div v-else class="no-cust-notice">
-                <ion-icon :icon="alertCircleOutline" color="warning" />
-                <p>Select a customer above to add items.</p>
-              </div>
-            </div>
-            </Transition>
-          </ion-card-content>
-        </ion-card>
+        <!-- ══ Add Item button ══ -->
+        <div class="add-item-bar">
+          <ion-button
+            expand="block"
+            color="primary"
+            class="add-item-btn"
+            @click="showItemModal = true"
+          >
+            <ion-icon :icon="addCircleOutline" slot="start" />
+            Add Item
+          </ion-button>
+          <div v-if="!selectedCustomer" class="no-cust-notice">
+            <ion-icon :icon="alertCircleOutline" color="warning" />
+            <p>Select a customer above to add items.</p>
+          </div>
+        </div>
 
         </div><!-- /scan-form-col -->
         <div class="scan-list-col">
@@ -500,7 +399,7 @@
 
         <div v-else class="empty-orders">
           <ion-icon :icon="cartOutline" color="medium" />
-          <p>No items added yet.<br />Select an item and tap Add to Sales or Add to Return.</p>
+          <p>No items added yet.</p>
         </div>
         </div><!-- /scan-list-col -->
         </div><!-- /scan-panels -->
@@ -1348,47 +1247,6 @@ function doConfirm(orderType: 'sales' | 'returns') {
   toast(`${item.displayName} added to ${orderType === 'sales' ? 'Sales' : 'Returns'}`, 'success');
 }
 
-/* ─── Add lines ─── */
-async function addToSales() {
-  if (!form.itemNumber || !selectedCustomer.value) return;
-  const itemName = form.itemName;
-  sessionStore.addSalesOrder({
-    itemNumber: form.itemNumber,
-    itemName: form.itemName,
-    description: form.description,
-    categoryCode: form.categoryCode || undefined,
-    srp: form.srp,
-    priceListCode: form.priceListCode || undefined,
-    quantity: Math.max(1, form.quantity),
-    discountType: form.discountType,
-    discountValue: Math.max(0, form.discountValue),
-  });
-  resetItemForm();
-  activeTab.value = 'sales';
-  await toast(`${itemName || 'Item'} added to Sales`, 'success');
-  triggerSubmitFlash();
-}
-
-async function addToReturn() {
-  if (!form.itemNumber || !selectedCustomer.value) return;
-  const itemName = form.itemName;
-  sessionStore.addReturnOrder({
-    itemNumber: form.itemNumber,
-    itemName: form.itemName,
-    description: form.description,
-    categoryCode: form.categoryCode || undefined,
-    srp: form.srp,
-    priceListCode: form.priceListCode || undefined,
-    quantity: Math.max(1, form.quantity),
-    discountType: form.discountType,
-    discountValue: Math.max(0, form.discountValue),
-  });
-  resetItemForm();
-  activeTab.value = 'returns';
-  await toast(`${itemName || 'Item'} added to Returns`, 'success');
-  triggerSubmitFlash();
-}
-
 function deleteActiveLine(lineId: string) {
   if (activeTab.value === 'sales') {
     sessionStore.removeSalesOrder(lineId);
@@ -2080,9 +1938,24 @@ async function showPriceListInfo(code: string) {
 /* ── State card fade ── */
 .state-card { animation: fade-in 0.3s ease both; }
 
+/* ── Add Item bar ── */
+.add-item-bar {
+  padding: 4px 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: fade-slide-up 0.32s var(--ease-out-quart) 0.07s both;
+}
+
+.add-item-btn {
+  --border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  height: 48px;
+}
+
 /* ── Scan column entrance ── */
-.scan-form-col .form-card:nth-child(1) { animation: fade-slide-up 0.32s var(--ease-out-quart) both; }
-.scan-form-col .form-card:nth-child(2) { animation: fade-slide-up 0.32s var(--ease-out-quart) 0.07s both; }
+.scan-form-col .form-card { animation: fade-slide-up 0.32s var(--ease-out-quart) both; }
 .order-segment { animation: fade-in 0.28s ease 0.04s both; }
 .empty-orders  { animation: fade-in 0.28s ease both; }
 
@@ -2322,7 +2195,7 @@ async function showPriceListInfo(code: string) {
 
   /* Form column stays at a fixed width; list column fills the rest */
   .scan-form-col {
-    flex: 0 0 340px;
+    flex: 0 0 300px;
     /* Stick to the top of the scrollable area so the form stays in view
        while a long order list scrolls past on the right */
     position: sticky;
@@ -2362,7 +2235,7 @@ async function showPriceListInfo(code: string) {
     gap: 24px;
   }
 
-  .scan-form-col { flex: 0 0 400px; }
+  .scan-form-col { flex: 0 0 340px; }
 }
 
 /* Landscape phone: trim vertical padding so the form fits without heavy scrolling */
