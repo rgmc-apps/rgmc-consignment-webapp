@@ -78,6 +78,14 @@
           </div>
         </Transition>
 
+        <!-- Slow / connection notice (non-blocking) -->
+        <Transition name="notice-fade">
+          <div v-if="slowNoticeMsg && !hasError" class="slow-notice">
+            <ion-icon :icon="informationCircleOutline" class="slow-notice__icon" />
+            <span class="slow-notice__text">{{ slowNoticeMsg }}</span>
+          </div>
+        </Transition>
+
         <!-- Error block -->
         <Transition name="err-fade">
           <div v-if="hasError" class="error-block">
@@ -111,6 +119,7 @@ import {
   wifiOutline,
   refreshOutline,
   hourglassOutline,
+  informationCircleOutline,
 } from 'ionicons/icons';
 import { ApiService, setApiCompany } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
@@ -158,8 +167,10 @@ const steps = ref<LoadStep[]>([
   { key: 'contacts',      label: 'Loading user directory', status: 'idle' },
 ]);
 
-const errorText = ref('');
-const isTimeout = ref(false);
+const errorText     = ref('');
+const isTimeout     = ref(false);
+const slowNoticeMsg = ref('');
+const isSlowNetwork = ref(false);
 
 const hasError    = computed(() => !!errorText.value);
 const allDone     = computed(() => steps.value.every((s) => s.status === 'done'));
@@ -198,6 +209,7 @@ watch(
 
 onUnmounted(() => {
   if (stepCycleTimer) clearInterval(stepCycleTimer);
+  clearSlowTimers();
 });
 
 function stepLabel(step: LoadStep): string {
@@ -221,6 +233,49 @@ function handleStepError(err: unknown, fallback: string) {
   }
 }
 
+// ── Slow-notice timers ──────────────────────────────────────────────────────
+
+let slowTimer1: ReturnType<typeof setTimeout> | null = null;
+let slowTimer2: ReturnType<typeof setTimeout> | null = null;
+
+function clearSlowTimers() {
+  if (slowTimer1) { clearTimeout(slowTimer1); slowTimer1 = null; }
+  if (slowTimer2) { clearTimeout(slowTimer2); slowTimer2 = null; }
+  slowNoticeMsg.value = '';
+}
+
+function startSlowTimers(phase: 'companies' | 'data') {
+  clearSlowTimers();
+
+  slowTimer1 = setTimeout(() => {
+    if (hasError.value) return;
+    slowNoticeMsg.value = isSlowNetwork.value
+      ? 'Your internet connection is slow — loading may take a while'
+      : phase === 'companies'
+        ? 'Taking longer than usual — server may be starting up'
+        : 'Syncing is taking longer than usual';
+  }, 6_000);
+
+  slowTimer2 = setTimeout(() => {
+    if (hasError.value) return;
+    slowNoticeMsg.value = phase === 'companies'
+      ? 'Server cold start detected — this can take up to 30 seconds'
+      : 'Almost there — the server may be under load';
+  }, 13_000);
+}
+
+function checkConnectionSpeed() {
+  const conn = (navigator as any).connection ?? (navigator as any).mozConnection ?? (navigator as any).webkitConnection;
+  if (!conn) return;
+  const type: string = conn.effectiveType ?? '';
+  if (type === 'slow-2g' || type === '2g') {
+    isSlowNetwork.value = true;
+    slowNoticeMsg.value = 'Slow connection detected — loading may take longer';
+  } else if (type === '3g') {
+    isSlowNetwork.value = true;
+  }
+}
+
 watch(selectedCompanyId, async (id) => {
   if (!id || loadPhase.value !== 'selecting') return;
   const company = companies.value.find((c) => c.id === id);
@@ -237,11 +292,14 @@ async function load() {
   selectedCompanyId.value = '';
   companies.value         = [];
   steps.value.forEach((s) => (s.status = 'idle'));
+  startSlowTimers('companies');
 
   try {
     companies.value = await withTimeout(ApiService.getCompanies(), TIMEOUT_MS.companies);
+    clearSlowTimers();
     loadPhase.value = 'selecting';
   } catch (err) {
+    clearSlowTimers();
     if (err instanceof Error && err.message === '__timeout__') {
       isTimeout.value = true;
       errorText.value = 'Could not reach the RGMC API — the server took too long to respond. Check your connection and try again.';
@@ -254,12 +312,14 @@ async function load() {
 
 async function loadData(companyName?: string) {
   loadPhase.value = 'data';
+  startSlowTimers('data');
 
   const hasBrands   = StorageService.getCachedBrands().length > 0;
   const hasContacts = StorageService.getCachedContacts().length > 0;
 
   // Fast-path: everything already in cache — skip all network calls
   if (hasBrands && hasContacts) {
+    clearSlowTimers();
     steps.value.forEach((s) => (s.status = 'done'));
     await new Promise((r) => setTimeout(r, 400));
     router.replace(authStore.isAuthenticated ? '/app/home' : '/login');
@@ -300,15 +360,18 @@ async function loadData(companyName?: string) {
 
   const failed = [brandsResult, contactsResult].find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
   if (failed) {
+    clearSlowTimers();
     handleStepError(failed.reason, 'Failed to load required data.');
     return;
   }
 
+  clearSlowTimers();
   await new Promise((r) => setTimeout(r, 700));
   router.replace(authStore.isAuthenticated ? '/app/home' : '/login');
 }
 
 onMounted(async () => {
+  checkConnectionSpeed();
   await StorageService.init();
 
   if (authStore.isAuthenticated) {
@@ -609,6 +672,42 @@ onMounted(async () => {
   min-width: 120px;
 }
 
+/* ── Slow / connection notice ── */
+.slow-notice {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: oklch(22% 0.03 55 / 0.85);
+  border: 1px solid oklch(60% 0.12 55 / 0.3);
+  border-radius: 20px;
+  padding: 7px 14px;
+  max-width: 260px;
+  text-align: left;
+  backdrop-filter: blur(4px);
+  margin-top: 20px;
+}
+
+.slow-notice__icon {
+  font-size: 15px;
+  color: oklch(72% 0.14 55);
+  flex-shrink: 0;
+}
+
+.slow-notice__text {
+  font-size: 12px;
+  color: oklch(72% 0.10 55);
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.splash--minimalist .slow-notice {
+  background: oklch(96% 0.02 55 / 0.9);
+  border-color: oklch(60% 0.10 55 / 0.25);
+}
+
+.splash--minimalist .slow-notice__text { color: oklch(48% 0.09 55); }
+.splash--minimalist .slow-notice__icon { color: oklch(55% 0.12 55); }
+
 /* ── Version ── */
 .splash-version {
   position: absolute;
@@ -701,4 +800,10 @@ onMounted(async () => {
 .err-fade-leave-active { transition: opacity 0.16s ease; }
 .err-fade-enter-from   { opacity: 0; transform: translateY(10px); }
 .err-fade-leave-to     { opacity: 0; }
+
+/* ── Notice fade transition ── */
+.notice-fade-enter-active { transition: opacity 0.4s var(--ease-out-expo), transform 0.4s var(--ease-out-expo); }
+.notice-fade-leave-active { transition: opacity 0.2s ease; }
+.notice-fade-enter-from   { opacity: 0; transform: translateY(6px); }
+.notice-fade-leave-to     { opacity: 0; }
 </style>
