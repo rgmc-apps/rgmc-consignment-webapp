@@ -780,6 +780,15 @@ onMounted(async () => {
 onIonViewWillEnter(() => {
   if (!sessionStore.currentSession && authStore.brand && authStore.user) {
     sessionStore.startNewSession(authStore.brand, authStore.user, authStore.company?.code);
+    const lastId = StorageService.getLastCustomerId();
+    if (lastId) {
+      const match = cachedCustomers.value.find((c) => c.id === lastId);
+      if (match) {
+        sessionStore.setCustomer(match);
+        customerFlash.value = true;
+        setTimeout(() => { customerFlash.value = false; }, 450);
+      }
+    }
   }
 });
 
@@ -893,6 +902,7 @@ const orderDateValue = computed({
 
 function selectCustomer(c: Customer) {
   sessionStore.setCustomer(c);
+  StorageService.setLastCustomerId(c.id);
   showCustomerModal.value = false;
   customerSearch.value = '';
   customerFlash.value = true;

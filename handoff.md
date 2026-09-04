@@ -1,47 +1,70 @@
 # Handoff
 
 ## Goal
-Maintain and improve the RGMC Consignment Web App — an Ionic 7 + Vue 3 scanning app for logging sales/return orders against Business Central (BC). The backend is a FastAPI Python service at `C:\claude\rgmc-bc-api`. This session focused on: deploying the BC API search fixes to production, verifying substring search works, and optimizing the splash page sync (timeout detection, error differentiation, parallel fetches, cache bypass).
+Maintain and improve the RGMC Consignment Web App — an Ionic 7 + Vue 3 scanning app for logging sales/return orders against Business Central (BC). The backend is a FastAPI Python service at `C:\claude\rgmc-bc-api`. Worker pool at `C:\claude\rgmc-worker-pool`. This session focused on: verifying previous session's deployments, then implementing GCS caching for customers, contacts, and item categories so the BC API serves those datasets from GCS (~200ms) instead of hitting BC OData directly (2-5s per call, worse on cold start).
 
 ---
 
 ## Current State
 
-**All code committed and clean. No uncommitted changes in either repo.**
+**All code committed in both repos. Neither has been deployed to production yet.**
 
 ### Webapp (`C:\claude\rgmc-consignment-webapp`)
-
-**SplashPage.vue** — two sets of improvements this session (both committed `92e9073`):
-
-1. **Timeout + error differentiation**:
-   - `withTimeout<T>(promise, ms)` helper wraps any call with `Promise.race` + timer cleanup
-   - `TIMEOUT_MS = { companies: 15_000, step: 20_000 }` — 15s for company list, 20s per data step
-   - `isTimeout` ref distinguishes timeout vs network error in the error block
-   - Error block shows `hourglassOutline` (amber) for timeout, `wifiOutline` (red) for network errors
-   - `handleStepError()` helper centralizes error kind + message assignment
-   - Step cycling messages now add "Still loading, please wait…" / "Taking longer than expected…" at indices 4–5 (~10–12.5s), giving visual feedback before timeout fires
-   - `connectingText` array extended with slow-warning messages for the companies phase
-
-2. **Parallel + cache-aware `loadData()`**:
-   - **Cache bypass**: if `getCachedBrands()` and `getCachedContacts()` are both non-empty, skips all network calls and navigates in ~400ms — fast path for returning users
-   - **Parallel execution**: when fetches are needed, brands+families and contacts run concurrently via `Promise.allSettled` instead of sequentially
-   - Brands+families are internally parallelized too (`Promise.all`) since both are needed together to build the stored brand list
-   - Steps already covered by cache are pre-set to `'done'`; only missing steps show `'loading'`
-   - Total splash time for fresh users: `max(brands_time, contacts_time)` instead of `sum`
-
-**ItemSelectorModal.vue** — BC search caching, always-visible BC button, `dedupedBcResults` (prior sessions, committed `d23bd28`, `08b336f`).
-
-**ScanningPage.vue** — item form card removed, "Add Item" button opens `ItemSelectorModal` directly (prior session, committed `bf1c2f5`).
+No changes this session. Clean at prior state.
 
 ### BC API (`C:\claude\rgmc-bc-api`)
 
-**Deployed revision**: `rgmc-bc-api-prod-00184-9tb` (deployed this session). All search fixes are live.
+**Latest commit**: `67de54e` — "serve customers, contacts, item categories from GCS cache"
 
-**Verified**: `GET /bc/custom/v3/item-prices?product_no=41400&family_code=AE&company=USGI` returns 11 items including A093414000102 and all color/size variants. Source was `"gcs"` — GCS catalog already had these, live BC fallback was not needed.
+**What changed:**
 
-**Routine-sync triggered**: Pub/Sub message `21573830563752594` published to `rgmc-sync` topic for 2026-09-03. Worker pool is rebuilding the GCS catalog in the background. Completion email → `it.arellanoerwin@gmail.com`.
+1. **`src/services/gcs_catalog.py`** — Added 3 data type sections (customers, contacts, item categories), each following the exact same pattern as existing `load_pl_headers_cached` / `load_pl_items_cached`:
+   - In-process memory caches: `_customers_mem`, `_contacts_mem`, `_item_categories_mem` (5-min TTL, thread-safe locks)
+   - `_customers_blob_path`, `_contacts_blob_path`, `_item_categories_blob_path` → `{GCP_ENV}/{COMPANY}/{type}.json`
+   - `load_customers_cached(company)`, `load_contacts_cached(company)`, `load_item_categories_cached(company)` → memory → GCS → None (caller falls through to BC if None)
+   - `evict_customers`, `evict_contacts`, `evict_item_categories` for future cache invalidation
 
-**New undeployed commit** (`ae7cfda`): Adds `POST /internal/sync/backfill-ile-columns` to `test_routes.py` — triggers ILE column backfill via Pub/Sub (COALESCE MERGE, fills NULL columns only). This commit was made by the user and may or may not have been included in the `00184-9tb` deployment depending on when it was committed relative to the deploy. If needed, re-deploy.
+2. **`src/routers/bc_routes/rgmc_customer_v2_routes.py`** — `list_customers()` now tries GCS first:
+   - Added `modified_since` query param
+   - If no raw OData `filter` param: loads from GCS, applies `brand` and `modified_since` in Python, returns immediately
+   - Falls through to BC when GCS blob is absent (first run before worker pool has synced) or when a raw OData filter is requested
+
+3. **`src/routers/bc_routes/rgmc_contact_v2_routes.py`** — `list_rgmc_contacts_v2()` same GCS-first pattern:
+   - Added `modified_since` query param
+   - Skips GCS if `filter` or `select` params are present
+
+4. **`src/routers/bc_routes/item_category_routes.py`** — `list_item_categories()` same pattern:
+   - Added `modified_since` query param
+   - Skips GCS if `filter` or `select` params are present
+
+### Worker Pool (`C:\claude\rgmc-worker-pool`)
+
+**Latest commit**: `c3ded90` — "sync customers, contacts, item categories to GCS on routine sync"
+
+**What changed:**
+
+1. **`src/services/bc_client.py`** — Added 3 new fetch functions (before the Order CRUD section):
+   - `fetch_customers(company_name)` → calls `_RGMC_CUSTOM_API_V2/companies({id})/customers` via `_fetch_all_pages`
+   - `fetch_contacts(company_name)` → calls `_RGMC_CUSTOM_API_V2/companies({id})/contacts` via `_fetch_all_pages`
+   - `fetch_item_categories(company_name)` → calls `api/v2.0/companies({id})/itemCategories` via `_fetch_all_pages`
+
+2. **`src/services/gcs_catalog.py`** — Added 3 save functions at the end (worker-pool side write functions):
+   - `save_customers(company, customers)` → `{GCP_ENV}/{COMPANY}/customers.json`
+   - `save_contacts(company, contacts)` → `{GCP_ENV}/{COMPANY}/contacts.json`
+   - `save_item_categories(company, categories)` → `{GCP_ENV}/{COMPANY}/item_categories.json`
+
+3. **`src/workers/sync_worker.py`** — `_sync_company()` now runs 3 extra steps after ILE sync:
+   - Each in its own `try/except` block (failure in one doesn't block others)
+   - `fetch_customers(company)` → `save_customers(company, ...)`
+   - `fetch_contacts(company)` → `save_contacts(company, ...)`
+   - `fetch_item_categories(company)` → `save_item_categories(company, ...)`
+   - Updated imports at top of file
+
+**GCS blobs will NOT exist until the worker pool runs `_sync_company` post-deploy. Before that, all three BC API endpoints fall through to BC (current behavior, no regression).**
+
+### Prior session commits still undeployed:
+- BC API `ae7cfda` — `POST /internal/sync/backfill-ile-columns` endpoint (was confirmed live in `00186-n8c`, already deployed)
+- Worker pool `0edd66b` — ILE fix (already deployed earlier)
 
 ---
 
@@ -49,55 +72,74 @@ Maintain and improve the RGMC Consignment Web App — an Ionic 7 + Vue 3 scannin
 
 All committed. No mid-edit state.
 
-- `src/views/SplashPage.vue` — timeout detection, error differentiation (hourglass vs wifi icon), parallel + cache-aware `loadData()`. ✅ `92e9073`
-- `src/components/ItemSelectorModal.vue` — BC search caching, always-visible BC button, `dedupedBcResults`. ✅ `d23bd28`, `08b336f`
-- `src/views/ScanningPage.vue` — scan page redesign: item form card removed, `add-item-bar`. ✅ `bf1c2f5`
-- `C:\claude\rgmc-bc-api\src\routers\bc_routes\rgmc_item_price_v3_routes.py` — live BC contains fallback. ✅ `c001395`
-- `C:\claude\rgmc-bc-api\src\routers\bc_routes\test_routes.py` — added `backfill-ile-columns` endpoint. ✅ `ae7cfda`
+**BC API (`C:\claude\rgmc-bc-api`):**
+- `src/services/gcs_catalog.py` — Added load/cache/evict for customers, contacts, item_categories. ✅ `67de54e`
+- `src/routers/bc_routes/rgmc_customer_v2_routes.py` — GCS-first list_customers, added modified_since param. ✅ `67de54e`
+- `src/routers/bc_routes/rgmc_contact_v2_routes.py` — GCS-first list_rgmc_contacts_v2, added modified_since param. ✅ `67de54e`
+- `src/routers/bc_routes/item_category_routes.py` — GCS-first list_item_categories, added modified_since param. ✅ `67de54e`
+
+**Worker Pool (`C:\claude\rgmc-worker-pool`):**
+- `src/services/bc_client.py` — Added fetch_customers, fetch_contacts, fetch_item_categories. ✅ `c3ded90`
+- `src/services/gcs_catalog.py` — Added save_customers, save_contacts, save_item_categories. ✅ `c3ded90`
+- `src/workers/sync_worker.py` — Added GCS sync for customers/contacts/categories in _sync_company, updated imports. ✅ `c3ded90`
 
 ---
 
 ## Failed Attempts
 
-- **What was tried**: `gcloud run deploy` via Bash tool on first attempt — **Why it failed**: DNS resolution error (`getaddrinfo failed` for `serviceusage.googleapis.com`). Transient network issue; retry via PowerShell succeeded immediately.
-- **What was tried**: Sequential `getBrands → getItemFamilies → getContacts` on splash page — **Why it was slow**: Cold start (Cloud Run idles after ~15 min) hits the first call only. With sequential calls, each fetch waited for the prior one. Parallel fixes this by running all at once.
-- **What was tried**: Cache check without also skipping the step indicators — **Why it needed adjustment**: Steps rendered as `'idle'` (greyed out) for a frame before being set to `'done'`. Fixed by setting steps to `'done'` and then waiting 400ms before navigation so user sees checkmarks briefly.
+- **What was tried**: Running `gcloud run deploy` via Bash tool — **Why it failed**: Bash uses POSIX paths, not Windows paths. PowerShell is required for all gcloud and git commands on this machine.
 
 ---
 
 ## Next Step
 
-**Verify `ae7cfda` is deployed** — the `backfill-ile-columns` endpoint was committed to the BC API after (or around the time of) the deployment. Check whether it's live:
+**Deploy both services to Cloud Run production.** Run these two PowerShell commands (sequentially — BC API first, then worker pool):
 
-```powershell
-Invoke-RestMethod -Uri "https://rgmc-bc-api-prod-935246372408.asia-southeast1.run.app/openapi.json" -Method GET | ConvertTo-Json -Depth 3 | Select-String "backfill-ile-columns"
-```
-
-If empty, the commit was made after the deploy and needs a re-deploy:
 ```powershell
 Set-Location "C:\claude\rgmc-bc-api"
 gcloud run deploy rgmc-bc-api-prod --source . --region asia-southeast1
 ```
 
-After that, confirm the routine-sync completed (check `it.arellanoerwin@gmail.com` for completion email), then verify the GCS catalog is fresh:
+```powershell
+Set-Location "C:\claude\rgmc-worker-pool"
+gcloud run deploy rgmc-worker-pool-prod --source . --region asia-southeast1
 ```
-GET https://rgmc-bc-api-prod-935246372408.asia-southeast1.run.app/internal/test/catalog-status
-X-Task-Secret: 68dbf91ade93cfe52c8a37b8309bbc17b7a8db4320d1c6d130ce0f54ffb9ac84
+
+After both are deployed, **trigger a routine sync to populate the new GCS blobs**:
+
+```powershell
+Invoke-RestMethod -Uri "https://rgmc-bc-api-prod-935246372408.asia-southeast1.run.app/internal/firestore/routine-sync" -Method POST -Headers @{ "X-Task-Secret" = "68dbf91ade93cfe52c8a37b8309bbc17b7a8db4320d1c6d130ce0f54ffb9ac84" } -Body '{"on_date": "2026-09-04"}' -ContentType "application/json"
 ```
+
+Then verify the new GCS blobs exist by checking the healthcheck:
+
+```powershell
+Invoke-RestMethod -Uri "https://rgmc-bc-api-prod-935246372408.asia-southeast1.run.app/healthcheck/gcs" -Method GET | ConvertTo-Json -Depth 3
+```
+
+Should show `customers.json`, `contacts.json`, `item_categories.json` blobs per company in the blob list.
+
+Then verify GCS-served response on the BC API:
+
+```powershell
+Invoke-RestMethod -Uri "https://rgmc-bc-api-prod-935246372408.asia-southeast1.run.app/bc/custom/v2/customers?company=RGMC" -Method GET | ConvertTo-Json -Depth 2
+```
+
+Should be fast (~200ms, from GCS) rather than slow (2-5s, from BC).
 
 ---
 
 ## Context & Gotchas
 
-- **Two repos**: webapp `C:\claude\rgmc-consignment-webapp`, BC API `C:\claude\rgmc-bc-api`. Deploy independently.
+- **Two repos + one webapp**: `C:\claude\rgmc-consignment-webapp` (webapp, no changes this session), `C:\claude\rgmc-bc-api` (BC API), `C:\claude\rgmc-worker-pool` (worker pool). Deploy independently.
 - **BC API prod URL**: `https://rgmc-bc-api-prod-935246372408.asia-southeast1.run.app`
 - **Webapp prod URL**: `https://rgmc-consignment-prod-935246372408.asia-southeast1.run.app`
 - **Task secret**: `68dbf91ade93cfe52c8a37b8309bbc17b7a8db4320d1c6d130ce0f54ffb9ac84` (also in `credentials.txt`, gitignored)
-- **Cloud Run cold start**: Root cause of "some users seeing slow sync" — after ~15 min idle the container spins down. First request pays 10-30s cold start. Sequential splash fetches amplified this. Now that fetches are parallel, only the slowest of the parallel set is affected, not all three stacked.
-- **`useSync.ts` is already optimal**: All 4 background sync tasks run in parallel via `Promise.all`, and delta sync (`modified_since`) is used for returning users. Not a source of slowness.
-- **`withTimeout` sentinel**: Uses `err.message === '__timeout__'` to detect timeout vs real errors. Don't change the sentinel string without also updating `handleStepError()` and the `load()` catch block.
-- **`form` reactive object in ScanningPage**: Still used internally even though the form card is gone from the template. `form.itemNumber`, `form.srp`, `form.priceListCode` are set by `onItemSelected` and read by the date-change watcher. Do not remove.
-- **`dedupedBcResults` is reactive**: As `filteredItems` updates (after BC results are saved to IDB and `refreshCache()` runs from `onItemModalClose`), items that move from BC results into local results disappear from the BC section automatically.
-- **GCS catalog is primary**: `source: "gcs"` in the search response means the GCS Python contains-filter handled it (~200ms). Firestore and live-BC fallbacks only run if GCS misses. After routine-sync, GCS will be current.
-- **Company casing**: Firestore doc IDs are `{UPPERCASE_COMPANY}_{productNo}`. BC API normalizes via `product_no.upper()`. Always pass the correct company case.
+- **GCS blobs not populated until first post-deploy routine sync**: Until the worker pool runs `_sync_company` for each company, the new `customers.json` / `contacts.json` / `item_categories.json` blobs won't exist. During this window the BC API falls back to BC directly (no regression from current behavior).
+- **5-minute in-process memory cache**: After loading from GCS, each BC API instance caches the data in-process for 5 minutes. After a worker pool sync writes fresh GCS blobs, users will see updated data within 5 minutes (next cache expiry).
+- **`modified_since` comparison**: ISO 8601 string comparison `>` works correctly for UTC timestamps with Z suffix (standard BC format). If BC returns timestamps with timezone offsets, comparison may be imprecise — but the webapp's merge/upsert behavior makes this non-fatal (extra records get merged harmlessly).
+- **GCS-first bypass conditions**: Raw OData `filter` or `$select` params force BC fallback so admin/internal tools that use OData filtering still get live BC data.
+- **Worker pool `max_messages=1`**: Still sequential — all 5 companies process one after another in a single Pub/Sub message. Each company now runs 7 steps (headers, items, v3 catalog, ILE, customers, contacts, item categories). Routine sync will take slightly longer per run but GCS makes the BC API side much faster for end users.
+- **Cloud Run cold start**: Root cause of "slow sync" user perception — container idles after ~15 min, first request pays 10-30s warmup. With GCS caching, even the cold-start first request for customers/contacts/categories is ~200ms instead of 2-5s BC hit.
+- **`withTimeout` sentinel in SplashPage.vue**: Uses `err.message === '__timeout__'` — don't change this string.
 - **Stack**: Ionic 7 + Vue 3 + Pinia + TypeScript frontend. FastAPI Python backend (GCP Cloud Run). Business Central OData v4. Firestore + GCS for price catalog. Worker pool = separate Cloud Run service consuming Pub/Sub.

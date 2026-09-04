@@ -26,6 +26,7 @@ const KEYS = {
   SESSIONS: 'rgmc_sessions',
   DRAFTS: 'rgmc_drafts',
   WELCOME_SEEN: 'rgmc_welcome_seen',
+  LAST_CUSTOMER_ID: 'rgmc_last_customer_id',
 } as const;
 
 function get<T>(key: string): T | null {
@@ -459,6 +460,14 @@ export const StorageService = {
   },
   clearAllDrafts(): void {
     remove(KEYS.DRAFTS);
+  },
+
+  /* ─── Last selected customer (persisted across sessions) ─── */
+  getLastCustomerId(): string | null {
+    return localStorage.getItem(KEYS.LAST_CUSTOMER_ID) ?? null;
+  },
+  setLastCustomerId(id: string): void {
+    localStorage.setItem(KEYS.LAST_CUSTOMER_ID, id);
   },
 
   /* ─── Welcome tour ─── */
