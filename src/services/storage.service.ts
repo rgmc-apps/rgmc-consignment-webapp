@@ -469,6 +469,9 @@ export const StorageService = {
   setLastCustomerId(id: string): void {
     localStorage.setItem(KEYS.LAST_CUSTOMER_ID, id);
   },
+  clearLastCustomerId(): void {
+    localStorage.removeItem(KEYS.LAST_CUSTOMER_ID);
+  },
 
   /* ─── Welcome tour ─── */
   hasSeenWelcome(): boolean {

@@ -238,6 +238,7 @@ export const useAuthStore = defineStore('auth', () => {
     StorageService.clearAuth();
     StorageService.clearAuthPhoto();
     StorageService.clearCompany();
+    StorageService.clearLastCustomerId();
   }
 
   function clearError(): void {
