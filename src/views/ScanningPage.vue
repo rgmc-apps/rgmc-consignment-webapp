@@ -791,9 +791,11 @@ onMounted(async () => {
 });
 
 // Ionic keep-alive: ion-router-outlet caches tab views, so onMounted only fires once.
-// onIonViewWillEnter fires every time the tab becomes active — ensuring a session exists
-// when the user returns after saveDraftAndGoHome / markSubmitted / clearCurrentSession.
+// onIonViewWillEnter fires every time the tab becomes active — refresh the cache here
+// so cachedItems always reflects the current user's brand, even after a brand/user switch
+// mid-session (the previous user's items would otherwise remain in cachedItems).
 onIonViewWillEnter(() => {
+  refreshCache();
   if (!sessionStore.currentSession && authStore.brand && authStore.user) {
     sessionStore.startNewSession(authStore.brand, authStore.user, authStore.company?.code);
     applyLastCustomer();
