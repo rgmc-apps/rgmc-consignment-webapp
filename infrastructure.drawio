@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="1800" pageHeight="1000" math="0" shadow="0">
+  <root>
+    <mxCell id="0" />
+    <mxCell id="1" parent="0" />
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- BACKGROUND REGIONS                                  -->
+    <!-- ═══════════════════════════════════════════════════ -->
+
+    <!-- User Device -->
+    <mxCell id="bg-user" value="User Device" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;verticalAlign=top;align=center;fontStyle=1;fontSize=13;spacingTop=6;" vertex="1" parent="1">
+      <mxGeometry x="10" y="10" width="250" height="570" as="geometry" />
+    </mxCell>
+
+    <!-- Google Cloud Platform -->
+    <mxCell id="bg-gcp" value="Google Cloud Platform" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#4caf50;strokeWidth=2;verticalAlign=top;align=center;fontStyle=1;fontSize=13;spacingTop=6;" vertex="1" parent="1">
+      <mxGeometry x="300" y="10" width="1060" height="850" as="geometry" />
+    </mxCell>
+
+    <!-- External -->
+    <mxCell id="bg-ext" value="External" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=2;verticalAlign=top;align=center;fontStyle=1;fontSize=13;spacingTop=6;" vertex="1" parent="1">
+      <mxGeometry x="1400" y="10" width="260" height="340" as="geometry" />
+    </mxCell>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- USER DEVICE COMPONENTS                              -->
+    <!-- ═══════════════════════════════════════════════════ -->
+
+    <mxCell id="app" value="&lt;b&gt;Ionic 7 / Vue 3 SPA&lt;/b&gt;&lt;br&gt;nginx · Cloud Run&lt;br&gt;&lt;font color=&apos;#666666&apos;&gt;rgmc-consignment-webapp&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="30" y="70" width="210" height="80" as="geometry" />
+    </mxCell>
+
+    <mxCell id="idb" value="&lt;b&gt;IndexedDB&lt;/b&gt;&lt;br&gt;Items (offline cache)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="30" y="250" width="210" height="70" as="geometry" />
+    </mxCell>
+
+    <mxCell id="ls" value="&lt;b&gt;localStorage&lt;/b&gt;&lt;br&gt;Auth · Customers · Sessions&lt;br&gt;Prices · Sync timestamps" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="30" y="400" width="210" height="80" as="geometry" />
+    </mxCell>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- GCP COMPONENTS                                      -->
+    <!-- ═══════════════════════════════════════════════════ -->
+
+    <!-- Scheduling & Messaging tier -->
+    <mxCell id="scheduler" value="&lt;b&gt;Cloud Scheduler&lt;/b&gt;&lt;br&gt;routine-sync (cron)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="330" y="70" width="200" height="65" as="geometry" />
+    </mxCell>
+
+    <mxCell id="pubsub" value="&lt;b&gt;Pub/Sub&lt;/b&gt;&lt;br&gt;rgmc-sync topic / subscription" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="700" y="70" width="230" height="65" as="geometry" />
+    </mxCell>
+
+    <!-- Cloud Run services -->
+    <mxCell id="bc-api" value="&lt;b&gt;BC API&lt;/b&gt;&lt;br&gt;FastAPI · Cloud Run&lt;br&gt;&lt;font color=&apos;#555&apos;&gt;Serves items, prices, customers,&lt;br&gt;contacts, categories&lt;/font&gt;&lt;br&gt;&lt;font color=&apos;#666666&apos;&gt;rgmc-bc-api&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="330" y="250" width="220" height="110" as="geometry" />
+    </mxCell>
+
+    <mxCell id="worker" value="&lt;b&gt;Worker Pool&lt;/b&gt;&lt;br&gt;Pub/Sub Consumer · Cloud Run&lt;br&gt;&lt;font color=&apos;#555&apos;&gt;Syncs BC → GCS / Firestore / BQ&lt;br&gt;Sends email notifications&lt;/font&gt;&lt;br&gt;&lt;font color=&apos;#666666&apos;&gt;rgmc-worker-pool&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="900" y="250" width="230" height="110" as="geometry" />
+    </mxCell>
+
+    <!-- Data stores -->
+    <mxCell id="gcs" value="&lt;b&gt;Cloud Storage (GCS)&lt;/b&gt;&lt;br&gt;catalog.json · customers.json&lt;br&gt;contacts.json · item_categories.json&lt;br&gt;price_list_items.json&lt;br&gt;&lt;font color=&apos;#888&apos;&gt;{env}/{COMPANY}/&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="620" y="480" width="280" height="110" as="geometry" />
+    </mxCell>
+
+    <mxCell id="firestore" value="&lt;b&gt;Firestore&lt;/b&gt;&lt;br&gt;item_prices_{env}&lt;br&gt;price_list_headers_{env}&lt;br&gt;price_list_items_{env}&lt;br&gt;item_ledger_entries_{env} · sync_state_{env}" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="330" y="650" width="280" height="110" as="geometry" />
+    </mxCell>
+
+    <mxCell id="bq" value="&lt;b&gt;BigQuery&lt;/b&gt;&lt;br&gt;Item Ledger Entries&lt;br&gt;&lt;font color=&apos;#888&apos;&gt;(ILE analytics)&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="900" y="650" width="230" height="100" as="geometry" />
+    </mxCell>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- EXTERNAL: BUSINESS CENTRAL                          -->
+    <!-- ═══════════════════════════════════════════════════ -->
+
+    <mxCell id="bc" value="&lt;b&gt;Business Central&lt;/b&gt;&lt;br&gt;OData v4 API&lt;br&gt;&lt;font color=&apos;#555&apos;&gt;Custom RGMC pages v1/v2/v3&lt;br&gt;(Pag50318 / 50319 / 50320)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="1415" y="70" width="230" height="110" as="geometry" />
+    </mxCell>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- EDGES                                               -->
+    <!-- ═══════════════════════════════════════════════════ -->
+
+    <!-- SPA ↔ IndexedDB (items offline) -->
+    <mxCell id="e-app-idb" value="read/write items" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="app" target="idb" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- SPA ↔ localStorage -->
+    <mxCell id="e-app-ls" value="read/write cache" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="app" target="ls" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- SPA → BC API (primary data traffic) -->
+    <mxCell id="e-app-bcapi" value="&lt;b&gt;HTTPS REST&lt;/b&gt;&lt;br&gt;items · prices · customers&lt;br&gt;contacts · sync trigger&lt;br&gt;order submission" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="app" target="bc-api" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Cloud Scheduler → Pub/Sub -->
+    <mxCell id="e-sched-ps" value="publish routine-sync (cron)" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="scheduler" target="pubsub" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- BC API → Pub/Sub (publish sync messages) -->
+    <mxCell id="e-bcapi-ps" value="publish sync messages" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=1;entryDx=0;entryDy=0;" edge="1" source="bc-api" target="pubsub" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Pub/Sub → Worker Pool (pull subscription) -->
+    <mxCell id="e-ps-worker" value="pull messages" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="pubsub" target="worker" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Worker Pool → Business Central (primary sync source) -->
+    <mxCell id="e-worker-bc" value="&lt;b&gt;OData v4&lt;/b&gt;&lt;br&gt;items · ILE · customers&lt;br&gt;contacts · categories&lt;br&gt;price list headers" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="worker" target="bc" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- BC API → Business Central (fallback / live search) -->
+    <mxCell id="e-bcapi-bc" value="OData v4 (fallback,&lt;br&gt;contains search,&lt;br&gt;single-item lookup)" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;dashed=1;strokeColor=#d79b00;entryX=0;entryY=1;entryDx=0;entryDy=0;" edge="1" source="bc-api" target="bc" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="440" y="200" />
+          <mxPoint x="1530" y="200" />
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Worker Pool → GCS (write blobs after sync) -->
+    <mxCell id="e-worker-gcs" value="write blobs&lt;br&gt;(after full sync)" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="worker" target="gcs" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Worker Pool → Firestore (upsert collections) -->
+    <mxCell id="e-worker-fs" value="upsert collections" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="worker" target="firestore" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Worker Pool → BigQuery (ILE analytics) -->
+    <mxCell id="e-worker-bq" value="upsert ILE rows" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="worker" target="bq" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- BC API → GCS (fast read path ~200 ms) -->
+    <mxCell id="e-bcapi-gcs" value="read catalog&lt;br&gt;(~200 ms fast path)" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;strokeColor=#27ae60;" edge="1" source="bc-api" target="gcs" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- BC API → Firestore (read/write, fallback when GCS cold) -->
+    <mxCell id="e-bcapi-fs" value="read/write&lt;br&gt;(prices · fallback&lt;br&gt;when GCS cold)" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=10;" edge="1" source="bc-api" target="firestore" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+  </root>
+</mxGraphModel>

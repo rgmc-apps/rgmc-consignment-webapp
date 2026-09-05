@@ -1,145 +1,82 @@
 # Handoff
 
 ## Goal
-Maintain and improve the RGMC Consignment Web App — an Ionic 7 + Vue 3 scanning app for logging sales/return orders against Business Central (BC). The backend is a FastAPI Python service at `C:\claude\rgmc-bc-api`. Worker pool at `C:\claude\rgmc-worker-pool`. This session focused on: verifying previous session's deployments, then implementing GCS caching for customers, contacts, and item categories so the BC API serves those datasets from GCS (~200ms) instead of hitting BC OData directly (2-5s per call, worse on cold start).
+Three separate bug fixes across the RGMC consignment webapp and its backend services:
+
+1. **Done** — Remove the item category filter chips from `ItemSelectorModal.vue` so the search always defaults to showing all categories.
+2. **Done** — Fix the family code backfill for Firestore item prices in both the worker pool and BC API (items were missing `familyCode` in Firestore because routine syncs were overwriting backfilled values with empty strings).
+3. **Done** — Fix cross-brand item contamination in the webapp where users logged in as Brand B could see Brand A's items after a user switch on the same device.
+
+All three fixes have been implemented. The next task is **deploy all three services** and optionally run the `backfill-family-codes` worker command to patch existing Firestore documents.
 
 ---
 
 ## Current State
 
-**All code committed in both repos. Neither has been deployed to production yet.**
+### Fix 1 — ItemSelectorModal.vue: Category filter removed ✅
+- Category chips UI removed from `C:\claude\rgmc-consignment-webapp\src\components\ItemSelectorModal.vue`
+- `selectedCat` ref, `effectiveCategories` computed, category filter block in `filteredItems`, related watchers and CSS removed
+- `categories` and `initialCategoryCode` props kept for backward compatibility
 
-### Webapp (`C:\claude\rgmc-consignment-webapp`)
-No changes this session. Clean at prior state.
+### Fix 2 — Family code backfill: Fixed in both services ✅
 
-### BC API (`C:\claude\rgmc-bc-api`)
+**Worker pool** — `C:\claude\rgmc-worker-pool\src\services\price_firestore_service.py`:
+- `sync_prices_to_firestore`: now uses `batch.set(ref, doc_data, merge=True)` and only includes `familyCode` in the payload when BC returns a non-empty value (prevents incremental syncs from overwriting backfilled values with `""`)
+- `backfill_family_codes`: skips records where BC returns no familyCode, uses parallel commits via `ThreadPoolExecutor`, returns `skipped_no_family_code` counter
 
-**Latest commit**: `67de54e` — "serve customers, contacts, item categories from GCS cache"
+**Worker pool** — `C:\claude\rgmc-worker-pool\src\workers\sync_worker.py`:
+- Updated log message and `notify_success` in `backfill-family-codes` handler to include new `skipped_no_family_code` stat
 
-**What changed:**
+**BC API** — `C:\claude\rgmc-bc-api\src\services\price_firestore_service.py`:
+- Same `merge=True` fix in `sync_prices_to_firestore`
+- Same skip-when-empty fix in `backfill_family_codes`
 
-1. **`src/services/gcs_catalog.py`** — Added 3 data type sections (customers, contacts, item categories), each following the exact same pattern as existing `load_pl_headers_cached` / `load_pl_items_cached`:
-   - In-process memory caches: `_customers_mem`, `_contacts_mem`, `_item_categories_mem` (5-min TTL, thread-safe locks)
-   - `_customers_blob_path`, `_contacts_blob_path`, `_item_categories_blob_path` → `{GCP_ENV}/{COMPANY}/{type}.json`
-   - `load_customers_cached(company)`, `load_contacts_cached(company)`, `load_item_categories_cached(company)` → memory → GCS → None (caller falls through to BC if None)
-   - `evict_customers`, `evict_contacts`, `evict_item_categories` for future cache invalidation
+### Fix 3 — Cross-brand item contamination: Fixed ✅
+**Root cause**: `onIonViewWillEnter` in `ScanningPage.vue` never called `refreshCache()`. Because Ionic caches tab views, `onMounted` only fires once. When user B logs in after user A, `authStore.brand` updates but `cachedItems` still held user A's brand items. The modal received `props.items = cachedItems` (old brand), and since `props.items.length > 0`, it bypassed the first-use API fetch and showed the old brand's items.
 
-2. **`src/routers/bc_routes/rgmc_customer_v2_routes.py`** — `list_customers()` now tries GCS first:
-   - Added `modified_since` query param
-   - If no raw OData `filter` param: loads from GCS, applies `brand` and `modified_since` in Python, returns immediately
-   - Falls through to BC when GCS blob is absent (first run before worker pool has synced) or when a raw OData filter is requested
-
-3. **`src/routers/bc_routes/rgmc_contact_v2_routes.py`** — `list_rgmc_contacts_v2()` same GCS-first pattern:
-   - Added `modified_since` query param
-   - Skips GCS if `filter` or `select` params are present
-
-4. **`src/routers/bc_routes/item_category_routes.py`** — `list_item_categories()` same pattern:
-   - Added `modified_since` query param
-   - Skips GCS if `filter` or `select` params are present
-
-### Worker Pool (`C:\claude\rgmc-worker-pool`)
-
-**Latest commit**: `c3ded90` — "sync customers, contacts, item categories to GCS on routine sync"
-
-**What changed:**
-
-1. **`src/services/bc_client.py`** — Added 3 new fetch functions (before the Order CRUD section):
-   - `fetch_customers(company_name)` → calls `_RGMC_CUSTOM_API_V2/companies({id})/customers` via `_fetch_all_pages`
-   - `fetch_contacts(company_name)` → calls `_RGMC_CUSTOM_API_V2/companies({id})/contacts` via `_fetch_all_pages`
-   - `fetch_item_categories(company_name)` → calls `api/v2.0/companies({id})/itemCategories` via `_fetch_all_pages`
-
-2. **`src/services/gcs_catalog.py`** — Added 3 save functions at the end (worker-pool side write functions):
-   - `save_customers(company, customers)` → `{GCP_ENV}/{COMPANY}/customers.json`
-   - `save_contacts(company, contacts)` → `{GCP_ENV}/{COMPANY}/contacts.json`
-   - `save_item_categories(company, categories)` → `{GCP_ENV}/{COMPANY}/item_categories.json`
-
-3. **`src/workers/sync_worker.py`** — `_sync_company()` now runs 3 extra steps after ILE sync:
-   - Each in its own `try/except` block (failure in one doesn't block others)
-   - `fetch_customers(company)` → `save_customers(company, ...)`
-   - `fetch_contacts(company)` → `save_contacts(company, ...)`
-   - `fetch_item_categories(company)` → `save_item_categories(company, ...)`
-   - Updated imports at top of file
-
-**GCS blobs will NOT exist until the worker pool runs `_sync_company` post-deploy. Before that, all three BC API endpoints fall through to BC (current behavior, no regression).**
-
-### Prior session commits still undeployed:
-- BC API `ae7cfda` — `POST /internal/sync/backfill-ile-columns` endpoint (was confirmed live in `00186-n8c`, already deployed)
-- Worker pool `0edd66b` — ILE fix (already deployed earlier)
+**Fix**: Added `refreshCache()` at the top of `onIonViewWillEnter` in `C:\claude\rgmc-consignment-webapp\src\views\ScanningPage.vue` (around line 796).
 
 ---
 
 ## Files Actively Being Edited
 
-All committed. No mid-edit state.
-
-**BC API (`C:\claude\rgmc-bc-api`):**
-- `src/services/gcs_catalog.py` — Added load/cache/evict for customers, contacts, item_categories. ✅ `67de54e`
-- `src/routers/bc_routes/rgmc_customer_v2_routes.py` — GCS-first list_customers, added modified_since param. ✅ `67de54e`
-- `src/routers/bc_routes/rgmc_contact_v2_routes.py` — GCS-first list_rgmc_contacts_v2, added modified_since param. ✅ `67de54e`
-- `src/routers/bc_routes/item_category_routes.py` — GCS-first list_item_categories, added modified_since param. ✅ `67de54e`
-
-**Worker Pool (`C:\claude\rgmc-worker-pool`):**
-- `src/services/bc_client.py` — Added fetch_customers, fetch_contacts, fetch_item_categories. ✅ `c3ded90`
-- `src/services/gcs_catalog.py` — Added save_customers, save_contacts, save_item_categories. ✅ `c3ded90`
-- `src/workers/sync_worker.py` — Added GCS sync for customers/contacts/categories in _sync_company, updated imports. ✅ `c3ded90`
+- `C:\claude\rgmc-consignment-webapp\src\components\ItemSelectorModal.vue` — Category filter removed; file is complete and clean
+- `C:\claude\rgmc-consignment-webapp\src\views\ScanningPage.vue` — Added `refreshCache()` call to `onIonViewWillEnter`; file is complete and clean
+- `C:\claude\rgmc-worker-pool\src\services\price_firestore_service.py` — `sync_prices_to_firestore` uses `merge=True`, `backfill_family_codes` skips empty; complete
+- `C:\claude\rgmc-worker-pool\src\workers\sync_worker.py` — Updated success notification for backfill-family-codes; complete
+- `C:\claude\rgmc-bc-api\src\services\price_firestore_service.py` — Same `merge=True` and skip-empty fixes as worker pool; complete
 
 ---
 
 ## Failed Attempts
 
-- **What was tried**: Running `gcloud run deploy` via Bash tool — **Why it failed**: Bash uses POSIX paths, not Windows paths. PowerShell is required for all gcloud and git commands on this machine.
+- **What was tried**: Looked for cross-brand contamination via `mergeCachedItems` overwriting same-id items from other brands — **Why it failed**: The `familyCode` tagging in merge is correct; items from other brands with different familyCodes aren't affected unless the same item ID exists in both brands (edge case, not the reported issue)
+- **What was tried**: Investigated whether `??` (nullish coalescing) mishandling of empty-string `familyCode` could cause wrong tagging — **Why it failed**: Empty string `""` is preserved by `??`, so items with `familyCode: ""` are EXCLUDED from brand filters rather than incorrectly included in another brand
+- **What was tried**: Checked API filtering for `family_code` in the route handler — the API correctly filters GCS/Firestore records by `familyCode` — **Why it failed**: Not the source of contamination; API-returned items are brand-correct
+- **What was tried**: Investigated whether `IDB restore path` loading all brands causes contamination — `loadCachedItemsAsync()` loads all brands, but `refreshCache()` filters them — **Why it failed**: Not root cause; filtering works correctly IF `refreshCache()` is called with the right brand at the right time
 
 ---
 
 ## Next Step
 
-**Deploy both services to Cloud Run production.** Run these two PowerShell commands (sequentially — BC API first, then worker pool):
+**Deploy all three services and run the backfill:**
 
-```powershell
-Set-Location "C:\claude\rgmc-bc-api"
-gcloud run deploy rgmc-bc-api-prod --source . --region asia-southeast1
-```
-
-```powershell
-Set-Location "C:\claude\rgmc-worker-pool"
-gcloud run deploy rgmc-worker-pool-prod --source . --region asia-southeast1
-```
-
-After both are deployed, **trigger a routine sync to populate the new GCS blobs**:
-
-```powershell
-Invoke-RestMethod -Uri "https://rgmc-bc-api-prod-935246372408.asia-southeast1.run.app/internal/firestore/routine-sync" -Method POST -Headers @{ "X-Task-Secret" = "68dbf91ade93cfe52c8a37b8309bbc17b7a8db4320d1c6d130ce0f54ffb9ac84" } -Body '{"on_date": "2026-09-04"}' -ContentType "application/json"
-```
-
-Then verify the new GCS blobs exist by checking the healthcheck:
-
-```powershell
-Invoke-RestMethod -Uri "https://rgmc-bc-api-prod-935246372408.asia-southeast1.run.app/healthcheck/gcs" -Method GET | ConvertTo-Json -Depth 3
-```
-
-Should show `customers.json`, `contacts.json`, `item_categories.json` blobs per company in the blob list.
-
-Then verify GCS-served response on the BC API:
-
-```powershell
-Invoke-RestMethod -Uri "https://rgmc-bc-api-prod-935246372408.asia-southeast1.run.app/bc/custom/v2/customers?company=RGMC" -Method GET | ConvertTo-Json -Depth 2
-```
-
-Should be fast (~200ms, from GCS) rather than slow (2-5s, from BC).
+1. Deploy `rgmc-consignment-webapp` (Fix 1 + Fix 3 are frontend-only)
+2. Deploy `rgmc-worker-pool` (Fix 2: backfill and sync fixes)
+3. Deploy `rgmc-bc-api` (Fix 2: sync fix)
+4. After deploying the worker pool, trigger `backfill-family-codes` for each company to patch existing Firestore docs that have empty/missing `familyCode`. This is needed because existing production data in Firestore may have items with `familyCode: ""` that the routine sync previously wrote.
+5. Consider advising users affected by cross-brand contamination to log out and log back in — this triggers `onIonViewWillEnter` which now calls `refreshCache()`, clearing stale brand-A items from `cachedItems`.
 
 ---
 
 ## Context & Gotchas
 
-- **Two repos + one webapp**: `C:\claude\rgmc-consignment-webapp` (webapp, no changes this session), `C:\claude\rgmc-bc-api` (BC API), `C:\claude\rgmc-worker-pool` (worker pool). Deploy independently.
-- **BC API prod URL**: `https://rgmc-bc-api-prod-935246372408.asia-southeast1.run.app`
-- **Webapp prod URL**: `https://rgmc-consignment-prod-935246372408.asia-southeast1.run.app`
-- **Task secret**: `68dbf91ade93cfe52c8a37b8309bbc17b7a8db4320d1c6d130ce0f54ffb9ac84` (also in `credentials.txt`, gitignored)
-- **GCS blobs not populated until first post-deploy routine sync**: Until the worker pool runs `_sync_company` for each company, the new `customers.json` / `contacts.json` / `item_categories.json` blobs won't exist. During this window the BC API falls back to BC directly (no regression from current behavior).
-- **5-minute in-process memory cache**: After loading from GCS, each BC API instance caches the data in-process for 5 minutes. After a worker pool sync writes fresh GCS blobs, users will see updated data within 5 minutes (next cache expiry).
-- **`modified_since` comparison**: ISO 8601 string comparison `>` works correctly for UTC timestamps with Z suffix (standard BC format). If BC returns timestamps with timezone offsets, comparison may be imprecise — but the webapp's merge/upsert behavior makes this non-fatal (extra records get merged harmlessly).
-- **GCS-first bypass conditions**: Raw OData `filter` or `$select` params force BC fallback so admin/internal tools that use OData filtering still get live BC data.
-- **Worker pool `max_messages=1`**: Still sequential — all 5 companies process one after another in a single Pub/Sub message. Each company now runs 7 steps (headers, items, v3 catalog, ILE, customers, contacts, item categories). Routine sync will take slightly longer per run but GCS makes the BC API side much faster for end users.
-- **Cloud Run cold start**: Root cause of "slow sync" user perception — container idles after ~15 min, first request pays 10-30s warmup. With GCS caching, even the cold-start first request for customers/contacts/categories is ~200ms instead of 2-5s BC hit.
-- **`withTimeout` sentinel in SplashPage.vue**: Uses `err.message === '__timeout__'` — don't change this string.
-- **Stack**: Ionic 7 + Vue 3 + Pinia + TypeScript frontend. FastAPI Python backend (GCP Cloud Run). Business Central OData v4. Firestore + GCS for price catalog. Worker pool = separate Cloud Run service consuming Pub/Sub.
+- **`familyCode` is a computed temp-buffer field in BC's Pag50318** — BC returns it in responses but it CANNOT be used as an OData `$filter` parameter (BC rejects it). The worker pool routes around this by resolving item numbers from a separate `items` table query and filtering by `productNo`.
+- **`merge=True` in Firestore batch.set** — Only the specified fields are written; existing fields not in the payload are preserved. This is critical for the backfill to survive incremental syncs.
+- **Incremental BC sync via `lastModifiedDateTime gt {since}`** — BC may not populate temp-buffer fields (like `familyCode`) in filtered/incremental responses. That's why the fix pops `familyCode` from the sync payload when empty rather than writing `""`.
+- **`??` vs `||` for brand tagging** — `setCachedItems` uses `i.familyCode ?? (brand || undefined)`. This preserves a set `familyCode` (even an empty string `""`). An item with `familyCode: ""` will NOT be tagged with the brand and will NOT match any brand filter — it becomes invisible. This is by design to avoid masking the underlying data problem.
+- **Ionic keep-alive tabs** — `onMounted` fires only once in an Ionic tab view; `onIonViewWillEnter` fires every time the tab becomes active. Any initialization that needs to re-run on brand/user switch MUST be in `onIonViewWillEnter`, not `onMounted`.
+- **`brand.itemFamilyCode` vs `brand.code`** — The `Brand` type has an optional `itemFamilyCode` field. `auth.store.ts` uses `brand.itemFamilyCode ?? brand.code` for contact brand tag authorization. However, all item filtering throughout the webapp uses `brand.code` directly (not `itemFamilyCode`). If `brand.code` and the item's `familyCode` ever diverge in value, items would go missing — worth watching if new brands are added.
+- **GCS catalog is per-company, not per-brand** — The GCS blob (`{env}/{COMPANY}/catalog.json`) contains ALL brands' items. The API filters by `familyCode` in Python after loading the blob. A stale/missing `familyCode` on a GCS record makes that item invisible to brand queries but does NOT cause cross-brand leakage.
+- **IDB key `'all'` is shared across brands** — All brands' items live under the single `'all'` key in IndexedDB. Brand isolation is enforced via the `familyCode` field on each item and the filter in `refreshCache()`. If IDB is cleared, all brands' items are gone.
+- **Three repos involved**: `rgmc-consignment-webapp` (Vue/Ionic frontend), `rgmc-bc-api` (FastAPI Python backend), `rgmc-worker-pool` (Pub/Sub worker). All live under `C:\claude\`.
