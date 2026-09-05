@@ -39,22 +39,6 @@
       <ion-content>
         <!-- ══════════════ LIST MODE ══════════════ -->
         <template v-if="viewMode === 'list'">
-          <!-- Category chips -->
-          <div class="category-scroll">
-            <ion-chip
-              :color="!selectedCat ? 'primary' : 'medium'"
-              @click="selectedCat = ''"
-              class="cat-chip"
-            >All</ion-chip>
-            <ion-chip
-              v-for="cat in effectiveCategories"
-              :key="cat.code"
-              :color="selectedCat === cat.code ? 'primary' : 'medium'"
-              @click="selectedCat = cat.code"
-              class="cat-chip"
-            >{{ cat.code }}</ion-chip>
-          </div>
-
           <!-- Barcode not-found banner -->
           <div v-if="barcodeNotFound" class="barcode-miss">
             <ion-icon :icon="alertCircleOutline" color="warning" />
@@ -323,7 +307,6 @@ import {
   IonItem,
   IonLabel,
   IonNote,
-  IonChip,
   IonInput,
   IonSpinner,
 } from '@ionic/vue';
@@ -344,7 +327,7 @@ import { StorageService } from '@/services/storage.service';
 import { formatCurrency } from '@/utils/format';
 import { useTheme } from '@/composables/useTheme';
 import { useAuthStore } from '@/stores/auth.store';
-import type { Item, ItemCategory } from '@/types';
+import type { Item } from '@/types';
 
 const { theme } = useTheme();
 const isMinimalist = computed(() => theme.value === 'minimalist');
@@ -372,29 +355,14 @@ const emit = defineEmits<{
 
 /* ─── List state ─── */
 const searchQuery = ref('');
-const selectedCat = ref(props.initialCategoryCode ?? '');
 const barcodeNotFound = ref(false);
 const lastScannedBarcode = ref('');
 
 // Cache-first: use props.items when available; fall back to API-fetched onlineItems for first use.
 const effectiveItems = computed(() => props.items.length > 0 ? props.items : onlineItems.value);
 
-const effectiveCategories = computed<ItemCategory[]>(() => {
-  if (props.categories.length > 0) return props.categories;
-  if (onlineItems.value.length > 0) {
-    const seen = new Set<string>();
-    return onlineItems.value
-      .filter((i) => i.itemCategoryCode && !seen.has(i.itemCategoryCode) && seen.add(i.itemCategoryCode))
-      .map((i) => ({ id: i.itemCategoryCode, code: i.itemCategoryCode, displayName: i.itemCategoryCode, lastModifiedDateTime: '' }));
-  }
-  return [];
-});
-
 const filteredItems = computed(() => {
   let src = effectiveItems.value;
-  if (selectedCat.value) {
-    src = src.filter((i) => i.itemCategoryCode === selectedCat.value);
-  }
   const q = searchQuery.value.trim().toUpperCase();
   if (q) {
     src = src.filter(
@@ -415,7 +383,7 @@ const displayItems = computed(() => {
 });
 
 // Reset to page 1 whenever the filtered set changes
-watch([searchQuery, selectedCat], () => { currentPage.value = 1; });
+watch(searchQuery, () => { currentPage.value = 1; });
 
 /* ─── Live prices ─── */
 // Keyed by item.number; seeded from the sync price-map, then filled on-demand.
@@ -521,16 +489,8 @@ const dedupedBcResults = computed(() => {
   return bcSearchResults.value.filter((i) => !localNos.has(i.number));
 });
 
-// Sync category filter from parent — but not while BC results are showing, because
-// the parent updates initialCategoryCode when an item is selected, which would
-// change selectedCat and immediately wipe the BC results the user is still browsing.
-watch(
-  () => props.initialCategoryCode,
-  (v) => { if (v && !bcSearchResults.value.length) selectedCat.value = v; },
-);
-
-// Clear BC results whenever the local search query or category changes
-watch([searchQuery, selectedCat], () => {
+// Clear BC results whenever the local search query changes
+watch(searchQuery, () => {
   clearBcResults();
 });
 
@@ -803,25 +763,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* ── Category chips ── */
-.category-scroll {
-  display: flex;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  gap: 6px;
-  padding: 10px 12px;
-  scrollbar-width: none;
-}
-.category-scroll::-webkit-scrollbar { display: none; }
-
-.cat-chip {
-  flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 600;
-  height: 28px;
-  margin: 0;
-}
-
 /* ── Barcode miss banner ── */
 .barcode-miss {
   display: flex;
