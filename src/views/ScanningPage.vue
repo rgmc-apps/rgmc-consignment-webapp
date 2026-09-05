@@ -754,6 +754,17 @@ function onItemModalClose() {
   refreshCache();
 }
 
+function applyLastCustomer() {
+  const lastId = StorageService.getLastCustomerId();
+  if (!lastId) return;
+  const match = cachedCustomers.value.find((c) => c.id === lastId);
+  if (match) {
+    sessionStore.setCustomer(match);
+    customerFlash.value = true;
+    setTimeout(() => { customerFlash.value = false; }, 450);
+  }
+}
+
 onMounted(async () => {
   /* Restore items from IndexedDB before checking cache — ensures items
      are available after a browser refresh even when offline. */
@@ -761,6 +772,11 @@ onMounted(async () => {
   refreshCache();
   if (!sessionStore.currentSession && authStore.brand && authStore.user) {
     sessionStore.startNewSession(authStore.brand, authStore.user, authStore.company?.code);
+  }
+  // Auto-select last customer after refreshCache() — covers first mount and the race
+  // where onIonViewWillEnter fired before customers were loaded.
+  if (sessionStore.currentSession && !sessionStore.currentSession.customer) {
+    applyLastCustomer();
   }
   const hadPriorSync = !!StorageService.getLastSync(
     authStore.company?.code ?? '',
@@ -780,15 +796,7 @@ onMounted(async () => {
 onIonViewWillEnter(() => {
   if (!sessionStore.currentSession && authStore.brand && authStore.user) {
     sessionStore.startNewSession(authStore.brand, authStore.user, authStore.company?.code);
-    const lastId = StorageService.getLastCustomerId();
-    if (lastId) {
-      const match = cachedCustomers.value.find((c) => c.id === lastId);
-      if (match) {
-        sessionStore.setCustomer(match);
-        customerFlash.value = true;
-        setTimeout(() => { customerFlash.value = false; }, 450);
-      }
-    }
+    applyLastCustomer();
   }
 });
 
