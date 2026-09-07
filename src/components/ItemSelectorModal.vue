@@ -327,7 +327,7 @@ import { StorageService } from '@/services/storage.service';
 import { formatCurrency } from '@/utils/format';
 import { useTheme } from '@/composables/useTheme';
 import { useAuthStore } from '@/stores/auth.store';
-import type { Item } from '@/types';
+import type { Item, ItemCategory } from '@/types';
 
 const { theme } = useTheme();
 const isMinimalist = computed(() => theme.value === 'minimalist');
