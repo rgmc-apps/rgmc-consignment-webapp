@@ -510,11 +510,22 @@ async function updateItemPrice(item: Item, event: Event) {
     const currentPrice = livePrices.value[item.number] ?? item.unitPriceIncVAT;
     const result = await ApiService.syncItemPrice(item.number, lookupDate.value);
 
-    if (result.updated && result.bcPrice !== null) {
-      livePrices.value[item.number] = result.bcPrice;
-      StorageService.patchCachedItemPrice(item.number, result.bcPrice);
-      priceCheckResult.value[item.number] = { old: currentPrice, new: result.bcPrice };
-      priceCheckState.value[item.number] = 'updated';
+    if (result.bcPrice !== null) {
+      const localDiffers = Math.abs(result.bcPrice - (currentPrice ?? 0)) >= 0.005;
+      if (localDiffers || result.updated) {
+        livePrices.value[item.number] = result.bcPrice;
+        StorageService.patchCachedItemPrice(item.number, result.bcPrice);
+        const cachedPrices = StorageService.getCachedItemPrices();
+        if (cachedPrices) {
+          StorageService.setCachedItemPrices(cachedPrices.date, {
+            ...cachedPrices.prices, [item.number]: result.bcPrice,
+          });
+        }
+        priceCheckResult.value[item.number] = { old: currentPrice, new: result.bcPrice };
+        priceCheckState.value[item.number] = 'updated';
+      } else {
+        priceCheckState.value[item.number] = 'same';
+      }
     } else {
       priceCheckState.value[item.number] = 'same';
     }
