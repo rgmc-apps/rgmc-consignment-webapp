@@ -51,9 +51,9 @@
       <ion-refresher slot="fixed" @ionRefresh="onPullRefresh($event)">
         <ion-refresher-content
           :pulling-icon="chevronDownCircleOutline"
-          :pulling-text="isOnline ? 'Pull to sync' : 'Offline — nothing to sync'"
+          :pulling-text="isOnline ? (sessionStore.hasLines ? 'Pull to update prices' : 'Pull to sync') : 'Offline — nothing to sync'"
           refreshing-spinner="crescent"
-          :refreshing-text="isOnline ? 'Syncing…' : 'Offline'"
+          :refreshing-text="isOnline ? (sessionStore.hasLines ? 'Updating prices…' : 'Syncing…') : 'Offline'"
         />
       </ion-refresher>
 
@@ -835,10 +835,71 @@ onBeforeRouteLeave(() => {
   sessionStore.autoSaveDraft();
 });
 
+async function refreshSessionPrices(): Promise<void> {
+  const allLines = [
+    ...sessionStore.salesOrders.map((l) => ({ line: l, type: 'sales' as const })),
+    ...sessionStore.returnOrders.map((l) => ({ line: l, type: 'returns' as const })),
+  ];
+  if (!allLines.length || !isOnline.value) return;
+
+  isUpdatingLinePrices.value = true;
+  try {
+    const allNos = [...new Set(allLines.map(({ line }) => line.itemNumber))];
+    const { priceMap } = await ApiService.getAllItemPricesForDate(orderDateValue.value, allNos);
+
+    let updatedCount = 0;
+    for (const { line, type } of allLines) {
+      const price = priceMap[line.itemNumber] ?? null;
+      if (price !== null && Math.abs(price - line.srp) >= 0.005) {
+        sessionStore.updateLineSrp(line.id, type, price);
+        updatedCount++;
+      }
+    }
+
+    // Also refresh the confirm sheet if an item is being added right now.
+    if (confirmItem.value) {
+      const price = priceMap[confirmItem.value.number] ?? null;
+      if (price !== null && Math.abs(price - confirmedSrp.value) >= 0.005) {
+        confirmedSrp.value = price;
+        form.srp = price;
+        priceRevealKey.value++;
+      }
+    }
+
+    // Patch both caches so subsequent lookups and modal re-opens get the correct price.
+    for (const [itemNo, price] of Object.entries(priceMap)) {
+      StorageService.patchCachedItemPrice(itemNo, price);
+    }
+    const existingPrices = StorageService.getCachedItemPrices();
+    if (existingPrices) {
+      StorageService.setCachedItemPrices(existingPrices.date, { ...existingPrices.prices, ...priceMap });
+    }
+    if (sessionPriceCache.value?.date === orderDateValue.value) {
+      sessionPriceCache.value = {
+        ...sessionPriceCache.value,
+        prices: { ...sessionPriceCache.value.prices, ...priceMap },
+      };
+    }
+
+    toast(
+      updatedCount > 0
+        ? `${updatedCount} ${updatedCount === 1 ? 'price' : 'prices'} updated.`
+        : 'All prices are up to date.',
+      updatedCount > 0 ? 'success' : 'medium',
+    );
+  } finally {
+    isUpdatingLinePrices.value = false;
+  }
+}
+
 async function onPullRefresh(ev: CustomEvent) {
   if (isOnline.value) {
-    await sync();
-    refreshCache();
+    if (sessionStore.hasLines) {
+      await refreshSessionPrices();
+    } else {
+      await sync();
+      refreshCache();
+    }
   }
   (ev.target as HTMLIonRefresherElement).complete();
 }
