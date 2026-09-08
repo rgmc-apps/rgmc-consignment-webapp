@@ -37,6 +37,19 @@
       </ion-header>
 
       <ion-content>
+        <ion-refresher
+          v-if="viewMode === 'list'"
+          slot="fixed"
+          @ionRefresh="onListRefresh($event)"
+        >
+          <ion-refresher-content
+            :pulling-icon="chevronDownCircleOutline"
+            :pulling-text="isOnline ? 'Pull to update prices' : 'Offline'"
+            refreshing-spinner="crescent"
+            :refreshing-text="isOnline ? 'Updating prices…' : 'Offline'"
+          />
+        </ion-refresher>
+
         <!-- ══════════════ LIST MODE ══════════════ -->
         <template v-if="viewMode === 'list'">
           <!-- Barcode not-found banner -->
@@ -327,6 +340,8 @@ import {
   IonNote,
   IonInput,
   IonSpinner,
+  IonRefresher,
+  IonRefresherContent,
 } from '@ionic/vue';
 import {
   closeOutline,
@@ -338,6 +353,7 @@ import {
   checkmarkCircleOutline,
   chevronBackOutline,
   chevronForwardOutline,
+  chevronDownCircleOutline,
   cloudDownloadOutline,
   syncOutline,
 } from 'ionicons/icons';
@@ -473,6 +489,37 @@ async function fetchMissingPrices(items: typeof displayItems.value) {
     }
   } finally {
     isFetchingPrices.value = false;
+  }
+}
+
+async function onListRefresh(ev: CustomEvent) {
+  if (!props.isOnline) {
+    (ev.target as HTMLIonRefresherElement).complete();
+    return;
+  }
+  isFetchingPrices.value = true;
+  try {
+    const allItems = effectiveItems.value;
+    if (allItems.length) {
+      const { priceMap } = await ApiService.getAllItemPricesForDate(
+        lookupDate.value,
+        allItems.map((i) => i.number),
+        undefined,
+        undefined,
+        props.familyCode,
+      );
+      for (const [itemNo, price] of Object.entries(priceMap)) {
+        livePrices.value[itemNo] = price;
+      }
+      const existing = StorageService.getCachedItemPrices();
+      StorageService.setCachedItemPrices(
+        lookupDate.value,
+        { ...(existing?.prices ?? {}), ...priceMap },
+      );
+    }
+  } finally {
+    isFetchingPrices.value = false;
+    (ev.target as HTMLIonRefresherElement).complete();
   }
 }
 
