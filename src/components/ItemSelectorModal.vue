@@ -91,7 +91,25 @@
                   v-if="isFetchingPrices && livePrices[item.number] === undefined"
                   class="price-skeleton"
                 />
-                <template v-else>{{ formatCurrency(livePrices[item.number] ?? item.unitPriceIncVAT) }}</template>
+                <template v-else>
+                  <span :class="{ 'price-updated': priceCheckState[item.number] === 'updated' }">
+                    {{ formatCurrency(livePrices[item.number] ?? item.unitPriceIncVAT) }}
+                  </span>
+                  <ion-button
+                    v-if="props.isOnline"
+                    fill="clear"
+                    size="small"
+                    class="price-sync-btn"
+                    :disabled="priceCheckState[item.number] === 'loading'"
+                    @click="updateItemPrice(item, $event)"
+                  >
+                    <ion-spinner v-if="priceCheckState[item.number] === 'loading'" name="lines-small" slot="icon-only" class="price-sync-spinner" />
+                    <ion-icon v-else-if="priceCheckState[item.number] === 'updated'" :icon="checkmarkCircleOutline" color="success" slot="icon-only" />
+                    <ion-icon v-else-if="priceCheckState[item.number] === 'same'" :icon="checkmarkCircleOutline" color="medium" slot="icon-only" />
+                    <ion-icon v-else-if="priceCheckState[item.number] === 'error'" :icon="alertCircleOutline" color="danger" slot="icon-only" />
+                    <ion-icon v-else :icon="syncOutline" slot="icon-only" class="price-sync-icon" />
+                  </ion-button>
+                </template>
               </ion-note>
             </ion-item>
           </ion-list>
@@ -321,6 +339,7 @@ import {
   chevronBackOutline,
   chevronForwardOutline,
   cloudDownloadOutline,
+  syncOutline,
 } from 'ionicons/icons';
 import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
@@ -473,6 +492,40 @@ watch(lookupDate, (newDate) => {
 
 function handleSelect(item: Item) {
   emit('select', item);
+}
+
+/* ─── Update Price ─── */
+type PriceCheckState = 'loading' | 'same' | 'updated' | 'error';
+const priceCheckState = ref<Record<string, PriceCheckState>>({});
+const priceCheckResult = ref<Record<string, { old: number; new: number } | null>>({});
+
+async function updateItemPrice(item: Item, event: Event) {
+  event.stopPropagation();
+  if (priceCheckState.value[item.number] === 'loading') return;
+
+  priceCheckState.value[item.number] = 'loading';
+  priceCheckResult.value[item.number] = null;
+
+  try {
+    const currentPrice = livePrices.value[item.number] ?? item.unitPriceIncVAT;
+    const result = await ApiService.syncItemPrice(item.number, lookupDate.value);
+
+    if (result.updated && result.bcPrice !== null) {
+      livePrices.value[item.number] = result.bcPrice;
+      StorageService.patchCachedItemPrice(item.number, result.bcPrice);
+      priceCheckResult.value[item.number] = { old: currentPrice, new: result.bcPrice };
+      priceCheckState.value[item.number] = 'updated';
+    } else {
+      priceCheckState.value[item.number] = 'same';
+    }
+  } catch {
+    priceCheckState.value[item.number] = 'error';
+  }
+
+  setTimeout(() => {
+    delete priceCheckState.value[item.number];
+    delete priceCheckResult.value[item.number];
+  }, 3000);
 }
 
 /* ─── Business Central search ─── */
@@ -796,8 +849,33 @@ onUnmounted(() => {
 }
 
 .item-price {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   font-size: 14px;
   font-weight: 700;
+}
+
+.price-updated {
+  color: var(--ion-color-success);
+  transition: color 0.3s ease;
+}
+
+.price-sync-btn {
+  --padding-start: 2px;
+  --padding-end: 2px;
+  height: 28px;
+  min-width: 28px;
+}
+
+.price-sync-icon {
+  font-size: 14px;
+  opacity: 0.45;
+}
+
+.price-sync-spinner {
+  width: 14px;
+  height: 14px;
 }
 
 /* ── Pagination ── */

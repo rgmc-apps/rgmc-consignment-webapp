@@ -536,6 +536,22 @@ export const ApiService = {
     return rows.map(mapItemRow).filter((i) => Boolean(i.number));
   },
 
+  async syncItemPrice(productNo: string, onDate: string): Promise<{
+    productNo: string;
+    bcPrice: number | null;
+    bcPriceListCode: string | null;
+    firestorePrice: number | null;
+    updated: boolean;
+    message: string;
+  }> {
+    const res = await apiClient.post(
+      `/bc/custom/v3/item-prices/${encodeURIComponent(productNo)}/sync`,
+      null,
+      { params: { on_date: onDate }, timeout: 30_000 },
+    );
+    return res.data;
+  },
+
   async getActiveItemPrice(productNo: string, onDate: string): Promise<{ price: number | null; priceListCode: string | null }> {
     try {
       const res = await apiClient.get('/bc/custom/v3/item-prices', {
