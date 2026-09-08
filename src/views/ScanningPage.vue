@@ -515,12 +515,29 @@
                   <span class="conf-srp-label">Fetching price…</span>
                 </span>
                 <span v-else :key="priceRevealKey" class="conf-srp-value">
-                  {{ formatCurrency(confirmedSrp) }} <span class="conf-srp-label">SRP</span>
+                  <span :class="{ 'conf-price-updated': confirmPriceCheckState === 'updated' }">
+                    {{ formatCurrency(confirmedSrp) }}
+                  </span>
+                  <span class="conf-srp-label">SRP</span>
                   <button
                     v-if="confirmedPriceListCode"
                     class="price-list-code price-list-code--btn"
                     @click.stop="showPriceListInfo(confirmedPriceListCode)"
                   >{{ confirmedPriceListCode }}</button>
+                  <ion-button
+                    v-if="isOnline"
+                    fill="clear"
+                    size="small"
+                    class="conf-price-sync-btn"
+                    :disabled="confirmPriceCheckState === 'loading' || fetchingPrice"
+                    @click.stop="updateConfirmPrice"
+                  >
+                    <ion-spinner v-if="confirmPriceCheckState === 'loading'" name="lines-small" slot="icon-only" class="price-sync-spinner" />
+                    <ion-icon v-else-if="confirmPriceCheckState === 'updated'" :icon="checkmarkCircleOutline" color="success" slot="icon-only" />
+                    <ion-icon v-else-if="confirmPriceCheckState === 'same'" :icon="checkmarkCircleOutline" color="medium" slot="icon-only" />
+                    <ion-icon v-else-if="confirmPriceCheckState === 'error'" :icon="alertCircleOutline" color="danger" slot="icon-only" />
+                    <ion-icon v-else :icon="syncOutline" slot="icon-only" class="price-sync-icon" />
+                  </ion-button>
                 </span>
               </Transition>
             </p>
@@ -681,6 +698,7 @@ import {
   cartOutline,
   storefrontOutline,
   checkmarkOutline,
+  checkmarkCircleOutline,
   closeOutline,
   arrowForwardOutline,
   saveOutline,
@@ -880,8 +898,9 @@ watch(isSyncing, (active) => {
 });
 
 onUnmounted(() => {
-  if (syncMsgTimer)  { clearInterval(syncMsgTimer);  syncMsgTimer  = null; }
-  if (syncSlowTimer) { clearTimeout(syncSlowTimer);  syncSlowTimer = null; }
+  if (syncMsgTimer)      { clearInterval(syncMsgTimer);      syncMsgTimer      = null; }
+  if (syncSlowTimer)     { clearTimeout(syncSlowTimer);      syncSlowTimer     = null; }
+  if (_confirmPriceTimer){ clearTimeout(_confirmPriceTimer); _confirmPriceTimer = null; }
 });
 
 const syncMainMsg = computed(() => syncMessages[syncMsgIndex.value].main);
@@ -979,6 +998,10 @@ const fetchingPrice = ref(false);
 const isUpdatingLinePrices = ref(false);
 const priceRevealKey = ref(0);
 
+type PriceCheckState = 'loading' | 'same' | 'updated' | 'error';
+const confirmPriceCheckState = ref<PriceCheckState | null>(null);
+let _confirmPriceTimer: ReturnType<typeof setTimeout> | null = null;
+
 // In-memory price cache for the current session date — populated once by prefetchAllPrices
 // so that each item scan is served from memory instead of triggering a per-item API call.
 const sessionPriceCache = ref<{
@@ -1023,7 +1046,14 @@ async function lookupPrice(itemNumber: string, onDate: string): Promise<{ price:
     if (sessionPriceCache.value?.date === onDate) {
       const price = sessionPriceCache.value.prices[itemNumber] ?? null;
       const priceListCode = sessionPriceCache.value.priceListCodes[itemNumber] ?? null;
-      if (price !== null) return { price, priceListCode };
+      if (price !== null) {
+        // Cross-check localStorage — the Update Price sync may have corrected this item
+        // after the session cache was populated from the GCS catalog.
+        const ls = StorageService.getCachedItemPrices();
+        const lsPrice = ls?.date === onDate ? (ls.prices[itemNumber] ?? null) : null;
+        const resolvedPrice = (lsPrice !== null && Math.abs(lsPrice - price) >= 0.005) ? lsPrice : price;
+        return { price: resolvedPrice, priceListCode };
+      }
     }
     return ApiService.getActiveItemPrice(itemNumber, onDate);
   }
@@ -1033,6 +1063,43 @@ async function lookupPrice(itemNumber: string, onDate: string): Promise<{ price:
   const cachedPrice = cached?.prices[itemNumber] ?? null;
   const itemPriceListCode = cachedItems.value.find((i) => i.number === itemNumber)?.priceListCode ?? null;
   return { price: cachedPrice, priceListCode: itemPriceListCode };
+}
+
+async function updateConfirmPrice() {
+  if (!confirmItem.value || confirmPriceCheckState.value === 'loading') return;
+  if (_confirmPriceTimer) { clearTimeout(_confirmPriceTimer); _confirmPriceTimer = null; }
+  confirmPriceCheckState.value = 'loading';
+  try {
+    const currentPrice = confirmedSrp.value;
+    const result = await ApiService.syncItemPrice(confirmItem.value.number, orderDateValue.value);
+    if (result.bcPrice !== null) {
+      const localDiffers = Math.abs(result.bcPrice - currentPrice) >= 0.005;
+      if (localDiffers || result.updated) {
+        confirmedSrp.value = result.bcPrice;
+        form.srp = result.bcPrice;
+        priceRevealKey.value++;
+        // Keep sessionPriceCache coherent so future item selects use the corrected price.
+        if (sessionPriceCache.value?.date === orderDateValue.value) {
+          sessionPriceCache.value.prices[confirmItem.value.number] = result.bcPrice;
+        }
+        StorageService.patchCachedItemPrice(confirmItem.value.number, result.bcPrice);
+        const cachedPrices = StorageService.getCachedItemPrices();
+        if (cachedPrices) {
+          StorageService.setCachedItemPrices(cachedPrices.date, {
+            ...cachedPrices.prices, [confirmItem.value.number]: result.bcPrice,
+          });
+        }
+        confirmPriceCheckState.value = 'updated';
+      } else {
+        confirmPriceCheckState.value = 'same';
+      }
+    } else {
+      confirmPriceCheckState.value = 'same';
+    }
+  } catch {
+    confirmPriceCheckState.value = 'error';
+  }
+  _confirmPriceTimer = setTimeout(() => { confirmPriceCheckState.value = null; }, 3000);
 }
 
 async function fetchActivePrice(itemNumber: string, onDate: string): Promise<void> {
@@ -1217,6 +1284,8 @@ function onItemSelected(item: Item) {
   confirmQty.value = 1;
   confirmDiscountType.value = 'percent';
   confirmDiscountValue.value = 0;
+  if (_confirmPriceTimer) { clearTimeout(_confirmPriceTimer); _confirmPriceTimer = null; }
+  confirmPriceCheckState.value = null;
   showConfirmModal.value = true;
   fetchActivePrice(item.number, orderDateValue.value);
 }
@@ -2164,8 +2233,21 @@ async function showPriceListInfo(code: string) {
 .conf-srp-loading,
 .conf-srp-value {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 4px;
+}
+
+.conf-price-updated {
+  color: var(--ion-color-success);
+  transition: color 0.3s ease;
+}
+
+.conf-price-sync-btn {
+  --padding-start: 2px;
+  --padding-end: 2px;
+  height: 28px;
+  min-width: 28px;
+  margin-left: 2px;
 }
 
 .srp-spinner { margin-right: 4px; vertical-align: middle; }
