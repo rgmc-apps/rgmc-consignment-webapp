@@ -1180,17 +1180,32 @@ async function updateConfirmPrice() {
 async function fetchActivePrice(itemNumber: string, onDate: string): Promise<void> {
   fetchingPrice.value = true;
   try {
-    const { price, priceListCode } = await lookupPrice(itemNumber, onDate);
-    const resolved = price ?? confirmItem.value?.unitPriceIncVAT ?? 0;
-    confirmedSrp.value = resolved;
-    form.srp = resolved;
-    priceRevealKey.value++;
-    if (priceListCode !== null) {
-      form.priceListCode = priceListCode;
-      confirmedPriceListCode.value = priceListCode;
-    }
-    if (price !== null && isOnline.value) {
-      StorageService.patchCachedItemPrice(itemNumber, price);
+    if (isOnline.value) {
+      // Sync directly from BC — bypasses stale sessionPriceCache and GCS overlay.
+      const result = await ApiService.syncItemPrice(itemNumber, onDate);
+      if (result.bcPrice !== null) {
+        confirmedSrp.value = result.bcPrice;
+        form.srp = result.bcPrice;
+        priceRevealKey.value++;
+        if (result.bcPriceListCode !== null) {
+          form.priceListCode = result.bcPriceListCode;
+          confirmedPriceListCode.value = result.bcPriceListCode;
+        }
+        StorageService.patchCachedItemPrice(itemNumber, result.bcPrice);
+        if (sessionPriceCache.value?.date === onDate) {
+          sessionPriceCache.value.prices[itemNumber] = result.bcPrice;
+        }
+      }
+    } else {
+      const { price, priceListCode } = await lookupPrice(itemNumber, onDate);
+      const resolved = price ?? confirmItem.value?.unitPriceIncVAT ?? 0;
+      confirmedSrp.value = resolved;
+      form.srp = resolved;
+      priceRevealKey.value++;
+      if (priceListCode !== null) {
+        form.priceListCode = priceListCode;
+        confirmedPriceListCode.value = priceListCode;
+      }
     }
   } finally {
     fetchingPrice.value = false;
@@ -1248,7 +1263,7 @@ watch(orderDateValue, async (newDate) => {
     return;
   }
 
-  // No cached prices for this date — fetch from API.
+  // No cached prices for this date — sync each item directly from BC.
   _dateWatchAbort?.abort();
   _dateWatchAbort = new AbortController();
   const { signal } = _dateWatchAbort;
@@ -1259,7 +1274,23 @@ watch(orderDateValue, async (newDate) => {
   isUpdatingLinePrices.value = true;
   let updatedCount = 0;
   try {
-    const { priceMap, priceListMap } = await ApiService.getAllItemPricesForDate(newDate, allNos, signal);
+    const priceMap: Record<string, number> = {};
+    const priceListMap: Record<string, string | null> = {};
+    const CONCURRENCY = 5;
+    const queue = [...allNos];
+    const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+      while (queue.length && !signal.aborted) {
+        const no = queue.shift()!;
+        try {
+          const result = await ApiService.syncItemPrice(no, newDate);
+          if (signal.aborted) break;
+          if (result.bcPrice !== null) priceMap[no] = result.bcPrice;
+          if (result.bcPriceListCode !== null) priceListMap[no] = result.bcPriceListCode;
+        } catch { /* per-item failure is non-fatal */ }
+      }
+    });
+    await Promise.all(workers);
+    if (signal.aborted) return;
 
     if (hasFormItem) {
       const price = priceMap[form.itemNumber] ?? null;
@@ -1281,6 +1312,14 @@ watch(orderDateValue, async (newDate) => {
       }
     }
 
+    // Keep sessionPriceCache and localStorage coherent for future lookups.
+    const existingPrices = StorageService.getCachedItemPrices();
+    StorageService.setCachedItemPrices(newDate, { ...(existingPrices?.prices ?? {}), ...priceMap });
+    const scWatcher = sessionPriceCache.value as { date: string; prices: Record<string, number>; priceListCodes: Record<string, string | null> } | null;
+    if (scWatcher !== null && scWatcher.date === newDate) {
+      sessionPriceCache.value = { ...scWatcher, prices: { ...scWatcher.prices, ...priceMap } };
+    }
+
     if (updatedCount > 0) {
       const t = await toastController.create({
         message: `${updatedCount} ${updatedCount === 1 ? 'item price' : 'item prices'} updated for ${newDate}.`,
@@ -1293,7 +1332,7 @@ watch(orderDateValue, async (newDate) => {
     // Warm the full session cache in the background for future item scans.
     prefetchAllPrices(newDate);
   } catch (err) {
-    if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) return;
+    if (signal.aborted || (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError'))) return;
     throw err;
   } finally {
     isUpdatingLinePrices.value = false;
@@ -1318,7 +1357,19 @@ watch(isOnline, async (online, wasOnline) => {
           const hasFormItem = !!form.itemNumber;
           const lineNos = allLines.map(({ line }) => line.itemNumber);
           const allNos = [...new Set(hasFormItem ? [form.itemNumber, ...lineNos] : lineNos)];
-          const { priceMap } = await ApiService.getAllItemPricesForDate(orderDateValue.value, allNos);
+          const priceMap: Record<string, number> = {};
+          const CONCURRENCY = 5;
+          const queue = [...allNos];
+          const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+            while (queue.length) {
+              const no = queue.shift()!;
+              try {
+                const result = await ApiService.syncItemPrice(no, orderDateValue.value);
+                if (result.bcPrice !== null) priceMap[no] = result.bcPrice;
+              } catch { /* per-item failure is non-fatal */ }
+            }
+          });
+          await Promise.all(workers);
           if (hasFormItem) {
             const price = priceMap[form.itemNumber] ?? null;
             if (price !== null) {
@@ -1333,6 +1384,12 @@ watch(isOnline, async (online, wasOnline) => {
               sessionStore.updateLineSrp(line.id, type, price);
               StorageService.patchCachedItemPrice(line.itemNumber, price);
             }
+          }
+          const existingPrices = StorageService.getCachedItemPrices();
+          StorageService.setCachedItemPrices(orderDateValue.value, { ...(existingPrices?.prices ?? {}), ...priceMap });
+          const sc = sessionPriceCache.value;
+          if (sc !== null && sc.date === orderDateValue.value) {
+            sessionPriceCache.value = { ...sc, prices: { ...sc.prices, ...priceMap } };
           }
         },
       },
