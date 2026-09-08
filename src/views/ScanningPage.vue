@@ -845,7 +845,21 @@ async function refreshSessionPrices(): Promise<void> {
   isUpdatingLinePrices.value = true;
   try {
     const allNos = [...new Set(allLines.map(({ line }) => line.itemNumber))];
-    const { priceMap } = await ApiService.getAllItemPricesForDate(orderDateValue.value, allNos);
+    const priceMap: Record<string, number> = {};
+
+    // Sync each session item directly from BC — bypasses GCS/price-list cache staleness.
+    const queue = [...allNos];
+    const CONCURRENCY = 5;
+    const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+      while (queue.length) {
+        const no = queue.shift()!;
+        try {
+          const result = await ApiService.syncItemPrice(no, orderDateValue.value);
+          if (result.bcPrice !== null) priceMap[no] = result.bcPrice;
+        } catch { /* per-item failure is non-fatal */ }
+      }
+    });
+    await Promise.all(workers);
 
     let updatedCount = 0;
     for (const { line, type } of allLines) {

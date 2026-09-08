@@ -508,35 +508,50 @@ async function onListRefresh(ev: CustomEvent) {
     const allItems = effectiveItems.value;
     if (!allItems.length) return;
 
-    const fetchAndApply = async (items: typeof allItems) => {
-      const { priceMap } = await ApiService.getAllItemPricesForDate(
-        lookupDate.value,
-        items.map((i) => i.number),
-        undefined,
-        undefined,
-        props.familyCode,
-      );
-      for (const [itemNo, price] of Object.entries(priceMap)) {
-        livePrices.value[itemNo] = price;
-      }
-      const existing = StorageService.getCachedItemPrices();
-      StorageService.setCachedItemPrices(lookupDate.value, { ...(existing?.prices ?? {}), ...priceMap });
+    // Sync visible items directly from BC via the sync endpoint — bypasses GCS cache staleness.
+    // Concurrency-limited so we don't flood the BC API.
+    const CONCURRENCY = 5;
+    const syncItems = async (items: typeof allItems): Promise<Record<string, number>> => {
+      const queue = items.map((i) => i.number);
+      const priceMap: Record<string, number> = {};
+      const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+        while (queue.length) {
+          const no = queue.shift()!;
+          try {
+            const result = await ApiService.syncItemPrice(no, lookupDate.value);
+            if (result.bcPrice !== null) {
+              livePrices.value[no] = result.bcPrice;
+              priceMap[no] = result.bcPrice;
+            }
+          } catch { /* per-item failure is non-fatal */ }
+        }
+      });
+      await Promise.all(workers);
+      return priceMap;
     };
 
     const visibleItems = displayItems.value;
+    const visiblePriceMap = await syncItems(visibleItems);
+    if (Object.keys(visiblePriceMap).length) {
+      const existing = StorageService.getCachedItemPrices();
+      StorageService.setCachedItemPrices(lookupDate.value, { ...(existing?.prices ?? {}), ...visiblePriceMap });
+    }
 
+    // Release the pull-to-refresh spinner once visible items are done.
+    completeRefresher();
+
+    // Background: update remaining (non-visible) items via bulk endpoint.
     if (visibleItems.length < allItems.length) {
-      // Search is active or user is on a page beyond the first —
-      // fetch the visible items first so prices update immediately,
-      // then release the pull-to-refresh spinner and fetch the rest.
       const visibleNos = new Set(visibleItems.map((i) => i.number));
-      await fetchAndApply(visibleItems);
-      completeRefresher();
       const restItems = allItems.filter((i) => !visibleNos.has(i.number));
-      if (restItems.length) await fetchAndApply(restItems);
-    } else {
-      // All items are already visible — single fetch.
-      await fetchAndApply(allItems);
+      if (restItems.length) {
+        const { priceMap: restMap } = await ApiService.getAllItemPricesForDate(
+          lookupDate.value, restItems.map((i) => i.number), undefined, undefined, props.familyCode,
+        );
+        for (const [no, price] of Object.entries(restMap)) livePrices.value[no] = price;
+        const existing = StorageService.getCachedItemPrices();
+        StorageService.setCachedItemPrices(lookupDate.value, { ...(existing?.prices ?? {}), ...restMap });
+      }
     }
   } finally {
     completeRefresher();
