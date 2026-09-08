@@ -497,13 +497,21 @@ async function onListRefresh(ev: CustomEvent) {
     (ev.target as HTMLIonRefresherElement).complete();
     return;
   }
+  const refresher = ev.target as HTMLIonRefresherElement;
+  let refresherDone = false;
+  const completeRefresher = () => {
+    if (!refresherDone) { refresherDone = true; refresher.complete(); }
+  };
+
   isFetchingPrices.value = true;
   try {
     const allItems = effectiveItems.value;
-    if (allItems.length) {
+    if (!allItems.length) return;
+
+    const fetchAndApply = async (items: typeof allItems) => {
       const { priceMap } = await ApiService.getAllItemPricesForDate(
         lookupDate.value,
-        allItems.map((i) => i.number),
+        items.map((i) => i.number),
         undefined,
         undefined,
         props.familyCode,
@@ -512,14 +520,27 @@ async function onListRefresh(ev: CustomEvent) {
         livePrices.value[itemNo] = price;
       }
       const existing = StorageService.getCachedItemPrices();
-      StorageService.setCachedItemPrices(
-        lookupDate.value,
-        { ...(existing?.prices ?? {}), ...priceMap },
-      );
+      StorageService.setCachedItemPrices(lookupDate.value, { ...(existing?.prices ?? {}), ...priceMap });
+    };
+
+    const visibleItems = displayItems.value;
+
+    if (visibleItems.length < allItems.length) {
+      // Search is active or user is on a page beyond the first —
+      // fetch the visible items first so prices update immediately,
+      // then release the pull-to-refresh spinner and fetch the rest.
+      const visibleNos = new Set(visibleItems.map((i) => i.number));
+      await fetchAndApply(visibleItems);
+      completeRefresher();
+      const restItems = allItems.filter((i) => !visibleNos.has(i.number));
+      if (restItems.length) await fetchAndApply(restItems);
+    } else {
+      // All items are already visible — single fetch.
+      await fetchAndApply(allItems);
     }
   } finally {
+    completeRefresher();
     isFetchingPrices.value = false;
-    (ev.target as HTMLIonRefresherElement).complete();
   }
 }
 
