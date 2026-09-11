@@ -750,9 +750,10 @@ export const ApiService = {
     });
   },
 
-  async getSessionHistory(companyCode: string, userId?: string, limit = 100): Promise<import('@/types').ScanSession[]> {
+  async getSessionHistory(companyCode: string, userId?: string, userNumber?: string, limit = 100): Promise<import('@/types').ScanSession[]> {
     const params: Record<string, string | number> = { company_code: companyCode, limit };
     if (userId) params.user_id = userId;
+    if (userNumber) params.user_number = userNumber;
     const res = await apiClient.get('/session-history', { params });
     const rows = extractList<Record<string, unknown>>(res.data);
     return rows.map((r) => ({

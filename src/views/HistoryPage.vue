@@ -608,7 +608,7 @@ async function loadFirestoreHistory() {
   if (!auth || !company) return;
   firestoreLoading.value = true;
   try {
-    const records = await ApiService.getSessionHistory(company.code, auth.user.id);
+    const records = await ApiService.getSessionHistory(company.code, auth.user.id, auth.user.number);
     firestoreSessions.value = records;
   } catch {
     // non-fatal — local history still shows
