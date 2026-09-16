@@ -676,13 +676,23 @@ onMounted(() => {
 });
 
 /** Merge Firestore records with local sessions, deduplicated by id.
- *  Local sessions take precedence (they may be more up to date for retries). */
+ *  Local sessions take precedence (they may be more up to date for retries).
+ *  Sorted so the currently logged-in brand's sessions come first as a group (a rep
+ *  usually only cares about their current brand's orders), with everything — the
+ *  current brand's group and the rest — sorted newest-first within its group. Nothing
+ *  is hidden; other brands still show further down the list. */
 const mergedSessions = computed<ScanSession[]>(() => {
   const localIds = new Set(sessionStore.completedSessions.map((s) => s.id));
   const fromFirestore = firestoreSessions.value.filter((s) => !localIds.has(s.id));
-  return [...sessionStore.completedSessions, ...fromFirestore].sort(
-    (a, b) => (b.submittedAt ?? b.createdAt) > (a.submittedAt ?? a.createdAt) ? 1 : -1,
-  );
+  const currentBrand = StorageService.getAuth()?.brand?.code;
+  return [...sessionStore.completedSessions, ...fromFirestore].sort((a, b) => {
+    if (currentBrand) {
+      const aCurrent = a.brand.code === currentBrand;
+      const bCurrent = b.brand.code === currentBrand;
+      if (aCurrent !== bCurrent) return aCurrent ? -1 : 1;
+    }
+    return (b.submittedAt ?? b.createdAt) > (a.submittedAt ?? a.createdAt) ? 1 : -1;
+  });
 });
 
 async function onPullRefresh(ev: CustomEvent) {
