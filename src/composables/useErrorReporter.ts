@@ -7,13 +7,17 @@ export interface ReportContext {
   error?: unknown;
   context?: string;
   payload?: unknown;
+  /** Replaces the generic "[RGMC Consignment App Bug Report]" first line, so the
+   *  pre-filled report reads with a specific headline (e.g. "Slow Loading of Item
+   *  Prices") instead of a generic one. */
+  title?: string;
 }
 
 export function useErrorReporter() {
-  function openReport({ error, context, payload }: ReportContext = {}): void {
+  function openReport({ error, context, payload, title }: ReportContext = {}): void {
     const authStore = useAuthStore();
 
-    const lines: string[] = ['[RGMC Consignment App Bug Report]'];
+    const lines: string[] = [title ? `[RGMC Consignment App] ${title}` : '[RGMC Consignment App Bug Report]'];
     lines.push(`Time     : ${new Date().toISOString()}`);
 
     if (authStore.user?.displayName) lines.push(`User     : ${authStore.user.displayName}`);

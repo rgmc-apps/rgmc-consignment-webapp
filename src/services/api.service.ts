@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { useSlowLoadingWatcher } from '@/composables/useSlowLoadingWatcher';
 
 /** Richer error that preserves HTTP status + endpoint for bug reports. */
 export class ApiError extends Error {
@@ -47,16 +48,23 @@ export function setApiCompany(name: string | null): void {
   _companyName = name;
 }
 
+const { onRequestStart, onRequestEnd } = useSlowLoadingWatcher();
+
 apiClient.interceptors.request.use((config) => {
   if (_companyName && config.url?.startsWith('/bc/')) {
     config.params = { ...config.params, company: _companyName };
   }
+  onRequestStart(config.url ?? 'unknown');
   return config;
 });
 
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    onRequestEnd();
+    return response;
+  },
   (error) => {
+    onRequestEnd();
     const message: string =
       error.response?.data?.detail ||
       error.response?.data?.message ||
