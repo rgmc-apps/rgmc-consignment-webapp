@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import bcrypt from 'bcryptjs';
+import { loadBcrypt } from '@/utils/bcrypt';
 import type { Brand, Company, Contact } from '@/types';
 import { ApiService, setApiCompany } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
@@ -137,6 +137,7 @@ export const useAuthStore = defineStore('auth', () => {
           return false;
         }
         if (!await checkBrandAccess(candidate.id, selectedBrand)) return false;
+        const bcrypt = await loadBcrypt();
         const hash = await bcrypt.hash(typedPlain, 10);
         const upgraded = { ...candidate, passwordHash: hash };
         const all = StorageService.getCachedContacts();
@@ -155,6 +156,7 @@ export const useAuthStore = defineStore('auth', () => {
       }
 
       // Bcrypt hash — verify login and check for default password concurrently
+      const bcrypt = await loadBcrypt();
       const [passwordValid, isDefaultPassword] = await Promise.all([
         bcrypt.compare(password, candidate.passwordHash),
         bcrypt.compare('12345678', candidate.passwordHash),
@@ -193,6 +195,7 @@ export const useAuthStore = defineStore('auth', () => {
     if (!pendingSetupData.value) return;
     const { contact: c } = pendingSetupData.value;
 
+    const bcrypt = await loadBcrypt();
     const hash = await bcrypt.hash(newPassword, 10);
     const updated: Contact = { ...c, passwordHash: hash };
 

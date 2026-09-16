@@ -1094,14 +1094,28 @@ const confirmTotal = computed(() =>
   ),
 );
 
-// Bulk-fetches all item prices for the given date and stores them in sessionPriceCache.
-// Called once on mount (and after each sync / date change) so subsequent item scans
-// are served from memory without a per-item round-trip.
+// Populates sessionPriceCache for the given date so item scans are served from memory.
+//
+// For today's date the price map written by the last sync is already on the device, so
+// it is used directly and only a cheap delta request (items whose price or details
+// changed since that sync) goes to the server. Re-downloading the whole family catalog
+// here — the old behaviour — was the single heaviest call the app made, on every visit
+// to this tab. Other posting dates still need the full date-specific fetch.
 async function prefetchAllPrices(date: string): Promise<void> {
   if (!isOnline.value) return;
   const familyCode = authStore.brand?.code;
   const allNos = cachedItems.value.map((i) => i.number);
   if (!familyCode && !allNos.length) return;
+
+  const local = StorageService.getCachedItemPrices();
+  if (local?.date === date && Object.keys(local.prices).length) {
+    const priceListCodes: Record<string, string | null> = {};
+    for (const item of cachedItems.value) priceListCodes[item.number] = item.priceListCode ?? null;
+    sessionPriceCache.value = { date, prices: { ...local.prices }, priceListCodes };
+    void refreshChangedPrices(date, familyCode);
+    return;
+  }
+
   try {
     const { priceMap, priceListMap } = await ApiService.getAllItemPricesForDate(
       date, allNos, undefined, undefined, familyCode,
@@ -1109,6 +1123,34 @@ async function prefetchAllPrices(date: string): Promise<void> {
     sessionPriceCache.value = { date, prices: priceMap, priceListCodes: priceListMap };
   } catch {
     // non-fatal — lookupPrice will fall back to per-item API call on cache miss
+  }
+}
+
+// Pulls only the items changed since the last sync (a few KB) and merges them into the
+// local caches and sessionPriceCache. Price-list-driven price changes are included:
+// the server stamps priceChangedAt on those records.
+async function refreshChangedPrices(date: string, familyCode?: string): Promise<void> {
+  const company = authStore.company?.code ?? '';
+  const brand = authStore.brand?.code ?? '';
+  if (!company || !brand || !familyCode) return;
+  const since = StorageService.getSyncTimestamps(company, brand).items;
+  if (!since) return;
+  try {
+    const { items, priceMap } = await ApiService.getItemsForDate(date, familyCode, undefined, 30_000, since);
+    if (!items.length) return;
+    StorageService.mergeCachedItems(items, brand);
+    const existing = StorageService.getCachedItemPrices();
+    StorageService.setCachedItemPrices(date, { ...(existing?.prices ?? {}), ...priceMap });
+    StorageService.setSyncTimestamp('items', company, brand);
+    refreshCache();
+    if (sessionPriceCache.value?.date === date) {
+      for (const item of items) {
+        sessionPriceCache.value.prices[item.number] = item.unitPriceIncVAT;
+        sessionPriceCache.value.priceListCodes[item.number] = item.priceListCode ?? null;
+      }
+    }
+  } catch {
+    // Advisory refresh — the cached prices remain in use.
   }
 }
 

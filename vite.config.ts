@@ -46,6 +46,22 @@ export default defineConfig(({ mode }) => {
       __APP_VERSION__: JSON.stringify(version),
       __APP_BUILD__:   JSON.stringify(getBuildTimestamp()),
     },
+    build: {
+      // Framework code changes far less often than app code. Keeping it in its own
+      // hashed chunk means a deploy only invalidates the (small) app chunks in the
+      // browser/service-worker cache instead of the whole 1.3 MB bundle.
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+            if (id.includes('/bcryptjs/')) return undefined; // stays a lazy chunk (login only)
+            if (id.includes('/@ionic/') || id.includes('/ionicons/')) return 'ionic';
+            if (id.includes('/vue') || id.includes('/pinia/') || id.includes('/@vue/')) return 'vue';
+            return 'vendor';
+          },
+        },
+      },
+    },
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),

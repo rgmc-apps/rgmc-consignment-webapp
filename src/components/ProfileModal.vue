@@ -190,7 +190,7 @@ import {
   alertCircleOutline,
   cameraOutline,
 } from 'ionicons/icons';
-import bcrypt from 'bcryptjs';
+import { loadBcrypt } from '@/utils/bcrypt';
 import { useAuthStore } from '@/stores/auth.store';
 import { ApiService } from '@/services/api.service';
 import UserAvatar from '@/components/UserAvatar.vue';
@@ -268,6 +268,7 @@ async function savePassword() {
   if (!pwIsValid.value || isSavingPw.value) return;
   isSavingPw.value = true;
   try {
+    const bcrypt = await loadBcrypt();
     const hash = await bcrypt.hash(newPassword.value, 10);
     authStore.updateUser({ passwordHash: hash });
     newPassword.value = '';
