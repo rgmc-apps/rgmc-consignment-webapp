@@ -71,6 +71,37 @@
         />
       </ion-refresher>
 
+      <!-- Pending submission — visible regardless of filter tab; updates live as the
+           in-flight order resolves and disappears once it's written to history below.
+           Not tappable: the card already shows the full live status, and (now that
+           leaving Submit mid-flight detaches it — see SubmitPage's onBeforeRouteLeave)
+           there is no live review screen left to navigate back to. -->
+      <div v-if="pendingCard" class="pending-card">
+        <div class="pending-card-icon">
+          <ion-spinner name="crescent" />
+        </div>
+        <div class="pending-card-body">
+          <p class="pending-card-title">Order still processing&hellip;</p>
+          <p class="pending-card-sub">
+            {{ pendingCard.customer?.displayName ?? 'No customer' }} &bull; {{ pendingCard.brand.displayName }}
+          </p>
+          <div class="pending-card-rows">
+            <span v-if="pendingCard.salesOrders.length || pendingCard.noSales" class="pending-row">
+              <ion-spinner v-if="pendingSalesStatus === 'submitting'" name="crescent" class="pending-row-spinner" />
+              <ion-icon v-else-if="pendingSalesStatus === 'done'" :icon="checkmarkCircleOutline" color="success" />
+              <ion-icon v-else-if="pendingSalesStatus === 'failed'" :icon="alertCircleOutline" color="danger" />
+              <span>Sales{{ pendingSalesStatus === 'done' && pendingSalesSeriesNo ? `: ${pendingSalesSeriesNo}` : '' }}</span>
+            </span>
+            <span v-if="pendingCard.returnOrders.length" class="pending-row">
+              <ion-spinner v-if="pendingReturnsStatus === 'submitting'" name="crescent" class="pending-row-spinner" />
+              <ion-icon v-else-if="pendingReturnsStatus === 'done'" :icon="checkmarkCircleOutline" color="success" />
+              <ion-icon v-else-if="pendingReturnsStatus === 'failed'" :icon="alertCircleOutline" color="danger" />
+              <span>Returns{{ pendingReturnsStatus === 'done' && pendingReturnsSeriesNo ? `: ${pendingReturnsSeriesNo}` : '' }}</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
       <!-- Local session history -->
       <template v-if="activeFilter !== 'bc'">
         <div v-if="!mergedSessions.length" class="empty-history">
@@ -176,7 +207,7 @@
                 <ion-label>
                   <h3 class="session-customer">{{ order.sellToCustomerName ?? order.sellToCustomerNo ?? '—' }}</h3>
                   <p class="session-meta">
-                    {{ order.no ?? '—' }}
+                    {{ order.number ?? '—' }}
                     <span v-if="order.externalDocumentNo"> &bull; {{ order.externalDocumentNo }}</span>
                   </p>
                   <p v-if="order.submittedBy" class="session-counts">{{ order.submittedBy }}</p>
@@ -209,7 +240,7 @@
                 <ion-label>
                   <h3 class="session-customer">{{ order.sellToCustomerName ?? order.sellToCustomerNo ?? '—' }}</h3>
                   <p class="session-meta">
-                    {{ order.no ?? '—' }}
+                    {{ order.number ?? '—' }}
                     <span v-if="order.externalDocumentNo"> &bull; {{ order.externalDocumentNo }}</span>
                   </p>
                   <p v-if="order.submittedBy" class="session-counts">{{ order.submittedBy }}</p>
@@ -450,7 +481,7 @@
               <div class="info-grid">
                 <div class="info-row">
                   <span class="info-label">{{ selectedBCType === 'sales' ? 'SO#' : 'SRO#' }}</span>
-                  <span class="info-value series-num">{{ selectedBCOrder.no ?? '—' }}</span>
+                  <span class="info-value series-num">{{ selectedBCOrder.number ?? '—' }}</span>
                 </div>
                 <div class="info-row">
                   <span class="info-label">Customer</span>
@@ -574,6 +605,7 @@ import {
   cloudDownloadOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
+import { useOrderSubmission } from '@/composables/useOrderSubmission';
 import { useTheme } from '@/composables/useTheme';
 import { formatCurrency, formatDate, formatDateTime, formatDiscount } from '@/utils/format';
 import { useErrorReporter } from '@/composables/useErrorReporter';
@@ -586,6 +618,28 @@ const router = useRouter();
 const sessionStore = useSessionStore();
 const { theme } = useTheme();
 const { openReport } = useErrorReporter();
+
+/* ─── Pending submission (still processing on Submit, possibly a different page) ─── */
+const {
+  pendingSession,
+  isPending,
+  salesStatus: pendingSalesStatus,
+  returnsStatus: pendingReturnsStatus,
+  salesSeriesNo: pendingSalesSeriesNo,
+  returnsSeriesNo: pendingReturnsSeriesNo,
+} = useOrderSubmission();
+
+/** Scoped to the logged-in user — on a shared device, one rep's still-processing order
+ *  must never appear under a different rep's session. */
+const pendingCard = computed<ScanSession | null>(() => {
+  if (!isPending.value || !pendingSession.value) return null;
+  const auth = StorageService.getAuth();
+  if (!auth) return null;
+  const sameUser = pendingSession.value.user.id
+    ? pendingSession.value.user.id === auth.user.id
+    : pendingSession.value.user.displayName === auth.user.displayName;
+  return sameUser ? pendingSession.value : null;
+});
 
 function reportSessionError(session: ScanSession) {
   openReport({
@@ -720,12 +774,17 @@ async function fetchOrderNumber(session: ScanSession): Promise<void> {
     if (soRes.status === 'fulfilled' && soRes.value !== null) {
       const orders = (soRes.value as BCData)?.data ?? [];
       const match  = matchOrder(orders);
-      if (match?.no) salesOrderSeries = match.no as string;
+      // BC's custom sales-order/return-order APIs return the document number as
+      // "number" — there is no "no" field. Reading .no here always came back
+      // undefined, so a real match was silently treated as "not found" and the
+      // series number was never captured (same bug affected capture at submission
+      // time — see useOrderSubmission.ts).
+      if (match?.number) salesOrderSeries = match.number as string;
     }
     if (sroRes.status === 'fulfilled' && sroRes.value !== null) {
       const orders = (sroRes.value as BCData)?.data ?? [];
       const match  = matchOrder(orders);
-      if (match?.no) returnOrderSeries = match.no as string;
+      if (match?.number) returnOrderSeries = match.number as string;
     }
     const didFind =
       (needSales   && salesOrderSeries   !== session.salesOrderSeries) ||
@@ -973,6 +1032,57 @@ function buildSessionLines(s: ScanSession): string[] {
 
 /* ── Filter chip active transition ── */
 .filter-chip { transition: color 0.18s ease, background 0.18s ease, opacity 0.18s ease; }
+
+/* ── Pending submission card ── */
+.pending-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px;
+  padding: 12px 14px;
+  border-radius: var(--app-radius);
+  background: rgba(var(--ion-color-primary-rgb), 0.08);
+  border: 1px solid rgba(var(--ion-color-primary-rgb), 0.3);
+  animation: fade-in 0.3s ease both;
+}
+.pending-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.pending-card-icon ion-spinner { width: 26px; height: 26px; color: var(--ion-color-primary); }
+.pending-card-body { flex: 1; min-width: 0; }
+.pending-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--app-fg);
+  margin: 0;
+}
+.pending-card-sub {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin: 2px 0 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pending-card-rows {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+.pending-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-text-muted);
+}
+.pending-row ion-icon { font-size: 15px; }
+.pending-row-spinner { width: 14px; height: 14px; color: var(--ion-color-primary); }
 
 /* ── Empty states ── */
 .empty-history {

@@ -363,7 +363,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import { useRouter, onBeforeRouteLeave } from 'vue-router';
 import {
@@ -401,9 +401,9 @@ import {
   createOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
+import { useOrderSubmission } from '@/composables/useOrderSubmission';
 import { useGoldAccent } from '@/composables/useGoldAccent';
 import { useErrorReporter } from '@/composables/useErrorReporter';
-import { ApiService } from '@/services/api.service';
 import { formatCurrency, formatDate } from '@/utils/format';
 import type { SalesOrderPayload, SalesReturnOrderPayload, OrderLine, DiscountType } from '@/types';
 import RemarksModal from '@/components/RemarksModal.vue';
@@ -415,16 +415,16 @@ const session = computed(() => sessionStore.currentSession);
 const { isOnline } = useNetworkStatus();
 const { sweepActive, triggerSweep } = useGoldAccent();
 
-type SubmitStatus = 'pending' | 'submitting' | 'done' | 'failed';
-
-const salesStatus = ref<SubmitStatus>('pending');
-const returnsStatus = ref<SubmitStatus>('pending');
-const salesSeriesNo = ref('');
-const returnsSeriesNo = ref('');
-const salesError = ref('');
-const returnsError = ref('');
-const salesErrorObj = ref<Error | null>(null);
-const returnsErrorObj = ref<Error | null>(null);
+const {
+  pendingSession,
+  salesStatus, returnsStatus,
+  salesSeriesNo, returnsSeriesNo,
+  salesError, returnsError,
+  salesErrorObj, returnsErrorObj,
+  anyDone, anyFailed,
+  submitSales, submitReturns,
+  finalizeNow,
+} = useOrderSubmission();
 
 const { openReport } = useErrorReporter();
 
@@ -437,11 +437,6 @@ function reportReturnsError() {
 
 const showRemarksModal = ref(false);
 const pendingSubmitType = ref<'sales' | 'returns' | null>(null);
-
-const anyDone = computed(() => salesStatus.value === 'done' || returnsStatus.value === 'done');
-const anyFailed = computed(
-  () => salesStatus.value === 'failed' || returnsStatus.value === 'failed',
-);
 
 const finalizeLabel = computed(() => {
   if (!anyDone.value && !anyFailed.value) return 'Save as Draft & Go Back';
@@ -494,33 +489,14 @@ function onRemarksCancel() {
   pendingSubmitType.value = null;
 }
 
-async function pollUntilDone(taskId: string, timeoutMs = 300_000): Promise<{ status: string; result?: unknown; error?: string }> {
-  const deadline = Date.now() + timeoutMs;
-  let consecutiveErrors = 0;
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 3_000));
-    try {
-      const task = await ApiService.pollTask(taskId);
-      consecutiveErrors = 0;
-      if (task.status === 'done' || task.status === 'failed') return task;
-    } catch {
-      consecutiveErrors++;
-      // Swallow transient bc-api errors (network blip, brief 503) and keep polling.
-      // Only give up after 10 consecutive failures (~30 s of silence).
-      if (consecutiveErrors >= 10) throw new Error('Order status unavailable — check History or contact IT/MIS.');
-    }
-  }
-  throw new Error('Order is taking too long — check History or contact IT/MIS.');
-}
-
 async function doSubmitSales(customerNumber: string, remarks: string) {
-  salesStatus.value = 'submitting';
-  const isNoSales = session.value?.noSales ?? false;
+  if (!session.value) return;
+  const isNoSales = session.value.noSales ?? false;
   const payload: SalesOrderPayload = {
     customerNumber,
-    ...(session.value?.postingDate ? { postingDate: session.value.postingDate } : {}),
+    ...(session.value.postingDate ? { postingDate: session.value.postingDate } : {}),
     externalDocumentNumber: isNoSales ? 'No Sales' : (remarks || undefined),
-    ...(session.value?.user?.displayName ? { submittedBy: session.value.user.displayName } : {}),
+    ...(session.value.user?.displayName ? { submittedBy: session.value.user.displayName } : {}),
     lines: sessionStore.salesOrders.map((l) => ({
       itemNumber: l.itemNumber,
       description: l.description,
@@ -531,32 +507,16 @@ async function doSubmitSales(customerNumber: string, remarks: string) {
         : { lineDiscountAmount: l.discountValue }),
     })),
   };
-  try {
-    const { taskId } = await ApiService.submitSalesOrderAsync(payload);
-    const task = await pollUntilDone(taskId);
-    if (task.status === 'done') {
-      salesSeriesNo.value = (task.result as Record<string, string>)?.no ?? '';
-      salesStatus.value = 'done';
-      triggerSweep();
-      showToast('Sales orders submitted!', 'success');
-    } else {
-      throw new Error(task.error ?? 'Order processing failed');
-    }
-  } catch (err) {
-    salesErrorObj.value = err instanceof Error ? err : new Error(String(err));
-    salesError.value = salesErrorObj.value.message;
-    salesStatus.value = 'failed';
-    showToast('Sales submission failed. Will save locally.', 'danger');
-  }
+  await submitSales(session.value, payload);
 }
 
 async function doSubmitReturns(customerNumber: string, remarks: string) {
-  returnsStatus.value = 'submitting';
+  if (!session.value) return;
   const payload: SalesReturnOrderPayload = {
     customerNumber,
-    ...(session.value?.postingDate ? { postingDate: session.value.postingDate } : {}),
+    ...(session.value.postingDate ? { postingDate: session.value.postingDate } : {}),
     ...(remarks ? { externalDocumentNo: remarks } : {}),
-    ...(session.value?.user?.displayName ? { submittedBy: session.value.user.displayName } : {}),
+    ...(session.value.user?.displayName ? { submittedBy: session.value.user.displayName } : {}),
     lines: sessionStore.returnOrders.map((l) => ({
       itemNumber: l.itemNumber,
       description: l.description,
@@ -567,77 +527,48 @@ async function doSubmitReturns(customerNumber: string, remarks: string) {
         : { lineDiscountAmount: l.discountValue }),
     })),
   };
-  try {
-    const { taskId } = await ApiService.submitSalesReturnOrderAsync(payload);
-    const task = await pollUntilDone(taskId);
-    if (task.status === 'done') {
-      returnsSeriesNo.value = (task.result as Record<string, string>)?.no ?? '';
-      returnsStatus.value = 'done';
-      triggerSweep();
-      showToast('Return orders submitted!', 'success');
-    } else {
-      throw new Error(task.error ?? 'Order processing failed');
-    }
-  } catch (err) {
-    returnsErrorObj.value = err instanceof Error ? err : new Error(String(err));
-    returnsError.value = returnsErrorObj.value.message;
-    returnsStatus.value = 'failed';
-    showToast('Return submission failed. Will save locally.', 'danger');
-  }
+  await submitReturns(session.value, payload);
 }
 
-// Guards whether markSubmitted/markFailed has already run for this session, so the
-// route-leave guard below never double-finalizes (e.g. finalizeSession() already ran,
-// then the resulting router.replace triggers onBeforeRouteLeave too).
-let finalized = false;
-
-/** Records whatever was actually resolved (sales/returns, done/failed) into session
- *  history. Shared by the explicit "Finish Session" button and the leave guard below,
- *  so a confirmed BC submission is recorded the same way regardless of how the user
- *  leaves this page. */
-function finalizeOutcome(): void {
-  if (finalized) return;
-  finalized = true;
-  const combinedError = [salesError.value, returnsError.value].filter(Boolean).join('; ');
-  if (anyFailed.value) {
-    sessionStore.markFailed(combinedError || 'Partial submission failure');
-  } else {
-    sessionStore.markSubmitted(salesSeriesNo.value || undefined, returnsSeriesNo.value || undefined);
-  }
-}
+// Submission progress now lives in useOrderSubmission's shared state (see that file for
+// why), so the toast/sweep side effects that used to sit inline in doSubmitSales/
+// doSubmitReturns are driven by watchers instead — they simply won't fire if the user
+// has already navigated away, which is exactly the right behavior for a page-specific
+// toast. Guarded on 'pending' so these don't fire on the initial mount value.
+watch(salesStatus, (status, prev) => {
+  if (prev === 'pending') return;
+  if (status === 'done') { triggerSweep(); showToast('Sales orders submitted!', 'success'); }
+  else if (status === 'failed') { showToast('Sales submission failed. Will save locally.', 'danger'); }
+});
+watch(returnsStatus, (status, prev) => {
+  if (prev === 'pending') return;
+  if (status === 'done') { triggerSweep(); showToast('Return orders submitted!', 'success'); }
+  else if (status === 'failed') { showToast('Return submission failed. Will save locally.', 'danger'); }
+});
 
 function finalizeSession() {
   // Nothing submitted yet — keep as draft and return home
   if (!anyDone.value && !anyFailed.value) {
-    finalized = true;
     sessionStore.saveAsDraftAndExit();
     router.replace('/app/home');
     return;
   }
-  finalizeOutcome();
+  finalizeNow();
   router.replace('/app/history');
 }
 
-// An order submission (sales/returns) keeps polling BC for up to 5 minutes. The UI
-// tells the user to "keep this page open" — this is what actually enforces that:
-// without it, navigating away (in-app nav, or the phone's hardware back button, which
-// Vue Router intercepts the same as any other navigation) leaves doSubmitSales/
-// doSubmitReturns running against refs owned by an unmounted component, so a BC order
-// that succeeds seconds later is confirmed but never recorded anywhere in the app.
-onBeforeRouteLeave(async () => {
-  if (salesStatus.value === 'submitting' || returnsStatus.value === 'submitting') {
-    await showToast('Please wait for the order to finish sending before leaving this page.', 'warning');
-    return false;
+// Submissions now survive navigation (see useOrderSubmission), so this page no longer
+// needs to block leaving while one is in flight — it just detaches currentSession so
+// Scan can start a fresh one immediately, and lets the shared state's own watcher
+// finalize into History whenever the submission actually resolves, wherever the user
+// happens to be by then.
+onBeforeRouteLeave(() => {
+  if (
+    (salesStatus.value === 'submitting' || returnsStatus.value === 'submitting') &&
+    sessionStore.currentSession?.id === pendingSession.value?.id
+  ) {
+    sessionStore.clearCurrentSession();
   }
-  // Nothing was ever submitted (e.g. the user is just backing out to add more items) —
-  // leave the draft exactly as it is. Must NOT call finalizeOutcome() here: with both
-  // statuses still 'pending', anyFailed is false, so it would call markSubmitted() and
-  // incorrectly move a never-submitted draft into history as a fake "submitted" record.
-  if (!anyDone.value && !anyFailed.value) return true;
-  // A submission resolved (success or failure) but the user is leaving without tapping
-  // "Finish Session" — e.g. they backed out right after seeing the result. Finalize
-  // automatically so a confirmed BC order is never lost from History.
-  finalizeOutcome();
   return true;
 });
 

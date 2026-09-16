@@ -182,29 +182,45 @@ export const useSessionStore = defineStore('session', () => {
     currentSession.value = null;
   }
 
-  function markSubmitted(salesSeries?: string, returnSeries?: string): void {
-    if (!currentSession.value) return;
-    currentSession.value.status = 'submitted';
-    currentSession.value.submittedAt = new Date().toISOString();
-    if (salesSeries) currentSession.value.salesOrderSeries = salesSeries;
-    if (returnSeries) currentSession.value.returnOrderSeries = returnSeries;
-    StorageService.saveSession({ ...currentSession.value });
-    StorageService.removeDraft(currentSession.value.id);
+  /** Persists a session as submitted. Defaults to currentSession (the original,
+   *  same-page call site, which always clears it afterward — unchanged behavior) but
+   *  accepts an explicit `target` so a submission tracked outside this page's lifetime
+   *  (see useOrderSubmission) can be finalized once currentSession no longer points at
+   *  it. In that case currentSession is only cleared if it still matches by id — never
+   *  null out a newer session the user has since started. */
+  function markSubmitted(salesSeries?: string, returnSeries?: string, target?: ScanSession): void {
+    const source = target ?? currentSession.value;
+    if (!source) return;
+    const updated: ScanSession = {
+      ...source,
+      status: 'submitted',
+      submittedAt: new Date().toISOString(),
+      ...(salesSeries ? { salesOrderSeries: salesSeries } : {}),
+      ...(returnSeries ? { returnOrderSeries: returnSeries } : {}),
+    };
+    StorageService.saveSession(updated);
+    StorageService.removeDraft(updated.id);
     completedSessions.value = StorageService.getSessions();
     drafts.value = StorageService.getDrafts();
-    ApiService.saveSessionHistory({ ...currentSession.value }).catch(() => {});
-    currentSession.value = null;
+    ApiService.saveSessionHistory(updated).catch(() => {});
+    if (!target || currentSession.value?.id === updated.id) currentSession.value = null;
   }
 
-  function markFailed(errorMessage: string): void {
-    if (!currentSession.value) return;
-    currentSession.value.status = 'failed';
-    currentSession.value.errorMessage = errorMessage;
-    StorageService.saveSession({ ...currentSession.value });
-    StorageService.removeDraft(currentSession.value.id);
+  /** Persists a session as failed. See markSubmitted for the `target` parameter.
+   *  Unlike markSubmitted, the original (no-target) call site intentionally leaves
+   *  currentSession as-is on failure — preserved here. A `target` call (from a
+   *  submission tracked past this page's lifetime) clears currentSession only if it
+   *  still matches by id, so a newer session is never clobbered. */
+  function markFailed(errorMessage: string, target?: ScanSession): void {
+    const source = target ?? currentSession.value;
+    if (!source) return;
+    const updated: ScanSession = { ...source, status: 'failed', errorMessage };
+    StorageService.saveSession(updated);
+    StorageService.removeDraft(updated.id);
     completedSessions.value = StorageService.getSessions();
     drafts.value = StorageService.getDrafts();
-    ApiService.saveSessionHistory({ ...currentSession.value }).catch(() => {});
+    ApiService.saveSessionHistory(updated).catch(() => {});
+    if (target && currentSession.value?.id === updated.id) currentSession.value = null;
   }
 
   function retryFailedSession(session: ScanSession): void {
