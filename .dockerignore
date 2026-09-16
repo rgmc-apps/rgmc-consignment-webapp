@@ -1,6 +1,8 @@
 node_modules
 dist
-.git
+# .git is intentionally NOT excluded — vite.config.ts reads the current commit's short
+# SHA from it at build time (see getBuildId()) for automatic per-commit build stamping.
+# Only the builder stage (discarded before the final nginx image) ever sees it.
 .gitignore
 
 # Dev-only files
