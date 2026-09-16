@@ -365,7 +365,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
-import { useRouter } from 'vue-router';
+import { useRouter, onBeforeRouteLeave } from 'vue-router';
 import {
   IonPage,
   IonHeader,
@@ -586,21 +586,60 @@ async function doSubmitReturns(customerNumber: string, remarks: string) {
   }
 }
 
-function finalizeSession() {
-  // Nothing submitted yet — keep as draft and return home
-  if (!anyDone.value && !anyFailed.value) {
-    sessionStore.saveAsDraftAndExit();
-    router.replace('/app/home');
-    return;
-  }
+// Guards whether markSubmitted/markFailed has already run for this session, so the
+// route-leave guard below never double-finalizes (e.g. finalizeSession() already ran,
+// then the resulting router.replace triggers onBeforeRouteLeave too).
+let finalized = false;
+
+/** Records whatever was actually resolved (sales/returns, done/failed) into session
+ *  history. Shared by the explicit "Finish Session" button and the leave guard below,
+ *  so a confirmed BC submission is recorded the same way regardless of how the user
+ *  leaves this page. */
+function finalizeOutcome(): void {
+  if (finalized) return;
+  finalized = true;
   const combinedError = [salesError.value, returnsError.value].filter(Boolean).join('; ');
   if (anyFailed.value) {
     sessionStore.markFailed(combinedError || 'Partial submission failure');
   } else {
     sessionStore.markSubmitted(salesSeriesNo.value || undefined, returnsSeriesNo.value || undefined);
   }
+}
+
+function finalizeSession() {
+  // Nothing submitted yet — keep as draft and return home
+  if (!anyDone.value && !anyFailed.value) {
+    finalized = true;
+    sessionStore.saveAsDraftAndExit();
+    router.replace('/app/home');
+    return;
+  }
+  finalizeOutcome();
   router.replace('/app/history');
 }
+
+// An order submission (sales/returns) keeps polling BC for up to 5 minutes. The UI
+// tells the user to "keep this page open" — this is what actually enforces that:
+// without it, navigating away (in-app nav, or the phone's hardware back button, which
+// Vue Router intercepts the same as any other navigation) leaves doSubmitSales/
+// doSubmitReturns running against refs owned by an unmounted component, so a BC order
+// that succeeds seconds later is confirmed but never recorded anywhere in the app.
+onBeforeRouteLeave(async () => {
+  if (salesStatus.value === 'submitting' || returnsStatus.value === 'submitting') {
+    await showToast('Please wait for the order to finish sending before leaving this page.', 'warning');
+    return false;
+  }
+  // Nothing was ever submitted (e.g. the user is just backing out to add more items) —
+  // leave the draft exactly as it is. Must NOT call finalizeOutcome() here: with both
+  // statuses still 'pending', anyFailed is false, so it would call markSubmitted() and
+  // incorrectly move a never-submitted draft into history as a fake "submitted" record.
+  if (!anyDone.value && !anyFailed.value) return true;
+  // A submission resolved (success or failure) but the user is leaving without tapping
+  // "Finish Session" — e.g. they backed out right after seeing the result. Finalize
+  // automatically so a confirmed BC order is never lost from History.
+  finalizeOutcome();
+  return true;
+});
 
 async function showToast(message: string, color: string) {
   const t = await toastController.create({ message, duration: 2500, color, position: 'bottom' });
