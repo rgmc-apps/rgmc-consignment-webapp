@@ -72,6 +72,37 @@ function track(session: ScanSession): void {
   finalized = false;
 }
 
+/** Clears leftover terminal status ('done'/'failed') from a previously finalized
+ *  session so a newly viewed session doesn't inherit it.
+ *
+ *  finalize() only nulls out pendingSession — it never resets salesStatus/
+ *  returnsStatus themselves, and track() (the only place that does) never ran
+ *  because it only fires when the user clicks Submit. Since SubmitPage renders the
+ *  submit button vs. the 'done'/'failed' badge straight off these shared refs, a
+ *  brand-new session opened after a previous one finished would show as already
+ *  submitted (or failed) — with nothing actually sent — and there'd be no submit
+ *  button visible to click to fix it (see track()'s status !== 'pending' guard in
+ *  SubmitPage's template). Confirmed against production logs: real BC submissions
+ *  correctly end in 'done'/'failed', but that terminal state was never being
+ *  cleared for the next customer's session.
+ *
+ *  Safe to call freely on every session view/change — it's a no-op whenever a
+ *  submission is actively tracked (pendingSession !== null), so it can never
+ *  disturb a still-in-flight or not-yet-finalized submission, including one
+ *  belonging to a *different* session than the one being viewed. */
+function clearStaleStatus(): void {
+  if (pendingSession.value !== null) return;
+  if (salesStatus.value === 'pending' && returnsStatus.value === 'pending') return;
+  salesStatus.value = 'pending';
+  returnsStatus.value = 'pending';
+  salesSeriesNo.value = '';
+  returnsSeriesNo.value = '';
+  salesError.value = '';
+  returnsError.value = '';
+  salesErrorObj.value = null;
+  returnsErrorObj.value = null;
+}
+
 /** Writes the tracked session to history (local storage + Firestore) using whatever
  *  resolved so far, and stops tracking it. Safe to call more than once — only the
  *  first call after track() has any effect. Combining rule matches the original
@@ -187,5 +218,6 @@ export function useOrderSubmission() {
     submitSales,
     submitReturns,
     finalizeNow,
+    clearStaleStatus,
   };
 }
