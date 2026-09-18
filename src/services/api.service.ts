@@ -298,18 +298,21 @@ export const ApiService = {
           timeout,
         });
         const raw = extractList<Record<string, unknown>>(res.data);
-        return raw.map((c) => ({
-          ...c,
-          id:          (c['id']          ?? c['Id']                                         ?? '') as string,
-          number:      (c['number']      ?? c['no']       ?? c['customerNo']                ?? '') as string,
-          displayName: (c['name']        ?? c['displayName'] ?? c['customerName']           ?? '') as string,
-          city:        (c['city']        ?? c['City']     ?? c['addressCity']               ?? '') as string,
-          addressLine1:(c['addressLine1']?? c['address']  ?? c['address1']                  ?? '') as string,
-          country:     (c['country']     ?? c['countryRegionCode']                          ?? '') as string,
-          postalCode:  (c['postalCode']  ?? c['postCode'] ?? c['zip']                       ?? '') as string,
-          currencyCode:(c['currencyCode']?? c['currency']                                   ?? '') as string,
-          lastModifiedDateTime: (c['lastModifiedDateTime'] ?? '') as string,
-        })) as Customer[];
+        return raw
+          .filter((c) => (c['chain'] ?? c['Chain']) === true)
+          .map((c) => ({
+            ...c,
+            id:          (c['id']          ?? c['Id']                                         ?? '') as string,
+            number:      (c['number']      ?? c['no']       ?? c['customerNo']                ?? '') as string,
+            displayName: (c['name']        ?? c['displayName'] ?? c['customerName']           ?? '') as string,
+            city:        (c['city']        ?? c['City']     ?? c['addressCity']               ?? '') as string,
+            addressLine1:(c['addressLine1']?? c['address']  ?? c['address1']                  ?? '') as string,
+            country:     (c['country']     ?? c['countryRegionCode']                          ?? '') as string,
+            postalCode:  (c['postalCode']  ?? c['postCode'] ?? c['zip']                       ?? '') as string,
+            currencyCode:(c['currencyCode']?? c['currency']                                   ?? '') as string,
+            lastModifiedDateTime: (c['lastModifiedDateTime'] ?? '') as string,
+            chain:       (c['chain']       ?? c['Chain']                                      ?? false) as boolean,
+          })) as Customer[];
       } catch (err) {
         if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
         const status = err instanceof ApiError ? err.status : undefined;

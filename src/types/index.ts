@@ -59,6 +59,7 @@ export interface Customer {
   currencyCode: string;
   blocked?: string;
   lastModifiedDateTime: string;
+  chain?: boolean;
 }
 
 export interface Item {
