@@ -183,11 +183,12 @@
           <div v-if="!displayItems.length && !dedupedBcResults.length" class="empty-results">
             <ion-icon :icon="searchOutline" />
             <p v-if="!searchQuery.trim()">No items found.<br />Try a different search term or category.</p>
+            <p v-else-if="searchQuery.trim().length < MIN_SEARCH_LEN">Type at least {{ MIN_SEARCH_LEN }} characters to search.</p>
             <p v-else>No local items match "{{ searchQuery }}".</p>
           </div>
 
-          <!-- BC search — always available when a query is typed and online -->
-          <div v-if="searchQuery.trim() && props.isOnline" class="bc-search-area">
+          <!-- BC search — available once a real (3+ char) query is typed and online -->
+          <div v-if="searchQuery.trim().length >= MIN_SEARCH_LEN && props.isOnline" class="bc-search-area">
             <p class="bc-search-hint">
               {{ displayItems.length || dedupedBcResults.length ? 'Not finding it? Search Business Central directly:' : 'Not in local cache? Search Business Central directly:' }}
             </p>
@@ -371,6 +372,10 @@ const authStore = useAuthStore();
 const PAGE_SIZE = 100;
 const currentPage = ref(1);
 
+// Below this, a keystroke is still "typing a code" — matching floods the list with
+// noise (e.g. every item whose No. or description contains a single digit).
+const MIN_SEARCH_LEN = 3;
+
 const onlineItems = ref<Item[]>([]);
 const isLoadingOnline = ref(false);
 
@@ -399,12 +404,12 @@ const effectiveItems = computed(() => props.items.length > 0 ? props.items : onl
 const filteredItems = computed(() => {
   let src = effectiveItems.value;
   const q = searchQuery.value.trim().toUpperCase();
-  if (q) {
+  if (q.length >= MIN_SEARCH_LEN) {
     src = src.filter(
       (i) =>
-        (i.displayName ?? '').toUpperCase().includes(q) ||
         (i.number ?? '').toUpperCase().includes(q) ||
-        (i.description ?? '').toUpperCase().includes(q),
+        (i.description ?? '').toUpperCase().includes(q) ||
+        (i.displayName ?? '').toUpperCase().includes(q),
     );
   }
   return src;
@@ -643,14 +648,14 @@ watch(searchQuery, () => {
 
 // Auto-trigger BC search when the scanner finds no local match
 watch(barcodeNotFound, (found) => {
-  if (found && props.isOnline && searchQuery.value.trim()) {
+  if (found && props.isOnline && searchQuery.value.trim().length >= MIN_SEARCH_LEN) {
     searchInBC();
   }
 });
 
 async function searchInBC() {
   const q = searchQuery.value.trim();
-  if (!q || !props.isOnline) return;
+  if (q.length < MIN_SEARCH_LEN || !props.isOnline) return;
   const id = ++_bcSearchId;
   isBcSearching.value = true;
   bcSearchError.value = '';
