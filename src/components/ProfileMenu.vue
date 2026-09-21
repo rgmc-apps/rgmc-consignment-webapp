@@ -39,6 +39,16 @@
         <ion-icon :icon="chevronForwardOutline" class="pop-chevron" />
       </button>
 
+      <!-- Network Test -->
+      <button class="pop-item" @click="openNetworkTest">
+        <ion-icon :icon="speedometerOutline" class="pop-icon" />
+        <div class="pop-item-text">
+          <span class="pop-item-label">Network Test</span>
+          <span class="pop-item-sub">Check connection &amp; server status</span>
+        </div>
+        <ion-icon :icon="chevronForwardOutline" class="pop-chevron" />
+      </button>
+
       <div class="pop-divider" />
 
       <!-- Sync -->
@@ -185,6 +195,9 @@
 
   <!-- Profile modal -->
   <profile-modal :is-open="profileOpen" @close="profileOpen = false" />
+
+  <!-- Network test modal -->
+  <network-test-modal :is-open="networkTestOpen" @close="networkTestOpen = false" />
 </template>
 
 <script setup lang="ts">
@@ -211,6 +224,7 @@ import {
   cloudDoneOutline,
   timerOutline,
   cloudDownloadOutline,
+  speedometerOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSync } from '@/composables/useSync';
@@ -218,6 +232,7 @@ import { useLoadingText } from '@/composables/useLoadingText';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import { useTheme } from '@/composables/useTheme';
 import ProfileModal from '@/components/ProfileModal.vue';
+import NetworkTestModal from '@/components/NetworkTestModal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 
 const router = useRouter();
@@ -244,11 +259,17 @@ const { theme, setTheme } = useTheme();
 
 const isOpen = ref(false);
 const profileOpen = ref(false);
+const networkTestOpen = ref(false);
 
 function openProfile() {
   isOpen.value = false;
   // Small delay so popover finishes dismissing before modal opens
   setTimeout(() => { profileOpen.value = true; }, 100);
+}
+
+function openNetworkTest() {
+  isOpen.value = false;
+  setTimeout(() => { networkTestOpen.value = true; }, 100);
 }
 
 async function onSync() {
