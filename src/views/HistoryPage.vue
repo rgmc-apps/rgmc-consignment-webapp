@@ -71,6 +71,13 @@
         />
       </ion-refresher>
 
+      <!-- Sync failure banner — synced (cross-device) history couldn't load even after
+           retrying; local sessions on this device still show below. -->
+      <div v-if="firestoreError" class="sync-error-banner" @click="loadFirestoreHistory">
+        <ion-icon :icon="cloudOfflineOutline" />
+        <span>Couldn't load synced history. Showing this device only — tap to retry.</span>
+      </div>
+
       <!-- Pending submission — visible regardless of filter tab; updates live as the
            in-flight order resolves and disappears once it's written to history below.
            Not tappable: the card already shows the full live status, and (now that
@@ -165,7 +172,7 @@
 
       <!-- ── BC Orders Panel ── -->
       <div v-else class="bc-panel">
-        <p class="bc-panel-intro">Orders posted to Business Central for the selected date. Tap an order to see its line items.</p>
+        <p class="bc-panel-intro">Your orders posted to Business Central for the selected date. Tap an order to see its line items.</p>
         <!-- Date picker -->
         <div class="bc-date-bar">
           <ion-icon :icon="calendarOutline" class="bc-date-icon" />
@@ -603,6 +610,7 @@ import {
   calendarOutline,
   searchOutline,
   cloudDownloadOutline,
+  cloudOfflineOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
 import { useOrderSubmission } from '@/composables/useOrderSubmission';
@@ -655,6 +663,10 @@ const headerLogoSrc = computed(() =>
 /* ─── Firestore history ─── */
 const firestoreSessions = ref<ScanSession[]>([]);
 const firestoreLoading = ref(false);
+/** Set when the synced (cross-device) history couldn't be loaded even after
+ *  ApiService's internal retries — surfaced so a real failure doesn't read as
+ *  "you have no history", since local-only sessions still show underneath it. */
+const firestoreError = ref(false);
 
 async function loadFirestoreHistory() {
   const auth = StorageService.getAuth();
@@ -664,8 +676,10 @@ async function loadFirestoreHistory() {
   try {
     const records = await ApiService.getSessionHistory(company.code, auth.user.id, auth.user.number);
     firestoreSessions.value = records;
+    firestoreError.value = false;
   } catch {
-    // non-fatal — local history still shows
+    // local history still shows — but flag that synced history may be incomplete
+    firestoreError.value = true;
   } finally {
     firestoreLoading.value = false;
   }
@@ -860,6 +874,21 @@ function bcStatusColor(status: string | undefined): string {
   }
 }
 
+/** BC's sales-order / return-order list APIs return every rep's orders for the date —
+ *  there's no server-side "submitted by me" filter. Each order carries `submittedBy`
+ *  (the rep's display name, set at submission time — see SubmitPage.vue), so restrict
+ *  to the logged-in user's own orders here. Orders with no submittedBy (posted directly
+ *  in BC, or from before this field was tracked) can't be attributed to anyone and are
+ *  excluded rather than shown to everyone. */
+function mineOnly(orders: BCOrder[]): BCOrder[] {
+  const currentUser = StorageService.getAuth()?.user?.displayName?.trim().toLowerCase();
+  if (!currentUser) return [];
+  return orders.filter((o) => {
+    const by = o.submittedBy;
+    return typeof by === 'string' && by.trim().toLowerCase() === currentUser;
+  });
+}
+
 async function fetchBCOrders() {
   bcLoading.value = true;
   bcError.value = '';
@@ -869,10 +898,10 @@ async function fetchBCOrders() {
       ApiService.getBCSalesReturnOrders(bcDate.value),
     ]);
     bcSalesOrders.value = soRes.status === 'fulfilled'
-      ? ((soRes.value as { data?: BCOrder[] })?.data ?? [])
+      ? mineOnly((soRes.value as { data?: BCOrder[] })?.data ?? [])
       : [];
     bcReturnOrders.value = sroRes.status === 'fulfilled'
-      ? ((sroRes.value as { data?: BCOrder[] })?.data ?? [])
+      ? mineOnly((sroRes.value as { data?: BCOrder[] })?.data ?? [])
       : [];
     if (soRes.status === 'rejected' && sroRes.status === 'rejected') {
       bcError.value = 'Could not fetch orders from BC. Check your connection.';
@@ -1042,6 +1071,23 @@ function buildSessionLines(s: ScanSession): string[] {
 
 /* ── Filter chip active transition ── */
 .filter-chip { transition: color 0.18s ease, background 0.18s ease, opacity 0.18s ease; }
+
+/* ── Sync error banner ── */
+.sync-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px;
+  padding: 10px 12px;
+  border-radius: var(--app-radius);
+  background: var(--app-danger-bg, rgba(var(--ion-color-danger-rgb), 0.08));
+  border: 1px solid var(--app-error-border, rgba(var(--ion-color-danger-rgb), 0.3));
+  color: var(--ion-color-danger);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sync-error-banner ion-icon { font-size: 18px; flex-shrink: 0; }
 
 /* ── Pending submission card ── */
 .pending-card {

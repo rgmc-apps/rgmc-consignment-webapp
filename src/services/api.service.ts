@@ -735,8 +735,15 @@ export const ApiService = {
     return res.data;
   },
 
+  // Fire-and-forget from the caller's perspective (all call sites do `.catch(() => {})`),
+  // but retried internally — this is the only write of a completed session to Firestore.
+  // Without a retry, a single transient failure (cold start / 5xx / dropped connection —
+  // known to happen on rgmc-bc-api-prod, see handoff notes on Cloud Run cold starts)
+  // permanently loses that submission from cross-device history, since there is no
+  // separate re-send mechanism once the session has already been marked submitted/failed.
   async saveSessionHistory(session: import('@/types').ScanSession): Promise<void> {
-    await apiClient.post('/session-history', {
+    const RETRIES = 3;
+    const body = {
       id: session.id,
       companyCode: session.companyCode ?? null,
       userId: session.user.id ?? null,
@@ -758,14 +765,56 @@ export const ApiService = {
       createdAt: session.createdAt,
       submittedAt: session.submittedAt ?? null,
       updatedAt: session.updatedAt,
-    });
+    };
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= RETRIES; attempt++) {
+      try {
+        await apiClient.post('/session-history', body);
+        return;
+      } catch (err) {
+        if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
+        const status = err instanceof ApiError ? err.status : undefined;
+        if (status && status >= 400 && status < 500 && status !== 429) throw err;
+        lastErr = err;
+        if (attempt < RETRIES) {
+          const delay = status === 429
+            ? Math.min(5000 * 2 ** attempt, 30_000)
+            : Math.min(3000 * 2 ** attempt, 15_000);
+          await new Promise<void>((r) => setTimeout(r, delay));
+        }
+      }
+    }
+    throw lastErr;
   },
 
+  // Retried for the same reason as saveSessionHistory — the History page's own load
+  // must not read as "no history" just because the backend was cold-starting when the
+  // page opened (no user-facing retry existed for this call before).
   async getSessionHistory(companyCode: string, userId?: string, userNumber?: string, limit = 100): Promise<import('@/types').ScanSession[]> {
+    const RETRIES = 3;
     const params: Record<string, string | number> = { company_code: companyCode, limit };
     if (userId) params.user_id = userId;
     if (userNumber) params.user_number = userNumber;
-    const res = await apiClient.get('/session-history', { params });
+    let lastErr: unknown;
+    let res: { data: unknown } | undefined;
+    for (let attempt = 0; attempt <= RETRIES; attempt++) {
+      try {
+        res = await apiClient.get('/session-history', { params });
+        break;
+      } catch (err) {
+        if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
+        const status = err instanceof ApiError ? err.status : undefined;
+        if (status && status >= 400 && status < 500 && status !== 429) throw err;
+        lastErr = err;
+        if (attempt < RETRIES) {
+          const delay = status === 429
+            ? Math.min(5000 * 2 ** attempt, 30_000)
+            : Math.min(3000 * 2 ** attempt, 15_000);
+          await new Promise<void>((r) => setTimeout(r, delay));
+        }
+      }
+    }
+    if (!res) throw lastErr;
     const rows = extractList<Record<string, unknown>>(res.data);
     return rows.map((r) => ({
       id: (r['id'] as string) ?? '',

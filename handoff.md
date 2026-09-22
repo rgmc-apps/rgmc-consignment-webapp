@@ -2,70 +2,74 @@
 
 ## Goal
 
-This session had two unrelated parts, both now complete:
+This session picked up from a prior handoff (deployment fixes + search bar — already done and verified) and then handled three new, unrelated requests from the user in `rgmc-consignment-webapp` and its backend sibling repo `rgmc-bc-api` (both under `C:\claude\`):
 
-1. **Finish the deployment carried over from the previous handoff** (performance rewrite + versioning + History fixes across `rgmc-consignment-webapp`, `rgmc-bc-api`, `rgmc-worker-pool`, all under `C:\claude\`). End state desired: everything actually live in production, not just committed.
-2. **Improve the item search bar** in the consignment webapp (`ItemSelectorModal.vue`, used from `ScanningPage.vue`'s "Add Item" flow): match substrings appearing *anywhere* in either `productNo` or `description` (not just prefix/suffix — "XXX(value)XXX"), require a minimum of 3 typed characters before searching, and make the bar "more adaptive" (i.e. don't flood results on 1–2 character input). User then asked to **"test it in the browser"** — done via a real, live-data browser test (see below).
+1. Confirm the BC "Chain" field (gating the customer dropdown, commit `231d387`) is live — **user confirmed it is**, no action needed.
+2. Investigate why other users still report slow connections, and add a **Network Test** feature to the profile submenu so users can see actual latency/server-status results on their own device.
+3. Fix the contacts endpoint used by the **login screen** so newly created Business Central contacts (new employees) are reflected immediately instead of waiting out a server-side cache.
 
-Both parts are done, verified, and (per current `git log`) committed by the user.
+All three are done. Both repos are committed, pushed, and confirmed deployed to production (verified via `gcloud builds list` and current Cloud Run revisions — see "Current State"). **One follow-up recommendation from part 2 (setting `min-instances` on `rgmc-bc-api-prod` to eliminate Cloud Run cold starts) was proposed to the user but never answered/applied — this is the one open thread.**
 
 ## Current State
 
-**Everything from this session is committed and working. Nothing is mid-edit.**
+**Nothing is broken or mid-edit. Both repos are clean (`git status` shows "nothing to commit, working tree clean" in both) and pushed to `origin/master`.**
 
-### Part 1 — Deployment (verified complete earlier this session)
-- `rgmc-worker-pool`'s `GCS_CATALOG_BUCKET` env var was fixed (`rgmc-bc-catalog-durable-woods-465907-n1` → `rgmc-bc-catalog`), now live on revision `rgmc-worker-pool-00058-8f4`.
-- A `routine-sync` Pub/Sub trigger rebuilt the new family-blob catalog structure for all 5 companies (RGMC, CGI, USGI, KW1, LGAP) with **zero errors** — confirmed via `gsutil ls` and worker pool logs.
-- **Corrected a false alarm from the prior handoff**: the real production frontend Cloud Run service is `rgmc-consignment-prod`, NOT `rgmc-consignment-webapp` (a different, stale, legacy service). Cloud Build has been deploying every webapp commit successfully all along via `rmgpgab-rgmc-consignment-prod-...` trigger → `gcloud run services update rgmc-consignment-prod`. Nothing was ever broken there.
-- `rgmc-bc-api-prod` was already current (`d89fd6f`) and required no action.
-- Memory files `project_infra_findings.md` and `MEMORY.md` were updated to record the corrected service-naming fact and mark the bucket mismatch resolved, so this doesn't get re-investigated from scratch.
+### Part 2 — Slow-connection investigation + Network Test feature (DONE, deployed)
+- **Root cause found for "other users still slow"**: `rgmc-bc-api-prod` (the real prod backend, per `[[project-infra-findings]]`) has **no `min-instances` set** (`autoscaling.knative.dev/minScale` annotation absent — confirmed via `gcloud run services describe`), so it scales to zero and cold-starts on the next request. Confirmed via Cloud Run system logs: **~65 "Starting new instance... AUTOSCALING" events in the last 3 days** (~1/hour), plus **121 HTTP 503s in 3 days**. The OOM "memory limit exceeded" events from the prior session's audit are NOT the current cause — all 6 of those are clustered on 2026-09-18 05:48–06:13 only, none since.
+- **This root cause was NOT fixed** — only diagnosed. The recommended fix (`min-instances=1` or `2` on `rgmc-bc-api-prod`) was proposed to the user as a prod infra/cost change requiring confirmation, and the conversation moved on to other work before they answered. **See "Next Step."**
+- **Network Test feature — built, verified, committed, deployed:**
+  - New `src/composables/useNetworkTest.ts` — pings the existing `/bc/status` endpoint (via `ApiService.getApiStatus`) 4x, times each round-trip client-side, captures `navigator.connection` info (effectiveType/downlink/rtt/saveData) when available.
+  - New `src/components/NetworkTestModal.vue` — shows first-ping vs. steady-state latency (the gap is what reveals a cold start vs. a genuinely slow connection), server state (warming_up/busy/active requests), device network info, and a plain-language verdict. Has a "Report These Results" button that feeds the raw numbers into the existing `useErrorReporter` bug-report flow.
+  - `src/components/ProfileMenu.vue` — added a "Network Test" row between "Edit Profile" and "Sync", opens the new modal.
+  - Verified live via headless Playwright against real staging BC API (same pattern as the prior session's search-bar test): pings came back 131–266ms, verdict correctly showed "Looks healthy."
+  - `npx vue-tsc --noEmit` clean.
+  - **Committed and pushed by the user as `92b9a62 added network tests`** (webapp repo). Cloud Build `97215bb3` (2026-09-21T05:24:22Z) succeeded — this build's timestamp matches the commit, confirming it deployed to `rgmc-consignment-prod` (current revision `rgmc-consignment-prod-00149-769`, 100% traffic).
 
-### Part 2 — Search bar (this session's main deliverable)
-- `src/components/ItemSelectorModal.vue` was edited to add a `MIN_SEARCH_LEN = 3` gate on both the local item filter and the "Search Business Central" flow, and to reorder the local-filter field checks (`number`/`description` before `displayName` — cosmetic, matching logic unchanged since it was already `.includes()`-based substring matching).
-- `npx vue-tsc --noEmit` passed clean after the edit.
-- **Browser-verified live** (see "Files Actively Being Edited" and session detail below): ran a headless Playwright script against the real Vite dev server (`localhost:8100`) hitting the real staging BC API (`rgmc-bc-api-staging`) with a real 30,745-item catalog (brand `PDC` under company `CGI`). All 6 test cases passed:
-  - Empty query → full unfiltered catalog.
-  - 2-char query (`"00"`) → **still unfiltered** (proves the 3-char minimum works — "00" appears in almost every SKU, so without the gate this would have been a near-no-op filter).
-  - 3-char mid-string query (`"0005S"`) → 22 items, each with the substring in the *middle* of both `productNo` (`C0130005S0001`) and `description` (`C013-0005S`).
-  - Same query lowercased (`"0005s"`) → identical 22 items (case-insensitivity confirmed).
-  - Description-only, end-of-word query (`"SORTED"`, matching inside `...ASSORTED`) → 1,118 items — proves matching isn't anchored to word boundaries or a specific field.
-  - No-match query (`"ZZZZQQQQ99"`) → `0 items`, correct empty state, "Search Business Central" prompt shown (since query ≥ 3 chars).
-- The dev server and Playwright browser were both cleanly shut down at the end of the session. The Chrome extension (`claude-in-chrome`) was **not connected** this session — Playwright was used as the fallback browser driver instead.
-- `git log` shows this change was committed by the user as `5e6ef13 added search bar modifications` (verified via `git show --stat` — diff matches exactly: `ItemSelectorModal.vue`, 12 insertions / 7 deletions).
+### Part 3 — Contacts endpoint fix (DONE, deployed)
+- **Root cause**: `/bc/custom/v2/contacts` (hit by the login screen via `ApiService.getContacts()`) does reach BC, but through `call_rgmc_v2_table()` in `rgmc-bc-api/src/services/bc_functions.py` (line ~1640), which serves unfiltered list calls from an **in-process 30-minute TTL cache** (docstring previously said "5-minute", actual constant `_LIST_CACHE_TTL = 1800`). Even when stale it does stale-while-revalidate (returns old data immediately, refreshes in background). Since `rgmc-bc-api-prod` can run up to 20 Cloud Run instances each with their own independent in-memory cache, a newly created BC contact (new employee) could appear on some instances and not others for up to 30 minutes — and the frontend's existing "candidate not found → retry" fallback in `auth.store.ts` didn't actually help, because the retry hits the same cached backend endpoint.
+- **Fix**: `call_rgmc_v2_table()` gained a `bypass_cache: bool = False` parameter — when set, it fetches BC live first and only falls back to the cached entry if the live call itself fails (BC down/slow). `list_rgmc_contacts_v2()` in `rgmc_contact_v2_routes.py` now passes `bypass_cache=True`. No other v2 tables (customers, items, etc.) were touched — they keep cache-first behavior. Startup warmup (`warmup_rgmc_v2_lists`) still populates the contacts cache entry as before, so it remains available as the outage fallback.
+- Compile-checked clean (`python -m py_compile` on both edited files).
+- **Committed and pushed by the user as `f4f345a added bc endpoints`** (bc-api repo: `src/routers/bc_routes/rgmc_contact_v2_routes.py`, `src/services/bc_functions.py`). Cloud Build `eb2b915e...` (2026-09-21T10:12:30Z) succeeded — matches the commit timestamp (18:12:18 +0800 = 10:12:18 UTC), confirming deploy to `rgmc-bc-api-prod` (current revision `rgmc-bc-api-prod-00203-4kd`).
 
-### ⚠️ One thing to be aware of, not investigated this session
-`git log` on `rgmc-consignment-webapp` shows a newer commit **`231d387 feat: only list chain customers in the customer dropdown`** (authored ~2 hours after the search-bar commit, `Co-Authored-By: Claude Sonnet 5`) that touches `src/services/api.service.ts` and `src/types/index.ts`. **This session has no context on that change** — it happened outside this conversation (either the user directly, or another Claude session/window). It appears unrelated to the search bar work (different files), but if you're resuming and something about customer listing looks off, start there. Its own commit message notes it depends on a BC-side "Chain" field being live — until then, per the commit message, it will hide *all* customers from the dropdown.
+### Part 1 — Chain field
+- User confirmed BC's "Chain" field is now live. The `231d387` filter (only chain customers in the dropdown) should now be working correctly in prod — not independently re-verified in-app this session, but no further action was requested.
 
 ## Files Actively Being Edited
 
-None — everything is committed. For reference, this session's own edits:
-- `src/components/ItemSelectorModal.vue` — added `MIN_SEARCH_LEN = 3` constant; gated `filteredItems` computed, the BC-search area `v-if`, the `barcodeNotFound` watcher's auto-trigger, and `searchInBC()` itself behind that minimum; added a "Type at least 3 characters to search" empty-state hint; reordered local-filter field checks. Committed as `5e6ef13`.
+None — everything is committed, pushed, and confirmed deployed. For reference, this session's changes:
 
-No backend files were touched — the substring-matching guarantee (`XXX(value)XXX` anywhere in the text) was already correct server-side in `rgmc-bc-api/src/routers/bc_routes/rgmc_item_price_v3_routes.py`'s `_search_via_index()` (`q_upper in pno or q_lower in desc`), so no `rgmc-bc-api` or `rgmc-worker-pool` changes were needed for this feature.
+**`rgmc-consignment-webapp`** (commit `92b9a62`):
+- `src/composables/useNetworkTest.ts` — new file, network test composable.
+- `src/components/NetworkTestModal.vue` — new file, network test UI.
+- `src/components/ProfileMenu.vue` — added "Network Test" menu item + wiring.
+
+**`rgmc-bc-api`** (commit `f4f345a`):
+- `src/services/bc_functions.py` — added `bypass_cache` param to `call_rgmc_v2_table()`.
+- `src/routers/bc_routes/rgmc_contact_v2_routes.py` — `list_rgmc_contacts_v2()` now calls with `bypass_cache=True`.
 
 ## Failed Attempts
 
-- **What was tried**: Using the `claude-in-chrome` MCP browser extension to test the search bar. — **Why it failed**: `tabs_context_mcp` returned "Browser extension is not connected." Fell back to Playwright (already a `devDependency` in `package.json`) driven headlessly via a standalone Node script — this worked and is the documented, verified approach going forward for this project until the extension issue is resolved.
-- **What was tried**: Navigating Playwright directly to `http://localhost:8100/app/scan` after seeding `localStorage` (`rgmc_auth`, `rgmc_company`) via `context.addInitScript`. — **Why it failed**: The auth store's `brand`/`user` refs are only hydrated from `localStorage` *after* the initial router navigation resolves (`router.isReady().then(() => authStore.loadFromStorage())` in `main.ts`), so the very first navigation's guard sees `isAuthenticated === false` and redirects to `/splash`; `SplashPage.vue` then always lands on `/app/home`, never on the originally-requested URL. **Fix**: navigate to `/` first, let it settle on `/app/home`, then click through the UI (`START NEW SESSION` button) to reach Scan — a real client-side navigation, which works fine since the store is hydrated by then.
-- **What was tried**: Seeding `company.code = 'RGMC'` (matching the webapp's actual company) alongside brand `PDC` (PD&CO), expecting the item catalog to load. — **Why it failed**: The `PDC` family blob lives under company **`CGI`** in GCS (`gs://rgmc-bc-catalog/Production/CGI/families/PDC.json`), not under RGMC (RGMC's own families are `MLY`/`PD`, no `PDC`). With `company.code='RGMC'` the sync completed with "0 items" ("Sync completed but the server returned no items"). **Fix**: set the seeded `company.code = 'CGI'` to match where the `PDC` family actually lives; confirmed via `gsutil ls gs://rgmc-bc-catalog/Production/CGI/families/`.
-- **What was tried**: Locating the "Scan" tab via `ion-tab-button[tab="scan"]` Playwright locator on the Landing page. — **Why it failed**: Timed out — the first-run "Welcome" onboarding carousel (`WelcomeModal.vue`) was covering the page (confirmed via screenshot: "Welcome, QA" carousel, not the tab bar). **Fix**: seed `localStorage.setItem('rgmc_welcome_seen', '1')` in the same init script to skip the carousel. (Also switched to clicking the "START NEW SESSION" button instead of the tab bar, which was simpler and more direct.)
-- **What was tried**: Running the Playwright script directly with `node <script-path-in-scratchpad-dir>`. — **Why it failed**: `Cannot find module 'playwright'` — Node resolves `node_modules` relative to the *script's* location, not the shell's cwd, and the script lived in the session scratchpad dir, not the project. **Fix**: ran with `NODE_PATH="$(pwd)/node_modules" node <script>` from inside `rgmc-consignment-webapp`.
-- **What was tried**: Running the Playwright script before installing browser binaries. — **Why it failed**: `browserType.launch: Executable doesn't exist ... chrome-headless-shell.exe`. **Fix**: `npx playwright install chromium` (downloaded ~300 MB, one-time).
+None this session — both investigations (slow connections, contacts staleness) led directly to root causes on the first pass, and both fixes worked cleanly (type-check / compile-check passed first try, network test verified working in-browser on first Playwright run after fixing the profile-trigger selector — see below).
+
+- **What was tried**: Playwright `page.click('.profile-trigger')` to open the profile popover. — **Why it failed**: Locator resolved to 2 elements (one not visible), `page.click` timed out waiting for the first one to become visible/stable. **Fix**: used `page.locator('.profile-trigger:visible').first()` with an explicit `waitFor({ state: 'visible' })` instead — worked immediately.
 
 ## Next Step
 
-**Nothing is required to continue this session's work — both parts are done, verified, and committed.** If resuming:
+**Resolved (2026-09-22): user decided "Not now" on the `min-instances` fix for `rgmc-bc-api-prod`.** Re-verified before asking that `minScale` was still unset (only `maxScale: 20` present in the service's autoscaling annotations) — so cold starts are still occurring in prod, and the user has explicitly chosen to leave scale-to-zero as-is rather than pay for an always-on instance. **Do not re-propose this unprompted** — if the user raises slow-connection reports again, revisit, but treat this as a settled decision, not an open thread.
 
-1. Optionally sanity-check the unreviewed `231d387 feat: only list chain customers in the customer dropdown` commit (see "⚠️ One thing to be aware of" above) — read `git show 231d387` in `rgmc-consignment-webapp`, and confirm with the user whether BC's "Chain" field is actually live yet, since per the commit's own message the dropdown will show **zero customers** until it is.
-2. If the user wants the search-bar change spot-checked again in a real (non-headless, non-staging) session, the Playwright test script pattern documented above can be rebuilt quickly — but note it was an ad-hoc scratchpad script, not saved to the repo (per instructions, temp test scripts don't belong in the project). Recreate from this handoff's "Failed Attempts" + browser-test description if needed rather than searching for a leftover file.
-3. No other outstanding action items from this session.
+No other outstanding action items — parts 1–3 are fully done and deployed. Nothing left to resume from this handoff; it can be considered closed.
 
 ## Context & Gotchas
 
-- **gcloud must be run from PowerShell**, not Bash, on this machine (`Python was not found` error in Bash's gcloud shim). Python for local checks: `C:\Users\erarellano\AppData\Local\Programs\Python\Python312\python.exe`.
-- **`rgmc-consignment-prod` is the real production Cloud Run service** for the webapp; `rgmc-consignment-webapp` is a stale, different service. This is now documented in memory (`project_infra_findings.md`) — don't re-confuse these.
-- **Dev server port is 8100, not 5173** — `vite.config.ts` sets it explicitly. `npm run dev` in `rgmc-consignment-webapp` prints `http://localhost:8100/`.
-- **Brand code doubles as family code** in this app: `ScanningPage.vue` passes `authStore.brand?.code` as `familyCode` to `ApiService`/`ItemSelectorModal`, and the backend's family blobs are keyed by that same code (e.g. `PDC`, `MLY`, `PD`, `CG-EC`, `TREEHOUSE`, `_NOFAMILY`). Family blobs are per-company in GCS (`gs://rgmc-bc-catalog/Production/{COMPANY}/families/{FAMILY}.json`) — the same family code can exist under multiple companies with entirely different item sets (e.g. `PD` under RGMC vs `PDC` under CGI are unrelated).
-- **Auth/session bypass for browser testing**: seeding `localStorage` keys `rgmc_auth` (`{brand, user, company}`), `rgmc_company`, and `rgmc_welcome_seen='1'` via `page.addInitScript` is sufficient to reach an authenticated, onboarded state without going through the real login flow (no BC contact/password validation happens — `loadFromStorage()` just trusts what's in storage). Real customer/item data still comes from the real staging API since no other caches were seeded — this is the fastest way to browser-test any authenticated screen in this app.
-- **The item search's substring-matching correctness was already guaranteed server-side** before this session's frontend change — `rgmc-bc-api`'s `_search_via_index()` already did `q_upper in pno or q_lower in desc` (true substring, not prefix). The only real gap this session filled was the client-side 3-character minimum; don't assume backend changes are ever needed for search-behavior tweaks like this without checking `rgmc_item_price_v3_routes.py` first.
-- **Playwright is already a `devDependency`** in `rgmc-consignment-webapp/package.json` (v1.60.0) but the browser binary was not pre-installed on this machine — `npx playwright install chromium` is a one-time ~300MB download that's now cached at `C:\Users\erarellano\AppData\Local\ms-playwright\`.
+- **gcloud must be run from PowerShell**, not Bash, on this machine (`Python was not found` error in Bash's gcloud shim). Python for local checks/compiles: `C:\Users\erarellano\AppData\Local\Programs\Python\Python312\python.exe`.
+- **`rgmc-consignment-prod` is the real production Cloud Run service** for the webapp; `rgmc-consignment-webapp` is a stale, different service — don't confuse them (see `[[project-infra-findings]]` memory).
+- **The user commits and pushes independently** — this session made all code edits and left them uncommitted with a proposal, and the user committed + pushed both repos themselves shortly after (visible only via `git log`, not in the conversation). When resuming, always check `git status`/`git log` first rather than assuming edits are still pending, since the user may act on proposed changes outside the visible conversation.
+- **`call_rgmc_v2_table()` is a shared generic helper** (`rgmc-bc-api/src/services/bc_functions.py`) used by contacts, customers, retail customers, sales orders, item families, items, warehouse activity, etc. — the `bypass_cache` fix was scoped narrowly to the contacts route only; do not assume other tables need or want the same treatment without checking each one's staleness tolerance first (the code comments there — "customers/contacts/categories change rarely" — reflect the *old* assumption this session partially overturned for contacts specifically).
+- **Dev server port is 8100** (`vite.config.ts`), proxies `/bc`, `/internal`, `/tasks` to `VITE_API_BASE_URL` (`.env` → `rgmc-bc-api-staging`).
+- **Playwright browser-testing pattern** (used again successfully this session): seed `localStorage` (`rgmc_auth`, `rgmc_company`, `rgmc_welcome_seen='1'`) via `context.addInitScript`, navigate to `/` first (not a deep route — auth hydrates after first navigation resolves), click "START NEW SESSION", then interact. Run via `NODE_PATH="$(pwd)/node_modules" node <script>` from inside `rgmc-consignment-webapp` (Playwright resolves `node_modules` relative to the script's own location, not cwd, and the script lives in the session scratchpad dir).
+- **Cloud Run cold-start diagnostic commands used this session** (useful to re-run for a before/after comparison once `min-instances` is decided):
+  ```
+  gcloud run services describe rgmc-bc-api-prod --region=asia-southeast1 --project=durable-woods-465907-n1 --format="yaml(spec.template.metadata.annotations)"
+  gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="rgmc-bc-api-prod" AND logName="projects/durable-woods-465907-n1/logs/run.googleapis.com%2Fvarlog%2Fsystem"' --project=durable-woods-465907-n1 --freshness=3d --format="value(timestamp, textPayload)"
+  ```
+- **`rgmc-bc-api-prod` sizing as of this session**: 2 vCPU / 4 GiB, concurrency 40, max-scale 20, `startup-cpu-boost: true`, min-scale unset (0). Unchanged from the prior session's audit — the OOM issue from that audit appears resolved (no memory-limit-exceeded events since 2026-09-18 06:13), but cold starts were never addressed and are the current live issue.
