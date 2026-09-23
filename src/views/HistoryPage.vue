@@ -78,32 +78,35 @@
         <span>Couldn't load synced history. Showing this device only — tap to retry.</span>
       </div>
 
-      <!-- Pending submission — visible regardless of filter tab; updates live as the
-           in-flight order resolves and disappears once it's written to history below.
-           Not tappable: the card already shows the full live status, and (now that
-           leaving Submit mid-flight detaches it — see SubmitPage's onBeforeRouteLeave)
-           there is no live review screen left to navigate back to. -->
-      <div v-if="pendingCard" class="pending-card">
+      <!-- Pending submissions — visible regardless of filter tab; each updates live as
+           its in-flight order resolves and disappears once it's written to history
+           below. Not tappable: the card already shows the full live status, and (now
+           that leaving Submit mid-flight detaches it — see SubmitPage's
+           onBeforeRouteLeave) there is no live review screen left to navigate back to.
+           Rendered as a list (not a single card) because more than one submission can
+           genuinely be in flight at once — e.g. a rep starts a second customer before
+           BC responds to the first. -->
+      <div v-for="entry in pendingCards" :key="entry.session.id" class="pending-card">
         <div class="pending-card-icon">
           <ion-spinner name="crescent" />
         </div>
         <div class="pending-card-body">
           <p class="pending-card-title">Order still processing&hellip;</p>
           <p class="pending-card-sub">
-            {{ pendingCard.customer?.displayName ?? 'No customer' }} &bull; {{ pendingCard.brand.displayName }}
+            {{ entry.session.customer?.displayName ?? 'No customer' }} &bull; {{ entry.session.brand.displayName }}
           </p>
           <div class="pending-card-rows">
-            <span v-if="pendingCard.salesOrders.length || pendingCard.noSales" class="pending-row">
-              <ion-spinner v-if="pendingSalesStatus === 'submitting'" name="crescent" class="pending-row-spinner" />
-              <ion-icon v-else-if="pendingSalesStatus === 'done'" :icon="checkmarkCircleOutline" color="success" />
-              <ion-icon v-else-if="pendingSalesStatus === 'failed'" :icon="alertCircleOutline" color="danger" />
-              <span>Sales{{ pendingSalesStatus === 'done' && pendingSalesSeriesNo ? `: ${pendingSalesSeriesNo}` : '' }}</span>
+            <span v-if="entry.session.salesOrders.length || entry.session.noSales" class="pending-row">
+              <ion-spinner v-if="entry.salesStatus === 'submitting'" name="crescent" class="pending-row-spinner" />
+              <ion-icon v-else-if="entry.salesStatus === 'done'" :icon="checkmarkCircleOutline" color="success" />
+              <ion-icon v-else-if="entry.salesStatus === 'failed'" :icon="alertCircleOutline" color="danger" />
+              <span>Sales{{ entry.salesStatus === 'done' && entry.salesSeriesNo ? `: ${entry.salesSeriesNo}` : '' }}</span>
             </span>
-            <span v-if="pendingCard.returnOrders.length" class="pending-row">
-              <ion-spinner v-if="pendingReturnsStatus === 'submitting'" name="crescent" class="pending-row-spinner" />
-              <ion-icon v-else-if="pendingReturnsStatus === 'done'" :icon="checkmarkCircleOutline" color="success" />
-              <ion-icon v-else-if="pendingReturnsStatus === 'failed'" :icon="alertCircleOutline" color="danger" />
-              <span>Returns{{ pendingReturnsStatus === 'done' && pendingReturnsSeriesNo ? `: ${pendingReturnsSeriesNo}` : '' }}</span>
+            <span v-if="entry.session.returnOrders.length" class="pending-row">
+              <ion-spinner v-if="entry.returnsStatus === 'submitting'" name="crescent" class="pending-row-spinner" />
+              <ion-icon v-else-if="entry.returnsStatus === 'done'" :icon="checkmarkCircleOutline" color="success" />
+              <ion-icon v-else-if="entry.returnsStatus === 'failed'" :icon="alertCircleOutline" color="danger" />
+              <span>Returns{{ entry.returnsStatus === 'done' && entry.returnsSeriesNo ? `: ${entry.returnsSeriesNo}` : '' }}</span>
             </span>
           </div>
         </div>
@@ -627,26 +630,22 @@ const sessionStore = useSessionStore();
 const { theme } = useTheme();
 const { openReport } = useErrorReporter();
 
-/* ─── Pending submission (still processing on Submit, possibly a different page) ─── */
-const {
-  pendingSession,
-  isPending,
-  salesStatus: pendingSalesStatus,
-  returnsStatus: pendingReturnsStatus,
-  salesSeriesNo: pendingSalesSeriesNo,
-  returnsSeriesNo: pendingReturnsSeriesNo,
-} = useOrderSubmission();
+/* ─── Pending submissions (still processing on Submit, possibly a different page) ─── */
+const { pendingEntries } = useOrderSubmission();
 
-/** Scoped to the logged-in user — on a shared device, one rep's still-processing order
- *  must never appear under a different rep's session. */
-const pendingCard = computed<ScanSession | null>(() => {
-  if (!isPending.value || !pendingSession.value) return null;
+/** Scoped to the logged-in user — on a shared device, one rep's still-processing
+ *  order(s) must never appear under a different rep's session. More than one entry
+ *  can be in flight at once (e.g. a rep starts a second customer before BC responds
+ *  to the first), so this is a list, not a single card. */
+const pendingCards = computed(() => {
   const auth = StorageService.getAuth();
-  if (!auth) return null;
-  const sameUser = pendingSession.value.user.id
-    ? pendingSession.value.user.id === auth.user.id
-    : pendingSession.value.user.displayName === auth.user.displayName;
-  return sameUser ? pendingSession.value : null;
+  if (!auth) return [];
+  return pendingEntries.value.filter((entry) => {
+    const sameUser = entry.session.user.id
+      ? entry.session.user.id === auth.user.id
+      : entry.session.user.displayName === auth.user.displayName;
+    return sameUser;
+  });
 });
 
 function reportSessionError(session: ScanSession) {

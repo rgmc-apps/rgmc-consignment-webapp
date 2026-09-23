@@ -1,11 +1,24 @@
-import { ref, computed, watch } from 'vue';
+import { reactive, computed } from 'vue';
 import { ApiService } from '@/services/api.service';
 import { useSessionStore } from '@/stores/session.store';
 import type { ScanSession, SalesOrderPayload, SalesReturnOrderPayload } from '@/types';
 
 export type SubmitPhase = 'pending' | 'submitting' | 'done' | 'failed';
 
-/* Module-level singleton — deliberately NOT component-local state.
+interface TrackedEntry {
+  session: ScanSession;
+  salesStatus: SubmitPhase;
+  returnsStatus: SubmitPhase;
+  salesSeriesNo: string;
+  returnsSeriesNo: string;
+  salesError: string;
+  returnsError: string;
+  salesErrorObj: Error | null;
+  returnsErrorObj: Error | null;
+  finalized: boolean;
+}
+
+/* Module-level map, keyed by session id — deliberately NOT component-local state.
  *
  * BC order submission polls for up to 5 minutes. It used to live in SubmitPage.vue's
  * local refs, which meant leaving that page (in-app nav, or the phone's hardware back
@@ -17,21 +30,39 @@ export type SubmitPhase = 'pending' | 'submitting' | 'done' | 'failed';
  * Keeping this state here instead — same pattern as useSync/useServerStatus — means
  * it survives navigation, HistoryPage can show it as a live "pending" entry, and it
  * finalizes into session history the instant it resolves, regardless of which page (if
- * any) happens to be mounted at that moment. */
-const pendingSession  = ref<ScanSession | null>(null);
-const salesStatus     = ref<SubmitPhase>('pending');
-const returnsStatus   = ref<SubmitPhase>('pending');
-const salesSeriesNo   = ref('');
-const returnsSeriesNo = ref('');
-const salesError      = ref('');
-const returnsError    = ref('');
-const salesErrorObj   = ref<Error | null>(null);
-const returnsErrorObj = ref<Error | null>(null);
+ * any) happens to be mounted at that moment.
+ *
+ * This used to be a single shared set of refs (one "current" session) rather than a
+ * map. SubmitPage's onBeforeRouteLeave deliberately lets a rep leave Submit while a
+ * submission is still polling and start a brand-new session right away (see that
+ * handler) — so two submissions can genuinely be in flight at once, e.g. rep A's
+ * still-polling submission and rep B's brand-new one on a shared device, or even the
+ * same rep moving on to a second customer before BC responds to the first. With a
+ * single shared set of refs, starting the second submission's track() call reset the
+ * tracked session AND the result fields out from under the first submission's still-
+ * running poll. Whichever task happened to resolve last then wrote its own result
+ * number onto whatever session was "current" at that moment — silently attributing
+ * one rep's real BC order number to a completely unrelated session (confirmed in
+ * production: a "No Sales" order for one customer got attached to a different rep's
+ * real order for an unrelated customer), while the other result was dropped entirely.
+ * Keying by session id gives every submission its own entry so two in-flight
+ * submissions can never clobber each other. */
+const tracked = reactive(new Map<string, TrackedEntry>());
 
-// True once the currently-tracked session has been written to history — guards against
-// the auto-finalize watcher and an explicit finalizeNow() call (e.g. the user taps
-// "Finish Session" right as the watcher fires) both trying to finalize the same session.
-let finalized = true;
+function newEntry(session: ScanSession): TrackedEntry {
+  return {
+    session,
+    salesStatus: 'pending',
+    returnsStatus: 'pending',
+    salesSeriesNo: '',
+    returnsSeriesNo: '',
+    salesError: '',
+    returnsError: '',
+    salesErrorObj: null,
+    returnsErrorObj: null,
+    finalized: false,
+  };
+}
 
 function hasSalesLines(s: ScanSession): boolean {
   return s.salesOrders.length > 0 || !!s.noSales;
@@ -40,94 +71,52 @@ function hasReturnLines(s: ScanSession): boolean {
   return s.returnOrders.length > 0;
 }
 
-const isPending = computed(() => pendingSession.value !== null);
-const anyDone   = computed(() => salesStatus.value === 'done'   || returnsStatus.value === 'done');
-const anyFailed = computed(() => salesStatus.value === 'failed' || returnsStatus.value === 'failed');
-
-/** True once every order type the tracked session actually has lines for has reached
+/** True once every order type the entry's session actually has lines for has reached
  *  a terminal state. A type with zero lines (e.g. no returns at all) never blocks this —
  *  there is nothing to wait for. */
-const isComplete = computed(() => {
-  const s = pendingSession.value;
-  if (!s) return true;
-  const salesOk   = !hasSalesLines(s)  || salesStatus.value   === 'done' || salesStatus.value   === 'failed';
-  const returnsOk = !hasReturnLines(s) || returnsStatus.value === 'done' || returnsStatus.value === 'failed';
+function isEntryComplete(e: TrackedEntry): boolean {
+  const salesOk   = !hasSalesLines(e.session)  || e.salesStatus   === 'done' || e.salesStatus   === 'failed';
+  const returnsOk = !hasReturnLines(e.session) || e.returnsStatus === 'done' || e.returnsStatus === 'failed';
   return salesOk && returnsOk;
-});
+}
 
 /** Start (or resume) tracking a session's submission. Idempotent per session id, so
  *  calling this again for the same session — e.g. re-opening Submit while it's still
- *  processing in the background — never resets progress already made. */
-function track(session: ScanSession): void {
-  if (pendingSession.value?.id === session.id) return;
-  pendingSession.value = { ...session };
-  salesStatus.value = 'pending';
-  returnsStatus.value = 'pending';
-  salesSeriesNo.value = '';
-  returnsSeriesNo.value = '';
-  salesError.value = '';
-  returnsError.value = '';
-  salesErrorObj.value = null;
-  returnsErrorObj.value = null;
-  finalized = false;
-}
-
-/** Clears leftover terminal status ('done'/'failed') from a previously finalized
- *  session so a newly viewed session doesn't inherit it.
- *
- *  finalize() only nulls out pendingSession — it never resets salesStatus/
- *  returnsStatus themselves, and track() (the only place that does) never ran
- *  because it only fires when the user clicks Submit. Since SubmitPage renders the
- *  submit button vs. the 'done'/'failed' badge straight off these shared refs, a
- *  brand-new session opened after a previous one finished would show as already
- *  submitted (or failed) — with nothing actually sent — and there'd be no submit
- *  button visible to click to fix it (see track()'s status !== 'pending' guard in
- *  SubmitPage's template). Confirmed against production logs: real BC submissions
- *  correctly end in 'done'/'failed', but that terminal state was never being
- *  cleared for the next customer's session.
- *
- *  Safe to call freely on every session view/change — it's a no-op whenever a
- *  submission is actively tracked (pendingSession !== null), so it can never
- *  disturb a still-in-flight or not-yet-finalized submission, including one
- *  belonging to a *different* session than the one being viewed. */
-function clearStaleStatus(): void {
-  if (pendingSession.value !== null) return;
-  if (salesStatus.value === 'pending' && returnsStatus.value === 'pending') return;
-  salesStatus.value = 'pending';
-  returnsStatus.value = 'pending';
-  salesSeriesNo.value = '';
-  returnsSeriesNo.value = '';
-  salesError.value = '';
-  returnsError.value = '';
-  salesErrorObj.value = null;
-  returnsErrorObj.value = null;
-}
-
-/** Writes the tracked session to history (local storage + Firestore) using whatever
- *  resolved so far, and stops tracking it. Safe to call more than once — only the
- *  first call after track() has any effect. Combining rule matches the original
- *  explicit "Finish Session" behavior: any failed part fails the whole session. */
-function finalize(): void {
-  if (finalized || !pendingSession.value) return;
-  finalized = true;
-  const session = pendingSession.value;
-  const sessionStore = useSessionStore();
-  if (anyFailed.value) {
-    const combined = [salesError.value, returnsError.value].filter(Boolean).join('; ');
-    sessionStore.markFailed(combined || 'Partial submission failure', session);
-  } else {
-    sessionStore.markSubmitted(salesSeriesNo.value || undefined, returnsSeriesNo.value || undefined, session);
+ *  processing in the background — never resets progress already made. Never touches
+ *  any other session's entry. */
+function track(session: ScanSession): TrackedEntry {
+  let e = tracked.get(session.id);
+  if (!e) {
+    e = newEntry(session);
+    tracked.set(session.id, e);
   }
-  pendingSession.value = null;
+  return e;
 }
 
-// Auto-finalize the instant every relevant part resolves — independent of navigation,
-// so leaving Submit mid-poll (now allowed; see SubmitPage's onBeforeRouteLeave) never
-// loses a confirmed order. Declared once at module scope: these are module-level refs,
-// so the watcher needs no component lifecycle to own it.
-watch([salesStatus, returnsStatus], () => {
-  if (isComplete.value) finalize();
-});
+/** Writes an entry's session to history (local storage + Firestore) using whatever
+ *  resolved so far, and stops tracking it. Safe to call more than once — only the
+ *  first call has any effect. Combining rule: any failed part fails the whole session. */
+function doFinalize(sessionId: string): void {
+  const e = tracked.get(sessionId);
+  if (!e || e.finalized) return;
+  e.finalized = true;
+  const sessionStore = useSessionStore();
+  if (e.salesStatus === 'failed' || e.returnsStatus === 'failed') {
+    const combined = [e.salesError, e.returnsError].filter(Boolean).join('; ');
+    sessionStore.markFailed(combined || 'Partial submission failure', e.session);
+  } else {
+    sessionStore.markSubmitted(e.salesSeriesNo || undefined, e.returnsSeriesNo || undefined, e.session);
+  }
+  tracked.delete(sessionId);
+}
+
+/** Auto-finalize the instant every relevant part of THIS entry resolves — called right
+ *  after submitSales/submitReturns reach a terminal state for their own session, so it
+ *  can never be tripped by a different session's status changing. */
+function maybeAutoFinalize(sessionId: string): void {
+  const e = tracked.get(sessionId);
+  if (e && isEntryComplete(e)) doFinalize(sessionId);
+}
 
 async function pollUntilDone(taskId: string, timeoutMs = 300_000): Promise<{ status: string; result?: unknown; error?: string }> {
   const deadline = Date.now() + timeoutMs;
@@ -149,8 +138,8 @@ async function pollUntilDone(taskId: string, timeoutMs = 300_000): Promise<{ sta
 }
 
 async function submitSales(session: ScanSession, payload: SalesOrderPayload): Promise<void> {
-  track(session);
-  salesStatus.value = 'submitting';
+  const e = track(session);
+  e.salesStatus = 'submitting';
   try {
     const { taskId } = await ApiService.submitSalesOrderAsync(payload);
     const task = await pollUntilDone(taskId);
@@ -160,47 +149,89 @@ async function submitSales(session: ScanSession, payload: SalesOrderPayload): Pr
       // successful submission (confirmed in production: 0 of the last 1000
       // submitted sessions have a series number). See HistoryPage's matchOrder for
       // the same bug in the manual "Fetch BC Order Number" fallback.
-      salesSeriesNo.value = (task.result as Record<string, string>)?.number ?? '';
-      salesStatus.value = 'done';
+      e.salesSeriesNo = (task.result as Record<string, string>)?.number ?? '';
+      e.salesStatus = 'done';
     } else {
       throw new Error(task.error ?? 'Order processing failed');
     }
   } catch (err) {
-    salesErrorObj.value = err instanceof Error ? err : new Error(String(err));
-    salesError.value = salesErrorObj.value.message;
-    salesStatus.value = 'failed';
+    e.salesErrorObj = err instanceof Error ? err : new Error(String(err));
+    e.salesError = e.salesErrorObj.message;
+    e.salesStatus = 'failed';
   }
+  maybeAutoFinalize(session.id);
 }
 
 async function submitReturns(session: ScanSession, payload: SalesReturnOrderPayload): Promise<void> {
-  track(session);
-  returnsStatus.value = 'submitting';
+  const e = track(session);
+  e.returnsStatus = 'submitting';
   try {
     const { taskId } = await ApiService.submitSalesReturnOrderAsync(payload);
     const task = await pollUntilDone(taskId);
     if (task.status === 'done') {
-      returnsSeriesNo.value = (task.result as Record<string, string>)?.number ?? '';
-      returnsStatus.value = 'done';
+      e.returnsSeriesNo = (task.result as Record<string, string>)?.number ?? '';
+      e.returnsStatus = 'done';
     } else {
       throw new Error(task.error ?? 'Order processing failed');
     }
   } catch (err) {
-    returnsErrorObj.value = err instanceof Error ? err : new Error(String(err));
-    returnsError.value = returnsErrorObj.value.message;
-    returnsStatus.value = 'failed';
+    e.returnsErrorObj = err instanceof Error ? err : new Error(String(err));
+    e.returnsError = e.returnsErrorObj.message;
+    e.returnsStatus = 'failed';
   }
-}
-
-/** Manual override for the "Finish Session" button: combines whatever has resolved so
- *  far right now, even if a type that has lines was never attempted (matches the
- *  original button behavior — it never required both types to be attempted, only that
- *  at least one resolved). The auto-finalize watcher above only fires once every type
- *  that HAS lines is resolved; this lets the user close out sooner if they choose to. */
-function finalizeNow(): void {
-  finalize();
+  maybeAutoFinalize(session.id);
 }
 
 export function useOrderSubmission() {
+  const sessionStore = useSessionStore();
+
+  // Scoped to whichever session SubmitPage currently has open — this is what drives
+  // that page's own live status display and its Submit/Finish buttons.
+  const activeEntry = computed(() => {
+    const id = sessionStore.currentSession?.id;
+    return id ? tracked.get(id) : undefined;
+  });
+
+  const pendingSession  = computed(() => activeEntry.value?.session ?? null);
+  const isPending       = computed(() => activeEntry.value !== undefined);
+  const salesStatus     = computed(() => activeEntry.value?.salesStatus   ?? 'pending');
+  const returnsStatus   = computed(() => activeEntry.value?.returnsStatus ?? 'pending');
+  const salesSeriesNo   = computed(() => activeEntry.value?.salesSeriesNo   ?? '');
+  const returnsSeriesNo = computed(() => activeEntry.value?.returnsSeriesNo ?? '');
+  const salesError      = computed(() => activeEntry.value?.salesError   ?? '');
+  const returnsError    = computed(() => activeEntry.value?.returnsError ?? '');
+  const salesErrorObj   = computed(() => activeEntry.value?.salesErrorObj   ?? null);
+  const returnsErrorObj = computed(() => activeEntry.value?.returnsErrorObj ?? null);
+  const anyDone         = computed(() => salesStatus.value === 'done'   || returnsStatus.value === 'done');
+  const anyFailed       = computed(() => salesStatus.value === 'failed' || returnsStatus.value === 'failed');
+  const isComplete      = computed(() => !activeEntry.value || isEntryComplete(activeEntry.value));
+
+  // Every submission still in flight or not yet finalized, regardless of which session
+  // (if any) is currently open on Submit — this is what HistoryPage uses to show live
+  // "still processing" cards for the logged-in user, since leaving Submit mid-poll
+  // clears sessionStore.currentSession while the submission keeps running in the
+  // background (see SubmitPage's onBeforeRouteLeave).
+  const pendingEntries = computed(() =>
+    Array.from(tracked.values()).map((e) => ({
+      session: e.session,
+      salesStatus: e.salesStatus,
+      returnsStatus: e.returnsStatus,
+      salesSeriesNo: e.salesSeriesNo,
+      returnsSeriesNo: e.returnsSeriesNo,
+    })),
+  );
+
+  /** Manual override for the "Finish Session" button: combines whatever has resolved so
+   *  far right now for the currently open session, even if a type that has lines was
+   *  never attempted (matches the original button behavior — it never required both
+   *  types to be attempted, only that at least one resolved). Auto-finalize (above)
+   *  only fires once every type that HAS lines is resolved; this lets the user close
+   *  out sooner if they choose to. */
+  function finalizeNow(): void {
+    const id = sessionStore.currentSession?.id;
+    if (id) doFinalize(id);
+  }
+
   return {
     pendingSession,
     isPending,
@@ -215,9 +246,9 @@ export function useOrderSubmission() {
     anyDone,
     anyFailed,
     isComplete,
+    pendingEntries,
     submitSales,
     submitReturns,
     finalizeNow,
-    clearStaleStatus,
   };
 }

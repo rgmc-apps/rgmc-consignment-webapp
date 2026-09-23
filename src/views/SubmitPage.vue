@@ -424,16 +424,7 @@ const {
   anyDone, anyFailed,
   submitSales, submitReturns,
   finalizeNow,
-  clearStaleStatus,
 } = useOrderSubmission();
-
-// A previous session's terminal 'done'/'failed' state lives in useOrderSubmission's
-// shared refs and is only cleared by finalize()'s pendingSession reset, never by the
-// status refs themselves — so without this, opening Submit for a brand-new session
-// right after a previous one finished shows it as already submitted (or failed),
-// with the actual submit button never appearing. See clearStaleStatus() for why this
-// is safe to call unconditionally on every session change.
-watch(session, (s) => { if (s) clearStaleStatus(); }, { immediate: true });
 
 const { openReport } = useErrorReporter();
 
