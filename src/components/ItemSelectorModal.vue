@@ -578,8 +578,20 @@ watch(lookupDate, (newDate) => {
   priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 300);
 });
 
+// The list row displays livePrices[item.number] ?? item.unitPriceIncVAT (see template
+// above) — livePrices holds prices already confirmed live from BC (via the swipe-to-
+// sync "Update Price" pull-to-refresh, or a per-row sync). Selecting used to emit the
+// raw `item` object, whose unitPriceIncVAT is whatever was in the passed-in item list —
+// silently discarding the live correction the user was just looking at, so the confirm
+// sheet showed the pre-sync price instead of the one on screen. Resolving the same way
+// the row renders (here and for barcode matches below) keeps them in sync.
+function withLivePrice(item: Item): Item {
+  const livePrice = livePrices.value[item.number];
+  return livePrice !== undefined ? { ...item, unitPriceIncVAT: livePrice } : item;
+}
+
 function handleSelect(item: Item) {
-  emit('select', item);
+  emit('select', withLivePrice(item));
 }
 
 /* ─── Update Price ─── */
@@ -876,14 +888,14 @@ function resolveBarcode(code: string) {
     (i) => i.number.toUpperCase() === code.toUpperCase(),
   );
   if (exactMatch) {
-    emit('select', exactMatch);
+    emit('select', withLivePrice(exactMatch));
     return;
   }
   const partialMatch = props.items.find(
     (i) => i.number.toUpperCase().includes(code.toUpperCase()) || code.toUpperCase().includes(i.number.toUpperCase()),
   );
   if (partialMatch) {
-    emit('select', partialMatch);
+    emit('select', withLivePrice(partialMatch));
     return;
   }
   /* No match — if online, show BC search prompt on the scanner page;
