@@ -485,9 +485,16 @@ async function fetchMissingPrices(items: typeof displayItems.value) {
       undefined,
       props.familyCode,
     );
+    // `missing` is a snapshot taken before this (potentially slow — see
+    // getAllItemPricesForDate's family_code fast path) bulk call started. If the user
+    // pulls to refresh while it's still in flight, onListRefresh's per-item live sync
+    // can write a fresher, more authoritative price for one of these same items before
+    // this call resolves. Re-checking livePrices is still undefined at write time (not
+    // just at snapshot time) stops this slower bulk result from clobbering that fresher
+    // value — the same class of bug fixed in onListRefresh's own background branch.
     for (const item of missing) {
       const price = priceMap[item.number] ?? null;
-      if (price !== null) {
+      if (price !== null && livePrices.value[item.number] === undefined) {
         livePrices.value[item.number] = price;
         StorageService.patchCachedItemPrice(item.number, price);
       }
@@ -565,7 +572,13 @@ async function onListRefresh(ev: CustomEvent) {
         for (const [no, price] of Object.entries(restMapRaw)) {
           if (restNos.has(no)) restMap[no] = price;
         }
-        for (const [no, price] of Object.entries(restMap)) livePrices.value[no] = price;
+        // Same "only fill gaps, never overwrite a live value" rule as fetchMissingPrices:
+        // an item can leave the visible set (e.g. the user broadens the search) after
+        // already being live-synced, and this is a slow, best-effort background call —
+        // don't let it stomp a value that's already live-confirmed.
+        for (const [no, price] of Object.entries(restMap)) {
+          if (livePrices.value[no] === undefined) livePrices.value[no] = price;
+        }
         const existing = StorageService.getCachedItemPrices();
         StorageService.setCachedItemPrices(lookupDate.value, { ...(existing?.prices ?? {}), ...restMap });
       }
