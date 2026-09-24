@@ -550,9 +550,21 @@ async function onListRefresh(ev: CustomEvent) {
       const visibleNos = new Set(visibleItems.map((i) => i.number));
       const restItems = allItems.filter((i) => !visibleNos.has(i.number));
       if (restItems.length) {
-        const { priceMap: restMap } = await ApiService.getAllItemPricesForDate(
+        const restNos = new Set(restItems.map((i) => i.number));
+        const { priceMap: restMapRaw } = await ApiService.getAllItemPricesForDate(
           lookupDate.value, restItems.map((i) => i.number), undefined, undefined, props.familyCode,
         );
+        // getAllItemPricesForDate's family_code fast path fetches the WHOLE family's
+        // prices, silently ignoring the productNos scoping (see its own comment) — that
+        // response therefore also includes the visible items this call was meant to
+        // exclude. Filtering back down to restNos here stops it from clobbering the
+        // live prices syncItems() just wrote for the visible items above: without this,
+        // the list would briefly show the correct synced price and then flicker back to
+        // the stale one a moment later as this background call resolves.
+        const restMap: Record<string, number> = {};
+        for (const [no, price] of Object.entries(restMapRaw)) {
+          if (restNos.has(no)) restMap[no] = price;
+        }
         for (const [no, price] of Object.entries(restMap)) livePrices.value[no] = price;
         const existing = StorageService.getCachedItemPrices();
         StorageService.setCachedItemPrices(lookupDate.value, { ...(existing?.prices ?? {}), ...restMap });

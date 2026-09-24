@@ -604,6 +604,16 @@ export const ApiService = {
     // Fast path: single call — backend filters from its in-memory full-catalog cache.
     // On a cold backend start the cache may not be warm yet, so the backend fetches the
     // full BC catalog synchronously before filtering; allow 5 min for that one-time cost.
+    //
+    // NOTE: this path does NOT send productNos to the backend — it returns prices for
+    // the WHOLE family, ignoring the requested subset. That's fine for callers who want
+    // the whole family anyway (e.g. ScanningPage's prefetchAllPrices), but a caller
+    // asking for a specific subset gets back extra data for every other item in the
+    // family too. If you write the response back keyed by item number, filter it down
+    // to the productNos you actually asked for first — see ItemSelectorModal's
+    // onListRefresh for the bug this caused when that filtering was missing (a
+    // "background" price refresh for non-visible items ended up overwriting prices for
+    // visible items that had just been correctly synced).
     if (familyCode) {
       try {
         const res = await apiClient.get('/bc/custom/v3/item-prices', {
