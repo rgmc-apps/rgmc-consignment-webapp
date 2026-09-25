@@ -966,7 +966,7 @@ function downloadHistory() {
   if (!sessions.length) return;
 
   const lines: string[] = [
-    'RGMC CONSIGNMENT — SESSION HISTORY',
+    'RGMC CONSIGNMENT - GARMENTS — SESSION HISTORY',
     `Exported : ${new Date().toLocaleString('en-PH')}`,
     `Filter   : ${activeFilter.value.toUpperCase()}`,
     '='.repeat(64),

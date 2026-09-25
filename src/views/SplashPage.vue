@@ -12,7 +12,7 @@
             'logo-wrap--error': hasError,
           }"
         >
-          <img :src="logoSrc" alt="RGMC Consignment" class="logo-img" />
+          <img :src="logoSrc" alt="RGMC Consignment - Garments" class="logo-img" />
         </div>
 
         <!-- Phase: loading companies -->

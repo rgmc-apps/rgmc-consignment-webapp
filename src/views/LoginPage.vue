@@ -8,8 +8,8 @@
       <div class="login-container">
         <!-- Logo block -->
         <div class="login-logo-block">
-          <img :src="logoSrc" alt="RGMC Consignment" :class="['login-logo', { 'login-logo--loading': companiesLoading || brandsLoading }]" />
-          <h1 class="login-title">RGMC Consignment</h1>
+          <img :src="logoSrc" alt="RGMC Consignment - Garments" :class="['login-logo', { 'login-logo--loading': companiesLoading || brandsLoading }]" />
+          <h1 class="login-title">RGMC Consignment - Garments</h1>
           <p class="login-subtitle">Web App</p>
         </div>
 

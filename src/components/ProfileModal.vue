@@ -152,7 +152,7 @@
         <!-- ── App ── -->
         <p class="section-label">App</p>
         <div class="app-version-block">
-          <span class="app-version-text">RGMC Consignment</span>
+          <span class="app-version-text">RGMC Consignment - Garments</span>
           <span class="app-version-badge">v{{ appVersion }} <span class="app-build-sep">·</span> build {{ appBuild }}</span>
         </div>
 

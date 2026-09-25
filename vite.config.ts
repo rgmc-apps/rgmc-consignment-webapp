@@ -48,9 +48,9 @@ export default defineConfig(({ mode }) => {
         injectRegister: 'auto',
         includeAssets: ['static/cons-logo.png', 'static/cons-logo-splash.png', 'static/logo.png', 'static/logo-bnw.png'],
         manifest: {
-          name: 'RGMC Consignment',
+          name: 'RGMC Consignment Web App - Garments',
           short_name: 'RGMC',
-          description: 'RGMC Consignment Web App',
+          description: 'RGMC Consignment Web App - Garments',
           theme_color: '#1a1a1a',
           background_color: '#1a1a1a',
           display: 'standalone',
