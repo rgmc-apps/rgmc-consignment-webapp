@@ -4,6 +4,7 @@ import { loadBcrypt } from '@/utils/bcrypt';
 import type { Brand, Company, Contact } from '@/types';
 import { ApiService, setApiCompany } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
+import { useSessionStore } from '@/stores/session.store';
 
 function isBcryptHash(value: string): boolean {
   return /^\$2[abyA-Z]\$\d{2}\$/.test(value);
@@ -242,6 +243,11 @@ export const useAuthStore = defineStore('auth', () => {
     StorageService.clearAuthPhoto();
     StorageService.clearCompany();
     StorageService.clearLastCustomerId();
+    // A session started under this login (e.g. an unsaved scan with no
+    // customer picked yet) must not survive into the next login — otherwise
+    // its stale `brand` gets reused if the next user opens the Scan tab
+    // directly instead of "Start New Session".
+    useSessionStore().clearCurrentSession();
   }
 
   function clearError(): void {

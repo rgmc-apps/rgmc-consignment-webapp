@@ -788,9 +788,7 @@ onMounted(async () => {
      are available after a browser refresh even when offline. */
   await StorageService.init();
   refreshCache();
-  if (!sessionStore.currentSession && authStore.brand && authStore.user) {
-    sessionStore.startNewSession(authStore.brand, authStore.user, authStore.company?.code);
-  }
+  ensureSessionForCurrentBrand();
   // Auto-select last customer after refreshCache() — covers first mount and the race
   // where onIonViewWillEnter fired before customers were loaded.
   if (sessionStore.currentSession && !sessionStore.currentSession.customer) {
@@ -814,11 +812,24 @@ onMounted(async () => {
 // mid-session (the previous user's items would otherwise remain in cachedItems).
 onIonViewWillEnter(() => {
   refreshCache();
-  if (!sessionStore.currentSession && authStore.brand && authStore.user) {
-    sessionStore.startNewSession(authStore.brand, authStore.user, authStore.company?.code);
+  if (ensureSessionForCurrentBrand()) {
     applyLastCustomer();
   }
 });
+
+/** Starts a fresh session for the logged-in brand if there isn't one yet, or if the
+ *  existing one belongs to a different brand — e.g. left over from a previous login
+ *  that was signed out before a customer was picked (see session.store.ts / auth.store.ts
+ *  logout()). Reaching the Scan tab directly (not via "Start New Session") is the
+ *  path that would otherwise reuse that stale session and its wrong brand.
+ *  Returns true if a new session was started. */
+function ensureSessionForCurrentBrand(): boolean {
+  if (!authStore.brand || !authStore.user) return false;
+  const current = sessionStore.currentSession;
+  if (current && current.brand.code === authStore.brand.code) return false;
+  sessionStore.startNewSession(authStore.brand, authStore.user, authStore.company?.code);
+  return true;
+}
 
 /* ─── Sync ─── */
 function doTriggerRemoteSync() {
