@@ -24,10 +24,10 @@
           <!-- Slide 0: Intro -->
           <div class="wm-slide wm-slide--intro">
             <div class="wm-intro-inner">
-              <span class="wm-eyebrow">RGMC · Consignment</span>
+              <span class="wm-eyebrow">RGMC · Consignment · Garments</span>
               <div class="wm-intro-logo-wrap">
                 <div class="wm-intro-logo-glow" aria-hidden="true" />
-                <img :src="isMinimalist ? '/static/logo-bnw.png' : '/static/cons-logo-splash.png'" alt="RGMC Consignment" class="wm-intro-logo" />
+                <img :src="isMinimalist ? '/static/logo-bnw.png' : '/static/cons-logo-splash.png'" alt="RGMC Consignment - Garments" class="wm-intro-logo" />
               </div>
               <div class="wm-intro-text">
                 <h1 class="wm-intro-heading">
@@ -181,7 +181,7 @@ const firstName = computed(() => {
 const slides = [
   {
     title: '',
-    desc: "Here's a quick tour of what you can do in the RGMC Consignment app.",
+    desc: "Here's a quick tour of what you can do in the RGMC Consignment - Garments app.",
     img: null,
     icon: null,
     label: '',

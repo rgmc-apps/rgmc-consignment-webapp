@@ -19,6 +19,11 @@
           <span class="pop-name">{{ authStore.user?.displayName }}</span>
           <span v-if="authStore.user?.username" class="pop-username">@{{ authStore.user.username }}</span>
           <span class="pop-brand">{{ authStore.brand?.displayName }}</span>
+          <span v-if="lastSyncLabel !== 'Never synced'" class="pop-sync-ts">
+            <ion-icon :icon="cloudDoneOutline" class="pop-sync-ts-icon" />
+            {{ lastSyncLabel }}
+          </span>
+          <span v-else class="pop-sync-ts pop-sync-ts--none">Not yet synced</span>
         </div>
       </div>
 
@@ -30,6 +35,16 @@
         <div class="pop-item-text">
           <span class="pop-item-label">Edit Profile</span>
           <span class="pop-item-sub">View and edit your details</span>
+        </div>
+        <ion-icon :icon="chevronForwardOutline" class="pop-chevron" />
+      </button>
+
+      <!-- Network Test -->
+      <button class="pop-item" @click="openNetworkTest">
+        <ion-icon :icon="speedometerOutline" class="pop-icon" />
+        <div class="pop-item-text">
+          <span class="pop-item-label">Network Test</span>
+          <span class="pop-item-sub">Check connection &amp; server status</span>
         </div>
         <ion-icon :icon="chevronForwardOutline" class="pop-chevron" />
       </button>
@@ -58,6 +73,9 @@
           <span :key="isSyncing ? syncSubCycleText : lastSyncLabel" class="pop-item-sub cycling-text">
             {{ isSyncing ? syncSubCycleText : lastSyncLabel }}
           </span>
+          <span v-if="!isSyncing && lastSyncDurationLabel" class="pop-item-duration">
+            took {{ lastSyncDurationLabel }}
+          </span>
         </div>
       </button>
 
@@ -66,6 +84,10 @@
         <div v-if="isSyncing && syncSubTasks.length" class="pop-sync-panel">
           <div class="pop-progress-bar">
             <div class="pop-progress-fill" :style="{ width: syncProgress + '%' }" />
+          </div>
+          <div class="pop-sync-timing">
+            <span class="pop-sync-pct-small">{{ syncProgress }}%</span>
+            <span class="pop-sync-elapsed">{{ syncElapsedLabel }}</span>
           </div>
           <div class="pop-sync-tasks">
             <div v-for="task in syncSubTasks" :key="task.label" class="pop-task-row">
@@ -92,6 +114,30 @@
           </div>
         </div>
       </Transition>
+
+      <div class="pop-divider" />
+
+      <!-- Sync data age -->
+      <div class="pop-setting-row">
+        <ion-icon :icon="timerOutline" class="pop-icon" />
+        <div class="pop-item-text">
+          <span class="pop-item-label">Sync Data Age</span>
+          <span class="pop-item-sub">Re-sync after {{ syncDataAge }}h of inactivity</span>
+        </div>
+        <div class="pop-stepper">
+          <button
+            class="pop-step-btn"
+            :disabled="syncDataAge <= 1"
+            @click="setSyncDataAge(syncDataAge - stepSize)"
+          >−</button>
+          <span class="pop-step-val">{{ syncDataAge }}h</span>
+          <button
+            class="pop-step-btn"
+            :disabled="syncDataAge >= 168"
+            @click="setSyncDataAge(syncDataAge + stepSize)"
+          >+</button>
+        </div>
+      </div>
 
       <div class="pop-divider" />
 
@@ -128,6 +174,17 @@
 
       <div class="pop-divider" />
 
+      <!-- Update Application -->
+      <button class="pop-item" :disabled="isUpdating" @click="onUpdate">
+        <ion-icon :icon="cloudDownloadOutline" class="pop-icon" />
+        <div class="pop-item-text">
+          <span class="pop-item-label">{{ isUpdating ? 'Reloading…' : 'Update Application' }}</span>
+          <span class="pop-item-sub">v{{ appVersion }} · {{ appBuild }}</span>
+        </div>
+      </button>
+
+      <div class="pop-divider" />
+
       <!-- Sign out -->
       <button class="pop-item pop-item--danger" @click="onLogout">
         <ion-icon :icon="logOutOutline" class="pop-icon" />
@@ -138,6 +195,9 @@
 
   <!-- Profile modal -->
   <profile-modal :is-open="profileOpen" @close="profileOpen = false" />
+
+  <!-- Network test modal -->
+  <network-test-modal :is-open="networkTestOpen" @close="networkTestOpen = false" />
 </template>
 
 <script setup lang="ts">
@@ -161,6 +221,10 @@ import {
   removeOutline,
   checkmarkCircleOutline,
   alertCircleOutline,
+  cloudDoneOutline,
+  timerOutline,
+  cloudDownloadOutline,
+  speedometerOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSync } from '@/composables/useSync';
@@ -168,11 +232,18 @@ import { useLoadingText } from '@/composables/useLoadingText';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import { useTheme } from '@/composables/useTheme';
 import ProfileModal from '@/components/ProfileModal.vue';
+import NetworkTestModal from '@/components/NetworkTestModal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
-const { isSyncing, syncProgress, syncSubTasks, lastSyncLabel, sync } = useSync();
+const { isSyncing, syncProgress, syncSubTasks, lastSyncLabel, sync, syncDataAge, setSyncDataAge, syncElapsedLabel, lastSyncDurationLabel } = useSync();
+
+const appVersion = __APP_VERSION__;
+const appBuild = __APP_BUILD__;
+
+// Step size scales with the current value so large values don't require dozens of taps
+const stepSize = computed(() => syncDataAge.value <= 12 ? 1 : syncDataAge.value <= 48 ? 4 : 24);
 
 const syncPrefixText = useLoadingText(
   ['Syncing…', 'Fetching data…', 'Updating cache…', 'Loading latest…'],
@@ -188,6 +259,7 @@ const { theme, setTheme } = useTheme();
 
 const isOpen = ref(false);
 const profileOpen = ref(false);
+const networkTestOpen = ref(false);
 
 function openProfile() {
   isOpen.value = false;
@@ -195,9 +267,33 @@ function openProfile() {
   setTimeout(() => { profileOpen.value = true; }, 100);
 }
 
+function openNetworkTest() {
+  isOpen.value = false;
+  setTimeout(() => { networkTestOpen.value = true; }, 100);
+}
+
 async function onSync() {
   if (isSyncing.value || !isOnline.value) return;
   await sync();
+}
+
+const isUpdating = ref(false);
+
+async function onUpdate() {
+  if (isUpdating.value) return;
+  isUpdating.value = true;
+  isOpen.value = false;
+  await new Promise(r => setTimeout(r, 200));
+  if ('serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration('/');
+      if (reg?.waiting) {
+        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        await new Promise(r => setTimeout(r, 400));
+      }
+    } catch { /* ignore */ }
+  }
+  window.location.reload();
 }
 
 async function onLogout() {
@@ -314,6 +410,28 @@ async function onLogout() {
   opacity: 0.8;
 }
 
+.pop-sync-ts {
+  font-size: 10px;
+  font-weight: 500;
+  color: oklch(65% 0.15 145 / 0.9);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pop-sync-ts-icon {
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.pop-sync-ts--none {
+  color: var(--app-text-muted);
+  opacity: 0.55;
+}
+
 /* ── Divider ── */
 .pop-divider {
   height: 1px;
@@ -380,6 +498,15 @@ async function onLogout() {
   color: var(--app-text-muted);
 }
 
+.pop-item-duration {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--app-text-muted);
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+}
+
 .pop-chevron {
   font-size: 14px;
   color: var(--app-text-muted);
@@ -417,7 +544,30 @@ async function onLogout() {
   border-radius: 3px;
   background: var(--app-border);
   overflow: hidden;
-  margin-bottom: 10px;
+  margin-bottom: 5px;
+}
+
+.pop-sync-timing {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.pop-sync-pct-small {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--app-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pop-sync-elapsed {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--app-gold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.3px;
+  opacity: 0.85;
 }
 
 .pop-progress-fill {
@@ -610,6 +760,64 @@ async function onLogout() {
 .sync-expand-leave-from {
   opacity: 1;
   max-height: 160px;
+}
+
+/* ── Sync data age setting ── */
+.pop-setting-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 16px;
+  color: var(--app-fg);
+}
+
+.pop-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.pop-step-btn {
+  background: transparent;
+  border: none;
+  color: var(--app-fg);
+  font-size: 16px;
+  font-weight: 600;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.12s ease;
+  line-height: 1;
+}
+
+.pop-step-btn:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.pop-step-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.pop-step-val {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--app-gold);
+  min-width: 34px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  border-left: 1px solid var(--app-border);
+  border-right: 1px solid var(--app-border);
+  padding: 0 2px;
+  line-height: 30px;
 }
 
 /* ── Theme selector ── */

@@ -5,23 +5,51 @@ import { useAuthStore } from '@/stores/auth.store';
 
 // Module-level singleton so all components share the same sync state
 const isSyncing = ref(false);
+const syncElapsed = ref(0);
+let _syncTimer: ReturnType<typeof setInterval> | null = null;
+const isSyncDelta = ref(false); // true when this run is a delta (modified_since) sync, false for full
 const syncPhase = ref('');
 const syncProgress = ref(0);
 const syncSubTasks = ref<{ label: string; status: 'pending' | 'done' | 'error'; detail?: string }[]>([]);
 const syncError = ref<string | null>(null);
 const syncWarning = ref<string | null>(null);
-const lastSyncDate = ref<Date | null>(StorageService.getLastSync());
+// lastSyncDate is a reactive trigger — set to new Date() after each sync so that
+// lastSyncLabel (and any other computed) re-evaluates. The authoritative timestamp is
+// always read per-company-brand from StorageService.getLastSync().
+const lastSyncDate = ref<Date | null>(null);
 const syncItemsLoaded = ref(0);
 const syncItemsTotal = ref(0);
 const isCatalogEmpty = ref(false);
 const isTriggering = ref(false);
 const triggerMessage = ref<string | null>(null);
+const syncDataAge = ref<number>(StorageService.getSyncDataAge());
+const lastSyncDurationSecs = ref<number | null>(StorageService.getSyncDuration());
 
 export function useSync() {
+  const authStore = useAuthStore();
 
+  const syncElapsedLabel = computed(() => {
+    const m = Math.floor(syncElapsed.value / 60);
+    const s = syncElapsed.value % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  });
+
+  const lastSyncDurationLabel = computed(() => {
+    if (lastSyncDurationSecs.value === null) return null;
+    const m = Math.floor(lastSyncDurationSecs.value / 60);
+    const s = lastSyncDurationSecs.value % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  });
+
+  // lastSyncLabel reads the stored timestamp for the current company+brand.
+  // lastSyncDate.value is touched so the computed re-evaluates after a sync.
   const lastSyncLabel = computed(() => {
-    if (!lastSyncDate.value) return 'Never synced';
-    const d = lastSyncDate.value;
+    void lastSyncDate.value; // reactive dependency — re-runs after sync completes
+    const company = authStore.company?.code;
+    const brand = authStore.brand?.code;
+    if (!company || !brand) return 'Never synced';
+    const d = StorageService.getLastSync(company, brand);
+    if (!d) return 'Never synced';
     return d.toLocaleDateString('en-PH', {
       month: 'short',
       day: 'numeric',
@@ -36,6 +64,8 @@ export function useSync() {
     if (!navigator.onLine) return;
 
     isSyncing.value = true;
+    syncElapsed.value = 0;
+    _syncTimer = setInterval(() => { syncElapsed.value += 1; }, 1000);
     syncPhase.value = 'Syncing…';
     syncProgress.value = 0;
     syncError.value = null;
@@ -52,71 +82,111 @@ export function useSync() {
 
     try {
       const TIMEOUT = 180_000;
-      const authStore = useAuthStore();
-      const brandCode = authStore.brand?.code ?? StorageService.getAuth()?.brand?.code;
+      const company  = authStore.company?.code ?? '';
+      const brand    = authStore.brand?.code ?? StorageService.getAuth()?.brand?.code ?? '';
       const today = new Date().toISOString().split('T')[0];
 
-      // Tasks run sequentially to limit concurrent BC connections to 1 per user.
-      // Each task updates its subtask status and bumps progress as it completes.
+      // Abort early — an empty company or brand would corrupt brand-isolated caches.
+      if (!company || !brand) {
+        syncError.value = 'No company or brand selected. Please log in again.';
+        return;
+      }
+
+      // Ensure IDB items are loaded before checking cache state — without this,
+      // _itemsMemory is empty on a page refresh and every sync becomes a full fetch.
+      await StorageService.init();
+
+      // Snapshot existing cache state and timestamps *before* the sync starts.
+      // If a type has cached data, fetch only records modified since that timestamp
+      // (incremental). If the cache is empty, fetch everything (full).
+      const ts = StorageService.getSyncTimestamps(company, brand);
+      const hasCustomers  = StorageService.getCachedCustomers(company, brand).length > 0;
+      const hasCategories = StorageService.getCachedItemCategories().length > 0;
+      const hasContacts   = StorageService.getCachedContacts().length > 0;
+      const hasItems      = StorageService.getCachedItems().length > 0;
+
       let done = 0;
       const bump = () => { syncProgress.value = Math.round((++done / 4) * 100); };
       const settle = <T>(p: Promise<T>): Promise<PromiseSettledResult<T>> =>
         p.then((value) => ({ status: 'fulfilled' as const, value }), (reason) => ({ status: 'rejected' as const, reason }));
 
-      const customersResult = await settle(
-        ApiService.getCustomers(brandCode, TIMEOUT)
-          .then((r) => { syncSubTasks.value[0].status = 'done'; bump(); return r; })
-          .catch((e) => { syncSubTasks.value[0].status = 'error'; bump(); throw e; }),
-      );
+      // Delta sync when we have cached items and a prior timestamp — only fetch records
+      // modified since the last sync. Full fetch when the cache is empty.
+      const itemsModifiedSince = hasItems && ts.items ? ts.items : undefined;
+      isSyncDelta.value = !!itemsModifiedSince;
 
-      const categoriesResult = await settle(
-        ApiService.getItemCategories(TIMEOUT)
-          .then((r) => { syncSubTasks.value[1].status = 'done'; bump(); return r; })
-          .catch((e) => { syncSubTasks.value[1].status = 'error'; bump(); throw e; }),
-      );
+      // All four data types are independent — run them in parallel so total time
+      // is bounded by the slowest request (items/prices) rather than their sum.
+      const [customersResult, categoriesResult, itemsResult, contactsResult] = await Promise.all([
+        settle(
+          ApiService.getCustomers(brand, TIMEOUT, hasCustomers ? ts.customers : undefined)
+            .then((r) => { syncSubTasks.value[0].status = 'done'; bump(); return r; })
+            .catch((e) => { syncSubTasks.value[0].status = 'error'; bump(); throw e; }),
+        ),
+        settle(
+          ApiService.getItemCategories(TIMEOUT, hasCategories ? ts.itemCategories : undefined)
+            .then((r) => { syncSubTasks.value[1].status = 'done'; bump(); return r; })
+            .catch((e) => { syncSubTasks.value[1].status = 'error'; bump(); throw e; }),
+        ),
+        settle(
+          ApiService.getItemsForDate(today, brand, undefined, TIMEOUT, itemsModifiedSince)
+            .then((r) => {
+              syncItemsLoaded.value = r.items.length;
+              syncItemsTotal.value = r.items.length;
+              const detail = itemsModifiedSince
+                ? `${r.items.length.toLocaleString()} updated`
+                : r.items.length.toLocaleString();
+              syncSubTasks.value[2] = { ...syncSubTasks.value[2], detail };
+              return r;
+            })
+            .then((r) => {
+              syncSubTasks.value[2].status = 'done';
+              bump();
+              return r;
+            })
+            .catch((e) => { syncSubTasks.value[2].status = 'error'; bump(); throw e; }),
+        ),
+        settle(
+          ApiService.getContacts(TIMEOUT, hasContacts ? ts.contacts : undefined)
+            .then((r) => { syncSubTasks.value[3].status = 'done'; bump(); return r; })
+            .catch((e) => { syncSubTasks.value[3].status = 'error'; bump(); throw e; }),
+        ),
+      ]);
 
-      const itemsResult = await settle(
-        ApiService.getItemsForDate(today, brandCode, undefined, TIMEOUT)
-          .then((r) => {
-            syncItemsLoaded.value = r.items.length;
-            syncItemsTotal.value = r.items.length;
-            syncSubTasks.value[2] = {
-              ...syncSubTasks.value[2],
-              detail: r.items.length.toLocaleString(),
-            };
-            return r;
-          })
-          .then((r) => {
-            syncSubTasks.value[2].status = 'done';
-            syncSubTasks.value[2] = { ...syncSubTasks.value[2], detail: `${r.items.length.toLocaleString()}` };
-            syncItemsLoaded.value = r.items.length;
-            syncItemsTotal.value = r.items.length;
-            bump();
-            return r;
-          })
-          .catch((e) => { syncSubTasks.value[2].status = 'error'; bump(); throw e; }),
-      );
-
-      const contactsResult = await settle(
-        ApiService.getContacts(TIMEOUT)
-          .then((r) => { syncSubTasks.value[3].status = 'done'; bump(); return r; })
-          .catch((e) => { syncSubTasks.value[3].status = 'error'; bump(); throw e; }),
-      );
-
+      // ── Persist ──
       if (customersResult.status === 'fulfilled') {
-        StorageService.setCachedCustomers(customersResult.value);
-        StorageService.setSyncTimestamp('customers');
+        if (hasCustomers) {
+          StorageService.mergeCachedCustomers(customersResult.value, company, brand);
+        } else {
+          StorageService.setCachedCustomers(customersResult.value, company, brand);
+        }
+        StorageService.setSyncTimestamp('customers', company, brand);
       }
+
       if (categoriesResult.status === 'fulfilled') {
-        StorageService.setCachedItemCategories(categoriesResult.value);
-        StorageService.setSyncTimestamp('itemCategories');
+        if (hasCategories) {
+          StorageService.mergeCachedItemCategories(categoriesResult.value);
+        } else {
+          StorageService.setCachedItemCategories(categoriesResult.value);
+        }
+        StorageService.setSyncTimestamp('itemCategories', company, brand);
       }
+
       if (itemsResult.status === 'fulfilled') {
         const { items, priceMap } = itemsResult.value;
-        StorageService.setCachedItems(items);
-        StorageService.setSyncTimestamp('items');
-        StorageService.setCachedItemPrices(today, priceMap);
-        StorageService.applyPriceMapToItems(priceMap);
+        if (itemsModifiedSince) {
+          // Delta: upsert only the changed items; merge prices so unchanged items keep
+          // their cached prices and only the refreshed ones are overwritten.
+          StorageService.mergeCachedItems(items, brand);
+          const existingPrices = StorageService.getCachedItemPrices();
+          StorageService.setCachedItemPrices(today, { ...(existingPrices?.prices ?? {}), ...priceMap });
+        } else {
+          // Full: replace the entire brand slice and the whole price cache.
+          StorageService.setCachedItems(items, brand);
+          StorageService.setCachedItemPrices(today, priceMap);
+        }
+        StorageService.setSyncTimestamp('items', company, brand);
+        StorageService.applyPriceMapToItems(priceMap, brand);
         isCatalogEmpty.value = false;
         triggerMessage.value = null;
       } else {
@@ -127,12 +197,13 @@ export function useSync() {
         }
       }
 
-      const contacts = contactsResult.status === 'fulfilled'
-        ? contactsResult.value
-        : StorageService.getCachedContacts();
-      StorageService.setCachedContacts(contacts);
-
       if (contactsResult.status === 'fulfilled') {
+        if (hasContacts) {
+          StorageService.mergeCachedContacts(contactsResult.value);
+        } else {
+          StorageService.setCachedContacts(contactsResult.value);
+        }
+        StorageService.setSyncTimestamp('contacts', company, brand);
         const authUser = authStore.user ?? StorageService.getAuth()?.user;
         if (authUser) {
           const patch: Record<string, string> = {};
@@ -158,13 +229,19 @@ export function useSync() {
       }
 
       syncProgress.value = 100;
-      lastSyncDate.value = new Date();
+      lastSyncDate.value = new Date(); // reactive trigger so lastSyncLabel re-evaluates
     } catch (err) {
       syncError.value = err instanceof Error ? err.message : 'Sync failed. Check your connection.';
     } finally {
+      if (_syncTimer !== null) { clearInterval(_syncTimer); _syncTimer = null; }
+      if (syncElapsed.value > 0) {
+        StorageService.setSyncDuration(syncElapsed.value);
+        lastSyncDurationSecs.value = syncElapsed.value;
+      }
       syncPhase.value = '';
       syncSubTasks.value = [];
       isSyncing.value = false;
+      isSyncDelta.value = false;
     }
   }
 
@@ -182,15 +259,24 @@ export function useSync() {
     }
   }
 
-  async function syncIfStale(maxAgeHours = 24): Promise<void> {
-    if (!lastSyncDate.value) {
+  async function syncIfStale(maxAgeHours?: number): Promise<void> {
+    const age = maxAgeHours ?? syncDataAge.value;
+    const company = authStore.company?.code;
+    const brand   = authStore.brand?.code;
+    if (!company || !brand) {
       await sync();
       return;
     }
-    const ageMs = Date.now() - lastSyncDate.value.getTime();
-    if (ageMs > maxAgeHours * 60 * 60 * 1000) {
+    const lastSync = StorageService.getLastSync(company, brand);
+    if (!lastSync || (Date.now() - lastSync.getTime()) > age * 3_600_000) {
       await sync();
     }
+  }
+
+  function setSyncDataAge(hours: number): void {
+    const clamped = Math.max(1, Math.round(hours));
+    syncDataAge.value = clamped;
+    StorageService.setSyncDataAge(clamped);
   }
 
   function clearSyncWarning(): void {
@@ -200,6 +286,11 @@ export function useSync() {
 
   return {
     isSyncing,
+    isSyncDelta,
+    syncElapsed,
+    syncElapsedLabel,
+    lastSyncDurationSecs,
+    lastSyncDurationLabel,
     syncPhase,
     syncProgress,
     syncSubTasks,
@@ -212,8 +303,10 @@ export function useSync() {
     isCatalogEmpty,
     isTriggering,
     triggerMessage,
+    syncDataAge,
     sync,
     syncIfStale,
+    setSyncDataAge,
     clearSyncWarning,
     triggerRemoteSync,
   };

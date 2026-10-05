@@ -152,7 +152,7 @@
         <!-- ── App ── -->
         <p class="section-label">App</p>
         <div class="app-version-block">
-          <span class="app-version-text">RGMC Consignment</span>
+          <span class="app-version-text">RGMC Consignment - Garments</span>
           <span class="app-version-badge">v{{ appVersion }} <span class="app-build-sep">·</span> build {{ appBuild }}</span>
         </div>
 
@@ -190,7 +190,7 @@ import {
   alertCircleOutline,
   cameraOutline,
 } from 'ionicons/icons';
-import bcrypt from 'bcryptjs';
+import { loadBcrypt } from '@/utils/bcrypt';
 import { useAuthStore } from '@/stores/auth.store';
 import { ApiService } from '@/services/api.service';
 import UserAvatar from '@/components/UserAvatar.vue';
@@ -268,6 +268,7 @@ async function savePassword() {
   if (!pwIsValid.value || isSavingPw.value) return;
   isSavingPw.value = true;
   try {
+    const bcrypt = await loadBcrypt();
     const hash = await bcrypt.hash(newPassword.value, 10);
     authStore.updateUser({ passwordHash: hash });
     newPassword.value = '';

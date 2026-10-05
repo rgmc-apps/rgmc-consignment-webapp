@@ -2,7 +2,7 @@
   <div class="app-logo" :class="`app-logo--${size}`">
     <img :src="logoSrc" :alt="alt" class="app-logo__img" />
     <div v-if="showText" class="app-logo__text">
-      <span class="app-logo__title">RGMC Consignment</span>
+      <span class="app-logo__title">RGMC Consignment - Garments</span>
       <span class="app-logo__sub">Web App</span>
     </div>
   </div>
@@ -26,7 +26,7 @@ const props = withDefaults(
 );
 
 const { theme } = useTheme();
-const alt = 'RGMC Consignment';
+const alt = 'RGMC Consignment - Garments';
 
 const logoSrc = computed(() => {
   if (theme.value === 'minimalist') return '/static/logo-bnw.png';

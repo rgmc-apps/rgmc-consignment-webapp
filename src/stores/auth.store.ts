@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import bcrypt from 'bcryptjs';
+import { loadBcrypt } from '@/utils/bcrypt';
 import type { Brand, Company, Contact } from '@/types';
 import { ApiService, setApiCompany } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
+import { useSessionStore } from '@/stores/session.store';
 
 function isBcryptHash(value: string): boolean {
   return /^\$2[abyA-Z]\$\d{2}\$/.test(value);
@@ -137,6 +138,7 @@ export const useAuthStore = defineStore('auth', () => {
           return false;
         }
         if (!await checkBrandAccess(candidate.id, selectedBrand)) return false;
+        const bcrypt = await loadBcrypt();
         const hash = await bcrypt.hash(typedPlain, 10);
         const upgraded = { ...candidate, passwordHash: hash };
         const all = StorageService.getCachedContacts();
@@ -155,6 +157,7 @@ export const useAuthStore = defineStore('auth', () => {
       }
 
       // Bcrypt hash — verify login and check for default password concurrently
+      const bcrypt = await loadBcrypt();
       const [passwordValid, isDefaultPassword] = await Promise.all([
         bcrypt.compare(password, candidate.passwordHash),
         bcrypt.compare('12345678', candidate.passwordHash),
@@ -193,6 +196,7 @@ export const useAuthStore = defineStore('auth', () => {
     if (!pendingSetupData.value) return;
     const { contact: c } = pendingSetupData.value;
 
+    const bcrypt = await loadBcrypt();
     const hash = await bcrypt.hash(newPassword, 10);
     const updated: Contact = { ...c, passwordHash: hash };
 
@@ -238,6 +242,12 @@ export const useAuthStore = defineStore('auth', () => {
     StorageService.clearAuth();
     StorageService.clearAuthPhoto();
     StorageService.clearCompany();
+    StorageService.clearLastCustomerId();
+    // A session started under this login (e.g. an unsaved scan with no
+    // customer picked yet) must not survive into the next login — otherwise
+    // its stale `brand` gets reused if the next user opens the Scan tab
+    // directly instead of "Start New Session".
+    useSessionStore().clearCurrentSession();
   }
 
   function clearError(): void {

@@ -7,6 +7,7 @@ import type {
   Item,
   ItemCategory,
   ScanSession,
+  SyncTimestampEntry,
   SyncTimestamps,
 } from '@/types';
 
@@ -20,9 +21,12 @@ const KEYS = {
   CACHE_ITEM_CATEGORIES: 'rgmc_cache_item_categories',
   CACHE_ITEM_PRICES: 'rgmc_cache_item_prices',
   SYNC_TIMESTAMPS: 'rgmc_sync_timestamps',
+  SYNC_DATA_AGE: 'rgmc_sync_data_age',
+  SYNC_DURATION: 'rgmc_sync_duration',
   SESSIONS: 'rgmc_sessions',
   DRAFTS: 'rgmc_drafts',
   WELCOME_SEEN: 'rgmc_welcome_seen',
+  LAST_CUSTOMER_ID: 'rgmc_last_customer_id',
 } as const;
 
 function get<T>(key: string): T | null {
@@ -127,6 +131,22 @@ export const StorageService = {
     });
     set(KEYS.CACHE_CONTACTS, merged);
   },
+  /** Upsert a partial list of contacts into the cache (incremental sync). */
+  mergeCachedContacts(updates: Contact[]): void {
+    if (!updates.length) return;
+    const existing = get<Contact[]>(KEYS.CACHE_CONTACTS) ?? [];
+    const map = new Map(existing.map((c) => [c.id, c]));
+    for (const c of updates) {
+      const prev = map.get(c.id);
+      map.set(c.id, {
+        ...c,
+        username:     c.username     ?? prev?.username,
+        passwordHash: c.passwordHash ?? prev?.passwordHash,
+      });
+    }
+    set(KEYS.CACHE_CONTACTS, Array.from(map.values()));
+  },
+
   /** Patch a single contact in the cache without a full rewrite. */
   patchContact(id: string, fields: Partial<Contact>): void {
     const contacts = get<Contact[]>(KEYS.CACHE_CONTACTS) ?? [];
@@ -136,38 +156,127 @@ export const StorageService = {
     set(KEYS.CACHE_CONTACTS, contacts);
   },
 
-  getCachedCustomers(): Customer[] {
-    return get<Customer[]>(KEYS.CACHE_CUSTOMERS) ?? [];
+  getCachedCustomers(company?: string, brand?: string): Customer[] {
+    const raw = get<{ company?: string; data?: Array<{ id: string; number: string; displayName: string; city: string; brandCode?: string }> } | Customer[]>(KEYS.CACHE_CUSTOMERS);
+    if (!raw) return [];
+    if (Array.isArray(raw)) {
+      // Old format (no company context) — treat as stale if a company is expected
+      return company ? [] : (raw as Customer[]);
+    }
+    if (company && raw.company && raw.company !== company) return [];
+    const data = raw.data ?? [];
+    if (!brand) return data as unknown as Customer[];
+    const branded = data.filter((c) => c.brandCode === brand);
+    if (branded.length > 0) return branded as unknown as Customer[];
+    // Migration fallback: customers cached before brandCode tagging was introduced
+    // have no brandCode and are excluded by the strict filter above. When the brand
+    // filter returns empty but untagged entries exist, treat them as this brand's
+    // customers and tag them in-place so subsequent reads don't need this fallback.
+    const untagged = data.filter((c) => !c.brandCode);
+    if (untagged.length === 0) return [];
+    const tagged = untagged.map((c) => ({ ...c, brandCode: brand }));
+    set(KEYS.CACHE_CUSTOMERS, {
+      company: raw.company ?? '',
+      data: [...data.filter((c) => c.brandCode), ...tagged],
+    });
+    return tagged as unknown as Customer[];
   },
-  setCachedCustomers(customers: Customer[]): void {
+  setCachedCustomers(customers: Customer[], company?: string, brand?: string): void {
     const slim = customers.map((c) => ({
       id: c.id,
       number: c.number,
       displayName: c.displayName,
       city: c.city,
+      ...(brand ? { brandCode: brand } : {}),
     }));
-    set(KEYS.CACHE_CUSTOMERS, slim);
+    if (brand) {
+      // Replace only this brand's entries — keep other brands' data intact.
+      const raw = get<{ company?: string; data?: Array<{ id: string; number: string; displayName: string; city: string; brandCode?: string }> } | Customer[]>(KEYS.CACHE_CUSTOMERS);
+      const existing = raw && !Array.isArray(raw) ? (raw.data ?? []) : [];
+      const otherBrands = existing.filter((e) => e.brandCode !== brand);
+      set(KEYS.CACHE_CUSTOMERS, { company: company ?? '', data: [...otherBrands, ...slim] });
+    } else {
+      set(KEYS.CACHE_CUSTOMERS, { company: company ?? '', data: slim });
+    }
+  },
+  /** Upsert a partial list of customers into the cache (incremental sync). */
+  mergeCachedCustomers(updates: Customer[], company?: string, brand?: string): void {
+    if (!updates.length) return;
+    const raw = get<{ company?: string; data?: Array<{ id: string; number: string; displayName: string; city: string; brandCode?: string }> } | Customer[]>(KEYS.CACHE_CUSTOMERS);
+    const existing: Array<{ id: string; number: string; displayName: string; city: string; brandCode?: string }> =
+      raw && !Array.isArray(raw) ? (raw.data ?? []) : [];
+    // Key by brand::id so the same customer ID in two different brands stays separate.
+    const key = (e: { id: string; brandCode?: string }) => `${e.brandCode ?? ''}::${e.id}`;
+    const map = new Map(existing.map((c) => [key(c), c]));
+    for (const c of updates) {
+      const entry = { id: c.id, number: c.number, displayName: c.displayName, city: c.city, ...(brand ? { brandCode: brand } : {}) };
+      map.set(key(entry), entry);
+    }
+    set(KEYS.CACHE_CUSTOMERS, { company: company ?? '', data: Array.from(map.values()) });
   },
 
   /* Items: in-memory + IndexedDB for offline persistence */
   getCachedItems(): Item[] {
     return _itemsMemory;
   },
-  setCachedItems(items: Item[]): void {
+  setCachedItems(items: Item[], brand?: string): void {
     const slim = items.map((i) => ({
       id: i.id,
       number: i.number,
       displayName: i.displayName,
       description: i.description ? i.description.slice(0, 120) : '',
       itemCategoryCode: i.itemCategoryCode,
-      familyCode: i.familyCode,
+      // When syncing for a specific brand, tag items that lack a familyCode so the
+      // brand filter in refreshCache() can resolve them after a cache restore.
+      familyCode: i.familyCode ?? (brand || undefined),
       unitPriceIncVAT: i.unitPriceIncVAT,
+      priceListCode: i.priceListCode,
     })) as Item[];
-    _itemsMemory = slim;
+    if (brand) {
+      // Keep items from other brands; replace this brand's items.
+      // slim takes precedence: exclude from "others" any item whose id appears in slim
+      // so null/undefined-familyCode items don't accumulate as duplicates across syncs.
+      const slimIds = new Set(slim.map((i) => i.id));
+      const others = _itemsMemory.filter((i) => i.familyCode !== brand && !slimIds.has(i.id));
+      _itemsMemory = [...others, ...slim];
+    } else {
+      _itemsMemory = slim;
+    }
+    // Snapshot the reference now so concurrent setCachedItems calls can't overwrite this write.
+    const snapshot = _itemsMemory;
     // Persist to IndexedDB — fire and forget so the sync isn't blocked
     openItemsIDB().then((db) => {
       const tx = db.transaction(IDB_ITEMS_STORE, 'readwrite');
-      tx.objectStore(IDB_ITEMS_STORE).put(slim, 'all');
+      tx.objectStore(IDB_ITEMS_STORE).put(snapshot, 'all');
+      tx.oncomplete = () => db.close();
+      tx.onerror   = () => db.close();
+    }).catch(() => {});
+  },
+
+  /** Upsert a partial list of items into the cache (incremental sync). Existing items are
+   *  replaced in-place by id; new items are appended. Items from other brands are untouched. */
+  mergeCachedItems(items: Item[], brand?: string): void {
+    if (!items.length) return;
+    const slim = items.map((i) => ({
+      id: i.id,
+      number: i.number,
+      displayName: i.displayName,
+      description: i.description ? i.description.slice(0, 120) : '',
+      itemCategoryCode: i.itemCategoryCode,
+      familyCode: i.familyCode ?? (brand || undefined),
+      unitPriceIncVAT: i.unitPriceIncVAT,
+      priceListCode: i.priceListCode,
+    })) as Item[];
+    const incomingById = new Map(slim.map((i) => [i.id, i]));
+    const existingIds = new Set(_itemsMemory.map((i) => i.id));
+    _itemsMemory = [
+      ..._itemsMemory.map((i) => incomingById.get(i.id) ?? i),
+      ...slim.filter((i) => !existingIds.has(i.id)),
+    ];
+    const snapshot = _itemsMemory;
+    openItemsIDB().then((db) => {
+      const tx = db.transaction(IDB_ITEMS_STORE, 'readwrite');
+      tx.objectStore(IDB_ITEMS_STORE).put(snapshot, 'all');
       tx.oncomplete = () => db.close();
       tx.onerror   = () => db.close();
     }).catch(() => {});
@@ -185,9 +294,11 @@ export const StorageService = {
     }).catch(() => {});
   },
 
-  applyPriceMapToItems(prices: Record<string, number>): void {
+  applyPriceMapToItems(prices: Record<string, number>, brand?: string): void {
     let changed = false;
     for (const item of _itemsMemory) {
+      // Skip items from other brands to prevent cross-brand price corruption.
+      if (brand && item.familyCode !== brand) continue;
       const price = prices[item.number];
       if (price !== undefined && item.unitPriceIncVAT !== price) {
         item.unitPriceIncVAT = price;
@@ -235,6 +346,14 @@ export const StorageService = {
   setCachedItemCategories(categories: ItemCategory[]): void {
     set(KEYS.CACHE_ITEM_CATEGORIES, categories);
   },
+  /** Upsert a partial list of categories into the cache (incremental sync). */
+  mergeCachedItemCategories(updates: ItemCategory[]): void {
+    if (!updates.length) return;
+    const existing = this.getCachedItemCategories();
+    const map = new Map(existing.map((c) => [c.id, c]));
+    for (const c of updates) map.set(c.id, c);
+    set(KEYS.CACHE_ITEM_CATEGORIES, Array.from(map.values()));
+  },
 
   getCachedItemPrices(): { date: string; prices: Record<string, number> } | null {
     return get<{ date: string; prices: Record<string, number> }>(KEYS.CACHE_ITEM_PRICES);
@@ -243,24 +362,63 @@ export const StorageService = {
     set(KEYS.CACHE_ITEM_PRICES, { date, prices });
   },
 
-  /* ─── Sync timestamps ─── */
-  getSyncTimestamps(): SyncTimestamps {
-    return get<SyncTimestamps>(KEYS.SYNC_TIMESTAMPS) ?? {};
+  /* ─── Sync timestamps (keyed by "companyCode::brandCode") ─── */
+  getSyncTimestamps(company: string, brand: string): SyncTimestampEntry {
+    const raw = get<Record<string, unknown>>(KEYS.SYNC_TIMESTAMPS);
+    if (!raw) return {};
+    // Old format had flat keys ('customers', 'items', 'itemCategories') at the top level.
+    // Detect and wipe it so the new nested format is always used.
+    if ('customers' in raw || 'items' in raw || 'itemCategories' in raw) {
+      remove(KEYS.SYNC_TIMESTAMPS);
+      return {};
+    }
+    return (raw as SyncTimestamps)[`${company}::${brand}`] ?? {};
   },
-  setSyncTimestamp(key: keyof SyncTimestamps): void {
-    const ts = this.getSyncTimestamps();
-    ts[key] = new Date().toISOString();
-    set(KEYS.SYNC_TIMESTAMPS, ts);
+  setSyncTimestamp(key: keyof SyncTimestampEntry, company: string, brand: string): void {
+    const raw = get<Record<string, unknown>>(KEYS.SYNC_TIMESTAMPS) ?? {};
+    // Wipe old flat format if detected
+    const isOld = 'customers' in raw || 'items' in raw || 'itemCategories' in raw;
+    const all: SyncTimestamps = isOld ? {} : (raw as SyncTimestamps);
+    const k = `${company}::${brand}`;
+    if (!all[k]) all[k] = {};
+    all[k]![key] = new Date().toISOString();
+    set(KEYS.SYNC_TIMESTAMPS, all);
   },
-  getLastSync(): Date | null {
-    const ts = this.getSyncTimestamps();
-    const vals = Object.values(ts).filter(Boolean) as string[];
+  getLastSync(company: string, brand: string): Date | null {
+    const entry = this.getSyncTimestamps(company, brand);
+    const vals = Object.values(entry).filter(Boolean) as string[];
     if (!vals.length) return null;
     const latest = vals.reduce((a, b) => (a > b ? a : b));
-    return latest ? new Date(latest) : null;
+    return new Date(latest);
+  },
+  /** Returns all per-company-brand entries for display or debug. */
+  getAllSyncTimestamps(): SyncTimestamps {
+    const raw = get<Record<string, unknown>>(KEYS.SYNC_TIMESTAMPS);
+    if (!raw || 'customers' in raw || 'items' in raw || 'itemCategories' in raw) return {};
+    return raw as SyncTimestamps;
   },
   clearSyncTimestamps(): void {
     remove(KEYS.SYNC_TIMESTAMPS);
+  },
+
+  /* ─── Sync data age (hours before cached data is considered stale) ─── */
+  getSyncDataAge(): number {
+    const raw = localStorage.getItem(KEYS.SYNC_DATA_AGE);
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) && n >= 1 ? n : 24;
+  },
+  setSyncDataAge(hours: number): void {
+    localStorage.setItem(KEYS.SYNC_DATA_AGE, String(Math.max(1, Math.round(hours))));
+  },
+
+  /* ─── Last sync duration (seconds) ─── */
+  getSyncDuration(): number | null {
+    const raw = localStorage.getItem(KEYS.SYNC_DURATION);
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  },
+  setSyncDuration(seconds: number): void {
+    localStorage.setItem(KEYS.SYNC_DURATION, String(Math.round(seconds)));
   },
 
   /* ─── Sessions (history) ─── */
@@ -302,6 +460,17 @@ export const StorageService = {
   },
   clearAllDrafts(): void {
     remove(KEYS.DRAFTS);
+  },
+
+  /* ─── Last selected customer (persisted across sessions) ─── */
+  getLastCustomerId(): string | null {
+    return localStorage.getItem(KEYS.LAST_CUSTOMER_ID) ?? null;
+  },
+  setLastCustomerId(id: string): void {
+    localStorage.setItem(KEYS.LAST_CUSTOMER_ID, id);
+  },
+  clearLastCustomerId(): void {
+    localStorage.removeItem(KEYS.LAST_CUSTOMER_ID);
   },
 
   /* ─── Welcome tour ─── */

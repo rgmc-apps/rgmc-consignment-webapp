@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { useSlowLoadingWatcher } from '@/composables/useSlowLoadingWatcher';
 
 /** Richer error that preserves HTTP status + endpoint for bug reports. */
 export class ApiError extends Error {
@@ -47,16 +48,23 @@ export function setApiCompany(name: string | null): void {
   _companyName = name;
 }
 
+const { onRequestStart, onRequestEnd } = useSlowLoadingWatcher();
+
 apiClient.interceptors.request.use((config) => {
   if (_companyName && config.url?.startsWith('/bc/')) {
     config.params = { ...config.params, company: _companyName };
   }
+  onRequestStart(config.url ?? 'unknown');
   return config;
 });
 
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    onRequestEnd();
+    return response;
+  },
   (error) => {
+    onRequestEnd();
     const message: string =
       error.response?.data?.detail ||
       error.response?.data?.message ||
@@ -124,6 +132,27 @@ async function fetchPriceChunk(
   return [];
 }
 
+/**
+ * When the same item appears in multiple price lists that are all valid on the requested
+ * date, the backend returns one row per price list entry. We must keep the entry with the
+ * latest startingDate — that is the most recently effective price list for each item.
+ * "First seen" (the old approach) picked whichever the backend happened to order first,
+ * which was the earliest start date and therefore the wrong price list code.
+ */
+function dedupeByLatestStart(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  const best = new Map<string, { row: Record<string, unknown>; startDate: string }>();
+  for (const row of rows) {
+    const no = (row['productNo'] ?? '') as string;
+    if (!no) continue;
+    const startDate = (row['startingDate'] as string | undefined) ?? '';
+    const existing = best.get(no);
+    if (!existing || startDate > existing.startDate) {
+      best.set(no, { row, startDate });
+    }
+  }
+  return Array.from(best.values()).map((e) => e.row);
+}
+
 function mapItemRow(row: Record<string, unknown>): Item {
   const number = (row['productNo'] ?? '') as string;
   return {
@@ -184,12 +213,15 @@ export const ApiService = {
     return extractList<Brand>(res.data);
   },
 
-  async getContacts(timeout?: number): Promise<Contact[]> {
+  async getContacts(timeout?: number, modifiedSince?: string): Promise<Contact[]> {
     const RETRIES = 3;
     let lastErr: unknown;
     for (let attempt = 0; attempt <= RETRIES; attempt++) {
       try {
-        const res = await apiClient.get('/bc/custom/v2/contacts', { timeout });
+        const res = await apiClient.get('/bc/custom/v2/contacts', {
+          params: modifiedSince ? { modified_since: modifiedSince } : undefined,
+          timeout,
+        });
         const raw = extractList<Record<string, unknown>>(res.data);
         return raw.map((c) => ({
           ...c,
@@ -253,28 +285,34 @@ export const ApiService = {
     });
   },
 
-  async getCustomers(brandCode?: string, timeout?: number): Promise<Customer[]> {
+  async getCustomers(brandCode?: string, timeout?: number, modifiedSince?: string): Promise<Customer[]> {
     const RETRIES = 3;
     let lastErr: unknown;
     for (let attempt = 0; attempt <= RETRIES; attempt++) {
       try {
         const res = await apiClient.get('/bc/custom/v2/customers', {
-          params: brandCode ? { brand: brandCode } : undefined,
+          params: {
+            ...(brandCode ? { brand: brandCode } : {}),
+            ...(modifiedSince ? { modified_since: modifiedSince } : {}),
+          },
           timeout,
         });
         const raw = extractList<Record<string, unknown>>(res.data);
-        return raw.map((c) => ({
-          ...c,
-          id:          (c['id']          ?? c['Id']                                         ?? '') as string,
-          number:      (c['number']      ?? c['no']       ?? c['customerNo']                ?? '') as string,
-          displayName: (c['name']        ?? c['displayName'] ?? c['customerName']           ?? '') as string,
-          city:        (c['city']        ?? c['City']     ?? c['addressCity']               ?? '') as string,
-          addressLine1:(c['addressLine1']?? c['address']  ?? c['address1']                  ?? '') as string,
-          country:     (c['country']     ?? c['countryRegionCode']                          ?? '') as string,
-          postalCode:  (c['postalCode']  ?? c['postCode'] ?? c['zip']                       ?? '') as string,
-          currencyCode:(c['currencyCode']?? c['currency']                                   ?? '') as string,
-          lastModifiedDateTime: (c['lastModifiedDateTime'] ?? '') as string,
-        })) as Customer[];
+        return raw
+          .filter((c) => (c['chain'] ?? c['Chain']) === true)
+          .map((c) => ({
+            ...c,
+            id:          (c['id']          ?? c['Id']                                         ?? '') as string,
+            number:      (c['number']      ?? c['no']       ?? c['customerNo']                ?? '') as string,
+            displayName: (c['name']        ?? c['displayName'] ?? c['customerName']           ?? '') as string,
+            city:        (c['city']        ?? c['City']     ?? c['addressCity']               ?? '') as string,
+            addressLine1:(c['addressLine1']?? c['address']  ?? c['address1']                  ?? '') as string,
+            country:     (c['country']     ?? c['countryRegionCode']                          ?? '') as string,
+            postalCode:  (c['postalCode']  ?? c['postCode'] ?? c['zip']                       ?? '') as string,
+            currencyCode:(c['currencyCode']?? c['currency']                                   ?? '') as string,
+            lastModifiedDateTime: (c['lastModifiedDateTime'] ?? '') as string,
+            chain:       (c['chain']       ?? c['Chain']                                      ?? false) as boolean,
+          })) as Customer[];
       } catch (err) {
         if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
         const status = err instanceof ApiError ? err.status : undefined;
@@ -303,6 +341,7 @@ export const ApiService = {
     familyCode?: string,
     signal?: AbortSignal,
     timeout?: number,
+    modifiedSince?: string,
   ): Promise<{ items: Item[]; priceMap: Record<string, number> }> {
     // The backend blocks internally until the catalog is ready (up to 40 s), so a
     // single request normally succeeds on first try even from a cold start.
@@ -312,18 +351,20 @@ export const ApiService = {
     for (let attempt = 0; attempt <= RETRIES; attempt++) {
       try {
         const res = await apiClient.get('/bc/custom/v3/item-prices', {
-          params: { on_date: date, ...(familyCode ? { family_code: familyCode } : {}) },
+          params: {
+            on_date: date,
+            ...(familyCode ? { family_code: familyCode } : {}),
+            ...(modifiedSince ? { modified_since: modifiedSince } : {}),
+          },
           signal,
           timeout: timeout ?? 120_000,
         });
-        const rows = extractList<Record<string, unknown>>(res.data);
+        const rows = dedupeByLatestStart(extractList<Record<string, unknown>>(res.data));
         const items: Item[] = [];
         const priceMap: Record<string, number> = {};
-        const seen = new Set<string>();
         for (const row of rows) {
           const item = mapItemRow(row);
-          if (!item.number || seen.has(item.number)) continue;
-          seen.add(item.number);
+          if (!item.number) continue;
           items.push(item);
           priceMap[item.number] = item.unitPriceIncVAT;
         }
@@ -364,17 +405,15 @@ export const ApiService = {
           timeout: timeout ?? 300_000,
         });
         const body = res.data as Record<string, unknown>;
-        const rows: Record<string, unknown>[] = Array.isArray(body.data)
+        const rawRows: Record<string, unknown>[] = Array.isArray(body.data)
           ? (body.data as Record<string, unknown>[])
           : extractList<Record<string, unknown>>(body);
         const total = typeof body.total === 'number' ? (body.total as number) : null;
         const items: Item[] = [];
         const priceMap: Record<string, number> = {};
-        const seen = new Set<string>();
-        for (const row of rows) {
+        for (const row of dedupeByLatestStart(rawRows)) {
           const item = mapItemRow(row);
-          if (!item.number || seen.has(item.number)) continue;
-          seen.add(item.number);
+          if (!item.number) continue;
           items.push(item);
           priceMap[item.number] = item.unitPriceIncVAT;
         }
@@ -430,17 +469,15 @@ export const ApiService = {
           timeout: timeout ?? 120_000,
         });
         const body = res.data as Record<string, unknown>;
-        const rows = Array.isArray(body.data)
+        const rawRows = Array.isArray(body.data)
           ? (body.data as Record<string, unknown>[])
           : extractList<Record<string, unknown>>(body);
         const total = typeof body.total === 'number' ? body.total : 0;
         const items: Item[] = [];
         const priceMap: Record<string, number> = {};
-        const seen = new Set<string>();
-        for (const row of rows) {
+        for (const row of dedupeByLatestStart(rawRows)) {
           const item = mapItemRow(row);
-          if (!item.number || seen.has(item.number)) continue;
-          seen.add(item.number);
+          if (!item.number) continue;
           items.push(item);
           priceMap[item.number] = item.unitPriceIncVAT;
         }
@@ -461,12 +498,15 @@ export const ApiService = {
     throw lastErr;
   },
 
-  async getItemCategories(timeout?: number): Promise<ItemCategory[]> {
+  async getItemCategories(timeout?: number, modifiedSince?: string): Promise<ItemCategory[]> {
     const RETRIES = 3;
     let lastErr: unknown;
     for (let attempt = 0; attempt <= RETRIES; attempt++) {
       try {
-        const res = await apiClient.get('/bc/item-categories', { timeout });
+        const res = await apiClient.get('/bc/item-categories', {
+          params: modifiedSince ? { modified_since: modifiedSince } : undefined,
+          timeout,
+        });
         return extractList<ItemCategory>(res.data);
       } catch (err) {
         if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
@@ -490,12 +530,45 @@ export const ApiService = {
     return items.map((t) => t.brandCode as string).filter(Boolean);
   },
 
+  async searchItemsByNumber(
+    query: string,
+    onDate: string,
+    familyCode?: string,
+  ): Promise<Item[]> {
+    const res = await apiClient.get('/bc/custom/v3/item-prices', {
+      params: {
+        on_date: onDate,
+        product_no: query,
+        ...(familyCode ? { family_code: familyCode } : {}),
+      },
+      timeout: 30_000,
+    });
+    const rows = dedupeByLatestStart(extractList<Record<string, unknown>>(res.data));
+    return rows.map(mapItemRow).filter((i) => Boolean(i.number));
+  },
+
+  async syncItemPrice(productNo: string, onDate: string): Promise<{
+    productNo: string;
+    bcPrice: number | null;
+    bcPriceListCode: string | null;
+    firestorePrice: number | null;
+    updated: boolean;
+    message: string;
+  }> {
+    const res = await apiClient.post(
+      `/bc/custom/v3/item-prices/${encodeURIComponent(productNo)}/sync`,
+      null,
+      { params: { on_date: onDate }, timeout: 30_000 },
+    );
+    return res.data;
+  },
+
   async getActiveItemPrice(productNo: string, onDate: string): Promise<{ price: number | null; priceListCode: string | null }> {
     try {
       const res = await apiClient.get('/bc/custom/v3/item-prices', {
         params: { product_no: productNo, on_date: onDate },
       });
-      const rows = extractList<Record<string, unknown>>(res.data);
+      const rows = dedupeByLatestStart(extractList<Record<string, unknown>>(res.data));
       const d = rows[0];
       const raw = d?.unitPriceIncVAT ?? d?.unitPrice ?? d?.unit_price ?? d?.price;
       return {
@@ -513,20 +586,34 @@ export const ApiService = {
     signal?: AbortSignal,
     onChunkDone?: () => void,
     familyCode?: string,
-  ): Promise<Record<string, number>> {
-    const buildMap = (rows: Record<string, unknown>[]): Record<string, number> => {
-      const map: Record<string, number> = {};
-      for (const row of rows) {
+  ): Promise<{ priceMap: Record<string, number>; priceListMap: Record<string, string | null> }> {
+    const buildMaps = (rows: Record<string, unknown>[]): { priceMap: Record<string, number>; priceListMap: Record<string, string | null> } => {
+      const priceMap: Record<string, number> = {};
+      const priceListMap: Record<string, string | null> = {};
+      for (const row of dedupeByLatestStart(rows)) {
         const no = row['productNo'] as string | undefined;
         const price = (row['unitPriceIncVAT'] ?? row['unitPrice'] ?? row['unit_price']) as number | undefined;
-        if (no && typeof price === 'number' && !(no in map)) map[no] = price;
+        if (no && typeof price === 'number') {
+          priceMap[no] = price;
+          priceListMap[no] = (row['priceListCode'] as string | undefined) ?? null;
+        }
       }
-      return map;
+      return { priceMap, priceListMap };
     };
 
     // Fast path: single call — backend filters from its in-memory full-catalog cache.
     // On a cold backend start the cache may not be warm yet, so the backend fetches the
     // full BC catalog synchronously before filtering; allow 5 min for that one-time cost.
+    //
+    // NOTE: this path does NOT send productNos to the backend — it returns prices for
+    // the WHOLE family, ignoring the requested subset. That's fine for callers who want
+    // the whole family anyway (e.g. ScanningPage's prefetchAllPrices), but a caller
+    // asking for a specific subset gets back extra data for every other item in the
+    // family too. If you write the response back keyed by item number, filter it down
+    // to the productNos you actually asked for first — see ItemSelectorModal's
+    // onListRefresh for the bug this caused when that filtering was missing (a
+    // "background" price refresh for non-visible items ended up overwriting prices for
+    // visible items that had just been correctly synced).
     if (familyCode) {
       try {
         const res = await apiClient.get('/bc/custom/v3/item-prices', {
@@ -535,14 +622,14 @@ export const ApiService = {
           timeout: 300000,
         });
         onChunkDone?.();
-        return buildMap(extractList<Record<string, unknown>>(res.data));
+        return buildMaps(extractList<Record<string, unknown>>(res.data));
       } catch (err) {
         if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
-        return {};
+        return { priceMap: {}, priceListMap: {} };
       }
     }
 
-    if (!productNos.length) return {};
+    if (!productNos.length) return { priceMap: {}, priceListMap: {} };
     // Chunk into batches of 150 — item numbers are short (≤15 chars) so 150 per request
     // stays well within BC's URL length limit while reducing round-trip count 3×.
     const CHUNK = 150;
@@ -565,7 +652,7 @@ export const ApiService = {
       ).flat();
       allRows.push(...rows);
     }
-    return buildMap(allRows);
+    return buildMaps(allRows);
   },
 
   async triggerItemPricesSync(company: string): Promise<void> {
@@ -628,13 +715,23 @@ export const ApiService = {
     return res.data;
   },
 
-  async getBCSalesOrders(date: string): Promise<unknown> {
-    const res = await apiClient.get('/bc/sales-orders', { params: { filter: `postingDate eq ${date}` } });
+  async getBCSalesOrders(date: string, customerNo?: string): Promise<unknown> {
+    const res = await apiClient.get('/bc/sales-orders', {
+      params: {
+        filter: `postingDate eq ${date}`,
+        ...(customerNo ? { customer_no: customerNo } : {}),
+      },
+    });
     return res.data;
   },
 
-  async getBCSalesReturnOrders(date: string): Promise<unknown> {
-    const res = await apiClient.get('/bc/custom/v2/sales-return-orders', { params: { filter: `postingDate eq ${date}` } });
+  async getBCSalesReturnOrders(date: string, customerNo?: string): Promise<unknown> {
+    const res = await apiClient.get('/bc/custom/v2/sales-return-orders', {
+      params: {
+        filter: `postingDate eq ${date}`,
+        ...(customerNo ? { customer_no: customerNo } : {}),
+      },
+    });
     return res.data;
   },
 
@@ -646,5 +743,120 @@ export const ApiService = {
   async getBCSalesReturnOrderLines(orderId: string): Promise<unknown> {
     const res = await apiClient.get(`/bc/custom/v2/sales-return-orders/${orderId}/lines`);
     return res.data;
+  },
+
+  // Fire-and-forget from the caller's perspective (all call sites do `.catch(() => {})`),
+  // but retried internally — this is the only write of a completed session to Firestore.
+  // Without a retry, a single transient failure (cold start / 5xx / dropped connection —
+  // known to happen on rgmc-bc-api-prod, see handoff notes on Cloud Run cold starts)
+  // permanently loses that submission from cross-device history, since there is no
+  // separate re-send mechanism once the session has already been marked submitted/failed.
+  async saveSessionHistory(session: import('@/types').ScanSession): Promise<void> {
+    const RETRIES = 3;
+    const body = {
+      id: session.id,
+      companyCode: session.companyCode ?? null,
+      userId: session.user.id ?? null,
+      userDisplayName: session.user.displayName,
+      userEmail: session.user.email ?? null,
+      userNumber: session.user.number ?? null,
+      brandCode: session.brand.code,
+      brandDisplayName: session.brand.displayName,
+      customerNumber: session.customer?.number ?? null,
+      customerDisplayName: session.customer?.displayName ?? null,
+      postingDate: session.postingDate ?? null,
+      noSales: session.noSales ?? false,
+      salesOrders: session.salesOrders,
+      returnOrders: session.returnOrders,
+      status: session.status,
+      salesOrderSeries: session.salesOrderSeries ?? null,
+      returnOrderSeries: session.returnOrderSeries ?? null,
+      errorMessage: session.errorMessage ?? null,
+      createdAt: session.createdAt,
+      submittedAt: session.submittedAt ?? null,
+      updatedAt: session.updatedAt,
+    };
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= RETRIES; attempt++) {
+      try {
+        await apiClient.post('/session-history', body);
+        return;
+      } catch (err) {
+        if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
+        const status = err instanceof ApiError ? err.status : undefined;
+        if (status && status >= 400 && status < 500 && status !== 429) throw err;
+        lastErr = err;
+        if (attempt < RETRIES) {
+          const delay = status === 429
+            ? Math.min(5000 * 2 ** attempt, 30_000)
+            : Math.min(3000 * 2 ** attempt, 15_000);
+          await new Promise<void>((r) => setTimeout(r, delay));
+        }
+      }
+    }
+    throw lastErr;
+  },
+
+  // Retried for the same reason as saveSessionHistory — the History page's own load
+  // must not read as "no history" just because the backend was cold-starting when the
+  // page opened (no user-facing retry existed for this call before).
+  async getSessionHistory(companyCode: string, userId?: string, userNumber?: string, limit = 100): Promise<import('@/types').ScanSession[]> {
+    const RETRIES = 3;
+    const params: Record<string, string | number> = { company_code: companyCode, limit };
+    if (userId) params.user_id = userId;
+    if (userNumber) params.user_number = userNumber;
+    let lastErr: unknown;
+    let res: { data: unknown } | undefined;
+    for (let attempt = 0; attempt <= RETRIES; attempt++) {
+      try {
+        res = await apiClient.get('/session-history', { params });
+        break;
+      } catch (err) {
+        if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;
+        const status = err instanceof ApiError ? err.status : undefined;
+        if (status && status >= 400 && status < 500 && status !== 429) throw err;
+        lastErr = err;
+        if (attempt < RETRIES) {
+          const delay = status === 429
+            ? Math.min(5000 * 2 ** attempt, 30_000)
+            : Math.min(3000 * 2 ** attempt, 15_000);
+          await new Promise<void>((r) => setTimeout(r, delay));
+        }
+      }
+    }
+    if (!res) throw lastErr;
+    const rows = extractList<Record<string, unknown>>(res.data);
+    return rows.map((r) => ({
+      id: (r['id'] as string) ?? '',
+      brand: {
+        id: (r['brandId'] as string | undefined) ?? '',
+        code: (r['brandCode'] as string) ?? '',
+        displayName: (r['brandDisplayName'] as string) ?? '',
+      },
+      companyCode: (r['companyCode'] as string | undefined) ?? undefined,
+      user: {
+        displayName: (r['userDisplayName'] as string) ?? '',
+        id: (r['userId'] as string | undefined) ?? undefined,
+        email: (r['userEmail'] as string | undefined) ?? undefined,
+        number: (r['userNumber'] as string | undefined) ?? undefined,
+      },
+      customer: r['customerNumber']
+        ? ({
+            number: r['customerNumber'] as string,
+            displayName: (r['customerDisplayName'] as string) ?? '',
+          } as import('@/types').Customer)
+        : null,
+      postingDate: (r['postingDate'] as string | undefined) ?? undefined,
+      noSales: (r['noSales'] as boolean | undefined) ?? false,
+      salesOrders: (r['salesOrders'] as import('@/types').OrderLine[]) ?? [],
+      returnOrders: (r['returnOrders'] as import('@/types').OrderLine[]) ?? [],
+      status: (r['status'] as import('@/types').SessionStatus) ?? 'submitted',
+      salesOrderSeries: (r['salesOrderSeries'] as string | undefined) ?? undefined,
+      returnOrderSeries: (r['returnOrderSeries'] as string | undefined) ?? undefined,
+      errorMessage: (r['errorMessage'] as string | undefined) ?? undefined,
+      createdAt: (r['createdAt'] as string) ?? '',
+      updatedAt: (r['updatedAt'] as string | undefined) ?? (r['createdAt'] as string) ?? '',
+      submittedAt: (r['submittedAt'] as string | undefined) ?? undefined,
+    }));
   },
 };

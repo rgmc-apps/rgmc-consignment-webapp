@@ -1,6 +1,11 @@
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 
+# Alpine ships without git; vite.config.ts shells out to `git rev-parse` for the
+# build-time version stamp (see getBuildId()). Installed as its own layer, before
+# the source copy, so it's cached and unaffected by app code changes.
+RUN apk add --no-cache git
+
 WORKDIR /app
 
 COPY package.json package-lock.json ./

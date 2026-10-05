@@ -1,0 +1,2 @@
+# Force LF on shell scripts so they survive CRLF Windows checkouts
+*.sh text eol=lf

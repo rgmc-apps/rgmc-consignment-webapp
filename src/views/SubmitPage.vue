@@ -56,6 +56,10 @@
             <ion-badge v-if="session?.noSales" color="warning" class="no-sales-badge">No Sales</ion-badge>
           </p>
           <p class="section-sub">{{ sessionStore.salesQty }} units &bull; {{ formatCurrency(sessionStore.salesTotal) }}</p>
+          <p v-if="salesStatus === 'pending'" class="section-edit-hint">
+            <ion-icon :icon="createOutline" />
+            Adjust discount or remove items before submitting
+          </p>
         </div>
 
         <div v-if="session?.noSales && !sessionStore.salesOrders.length" class="no-sales-notice">
@@ -116,17 +120,42 @@
 
         <!-- Submit sales button / status -->
         <div class="submit-action" v-if="salesStatus === 'pending' || salesStatus === 'submitting'">
-          <ion-button
-            expand="block"
-            color="primary"
-            :disabled="salesStatus === 'submitting' || !session.customer || !isOnline"
-            @click="confirmSubmit('sales')"
-          >
-            <ion-spinner v-if="salesStatus === 'submitting'" name="crescent" slot="start" />
-            <ion-icon v-else :icon="sendOutline" slot="start" />
-            {{ salesStatus === 'submitting' ? 'Submitting…' : 'Submit Sales Orders' }}
-          </ion-button>
-          <div v-if="!isOnline" class="submit-offline-notice">
+          <Transition name="queue-swap" mode="out-in">
+            <div v-if="salesStatus === 'submitting'" key="sales-loading" class="queue-loading-panel">
+              <div class="queue-broadcast">
+                <span class="queue-ring queue-ring--1" />
+                <span class="queue-ring queue-ring--2" />
+                <span class="queue-ring queue-ring--3" />
+                <div class="queue-icon-wrap">
+                  <ion-icon :icon="sendOutline" class="queue-icon" />
+                </div>
+              </div>
+              <p class="queue-headline">Sending to Business Central</p>
+              <p class="queue-sub">Processing order — please keep this page open</p>
+              <div class="queue-steps">
+                <span class="queue-step queue-step--done">Queued</span>
+                <span class="queue-step-sep">›</span>
+                <span class="queue-step queue-step--active">Processing</span>
+                <span class="queue-step-sep">›</span>
+                <span class="queue-step queue-step--waiting">Confirming</span>
+              </div>
+              <div class="queue-shimmer-track">
+                <div class="queue-shimmer-bar" />
+              </div>
+            </div>
+            <ion-button
+              v-else
+              key="sales-btn"
+              expand="block"
+              color="primary"
+              :disabled="!session.customer || !isOnline"
+              @click="confirmSubmit('sales')"
+            >
+              <ion-icon :icon="sendOutline" slot="start" />
+              Submit Sales Orders
+            </ion-button>
+          </Transition>
+          <div v-if="!isOnline && salesStatus === 'pending'" class="submit-offline-notice">
             <ion-icon :icon="cloudOfflineOutline" />
             <span>You're offline — reconnect to submit.</span>
           </div>
@@ -167,6 +196,10 @@
             <ion-badge color="danger">{{ sessionStore.returnOrders.length }}</ion-badge>
           </p>
           <p class="section-sub">{{ sessionStore.returnQty }} units &bull; {{ formatCurrency(sessionStore.returnTotal) }}</p>
+          <p v-if="returnsStatus === 'pending'" class="section-edit-hint">
+            <ion-icon :icon="createOutline" />
+            Adjust discount or remove items before submitting
+          </p>
         </div>
 
         <ion-list lines="full" class="order-table">
@@ -221,17 +254,42 @@
         </ion-list>
 
         <div class="submit-action" v-if="returnsStatus === 'pending' || returnsStatus === 'submitting'">
-          <ion-button
-            expand="block"
-            color="danger"
-            :disabled="returnsStatus === 'submitting' || !session.customer || !isOnline"
-            @click="confirmSubmit('returns')"
-          >
-            <ion-spinner v-if="returnsStatus === 'submitting'" name="crescent" slot="start" />
-            <ion-icon v-else :icon="returnDownBackOutline" slot="start" />
-            {{ returnsStatus === 'submitting' ? 'Submitting…' : 'Submit Return Orders' }}
-          </ion-button>
-          <div v-if="!isOnline" class="submit-offline-notice">
+          <Transition name="queue-swap" mode="out-in">
+            <div v-if="returnsStatus === 'submitting'" key="returns-loading" class="queue-loading-panel queue-loading-panel--returns">
+              <div class="queue-broadcast queue-broadcast--returns">
+                <span class="queue-ring queue-ring--1" />
+                <span class="queue-ring queue-ring--2" />
+                <span class="queue-ring queue-ring--3" />
+                <div class="queue-icon-wrap">
+                  <ion-icon :icon="returnDownBackOutline" class="queue-icon" />
+                </div>
+              </div>
+              <p class="queue-headline">Sending to Business Central</p>
+              <p class="queue-sub">Processing return — please keep this page open</p>
+              <div class="queue-steps">
+                <span class="queue-step queue-step--done">Queued</span>
+                <span class="queue-step-sep">›</span>
+                <span class="queue-step queue-step--active queue-step--active--returns">Processing</span>
+                <span class="queue-step-sep">›</span>
+                <span class="queue-step queue-step--waiting">Confirming</span>
+              </div>
+              <div class="queue-shimmer-track">
+                <div class="queue-shimmer-bar queue-shimmer-bar--returns" />
+              </div>
+            </div>
+            <ion-button
+              v-else
+              key="returns-btn"
+              expand="block"
+              color="danger"
+              :disabled="!session.customer || !isOnline"
+              @click="confirmSubmit('returns')"
+            >
+              <ion-icon :icon="returnDownBackOutline" slot="start" />
+              Submit Return Orders
+            </ion-button>
+          </Transition>
+          <div v-if="!isOnline && returnsStatus === 'pending'" class="submit-offline-notice">
             <ion-icon :icon="cloudOfflineOutline" />
             <span>You're offline — reconnect to submit.</span>
           </div>
@@ -305,9 +363,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
-import { useRouter } from 'vue-router';
+import { useRouter, onBeforeRouteLeave } from 'vue-router';
 import {
   IonPage,
   IonHeader,
@@ -325,7 +383,6 @@ import {
   IonLabel,
   IonNote,
   IonBadge,
-  IonSpinner,
   toastController,
 } from '@ionic/vue';
 import {
@@ -341,11 +398,12 @@ import {
   trashOutline,
   bugOutline,
   banOutline,
+  createOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
+import { useOrderSubmission } from '@/composables/useOrderSubmission';
 import { useGoldAccent } from '@/composables/useGoldAccent';
 import { useErrorReporter } from '@/composables/useErrorReporter';
-import { ApiService } from '@/services/api.service';
 import { formatCurrency, formatDate } from '@/utils/format';
 import type { SalesOrderPayload, SalesReturnOrderPayload, OrderLine, DiscountType } from '@/types';
 import RemarksModal from '@/components/RemarksModal.vue';
@@ -357,16 +415,16 @@ const session = computed(() => sessionStore.currentSession);
 const { isOnline } = useNetworkStatus();
 const { sweepActive, triggerSweep } = useGoldAccent();
 
-type SubmitStatus = 'pending' | 'submitting' | 'done' | 'failed';
-
-const salesStatus = ref<SubmitStatus>('pending');
-const returnsStatus = ref<SubmitStatus>('pending');
-const salesSeriesNo = ref('');
-const returnsSeriesNo = ref('');
-const salesError = ref('');
-const returnsError = ref('');
-const salesErrorObj = ref<Error | null>(null);
-const returnsErrorObj = ref<Error | null>(null);
+const {
+  pendingSession,
+  salesStatus, returnsStatus,
+  salesSeriesNo, returnsSeriesNo,
+  salesError, returnsError,
+  salesErrorObj, returnsErrorObj,
+  anyDone, anyFailed,
+  submitSales, submitReturns,
+  finalizeNow,
+} = useOrderSubmission();
 
 const { openReport } = useErrorReporter();
 
@@ -379,11 +437,6 @@ function reportReturnsError() {
 
 const showRemarksModal = ref(false);
 const pendingSubmitType = ref<'sales' | 'returns' | null>(null);
-
-const anyDone = computed(() => salesStatus.value === 'done' || returnsStatus.value === 'done');
-const anyFailed = computed(
-  () => salesStatus.value === 'failed' || returnsStatus.value === 'failed',
-);
 
 const finalizeLabel = computed(() => {
   if (!anyDone.value && !anyFailed.value) return 'Save as Draft & Go Back';
@@ -436,24 +489,14 @@ function onRemarksCancel() {
   pendingSubmitType.value = null;
 }
 
-async function pollUntilDone(taskId: string, timeoutMs = 300_000): Promise<{ status: string; result?: unknown; error?: string }> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 3_000));
-    const task = await ApiService.pollTask(taskId);
-    if (task.status === 'done' || task.status === 'failed') return task;
-  }
-  throw new Error('Order is taking too long — check History or contact IT/MIS.');
-}
-
 async function doSubmitSales(customerNumber: string, remarks: string) {
-  salesStatus.value = 'submitting';
-  const isNoSales = session.value?.noSales ?? false;
+  if (!session.value) return;
+  const isNoSales = session.value.noSales ?? false;
   const payload: SalesOrderPayload = {
     customerNumber,
-    ...(session.value?.postingDate ? { postingDate: session.value.postingDate } : {}),
+    ...(session.value.postingDate ? { postingDate: session.value.postingDate } : {}),
     externalDocumentNumber: isNoSales ? 'No Sales' : (remarks || undefined),
-    ...(session.value?.user?.displayName ? { submittedBy: session.value.user.displayName } : {}),
+    ...(session.value.user?.displayName ? { submittedBy: session.value.user.displayName } : {}),
     lines: sessionStore.salesOrders.map((l) => ({
       itemNumber: l.itemNumber,
       description: l.description,
@@ -464,32 +507,16 @@ async function doSubmitSales(customerNumber: string, remarks: string) {
         : { lineDiscountAmount: l.discountValue }),
     })),
   };
-  try {
-    const { taskId } = await ApiService.submitSalesOrderAsync(payload);
-    const task = await pollUntilDone(taskId);
-    if (task.status === 'done') {
-      salesSeriesNo.value = (task.result as Record<string, string>)?.no ?? '';
-      salesStatus.value = 'done';
-      triggerSweep();
-      showToast('Sales orders submitted!', 'success');
-    } else {
-      throw new Error(task.error ?? 'Order processing failed');
-    }
-  } catch (err) {
-    salesErrorObj.value = err instanceof Error ? err : new Error(String(err));
-    salesError.value = salesErrorObj.value.message;
-    salesStatus.value = 'failed';
-    showToast('Sales submission failed. Will save locally.', 'danger');
-  }
+  await submitSales(session.value, payload);
 }
 
 async function doSubmitReturns(customerNumber: string, remarks: string) {
-  returnsStatus.value = 'submitting';
+  if (!session.value) return;
   const payload: SalesReturnOrderPayload = {
     customerNumber,
-    ...(session.value?.postingDate ? { postingDate: session.value.postingDate } : {}),
+    ...(session.value.postingDate ? { postingDate: session.value.postingDate } : {}),
     ...(remarks ? { externalDocumentNo: remarks } : {}),
-    ...(session.value?.user?.displayName ? { submittedBy: session.value.user.displayName } : {}),
+    ...(session.value.user?.displayName ? { submittedBy: session.value.user.displayName } : {}),
     lines: sessionStore.returnOrders.map((l) => ({
       itemNumber: l.itemNumber,
       description: l.description,
@@ -500,24 +527,24 @@ async function doSubmitReturns(customerNumber: string, remarks: string) {
         : { lineDiscountAmount: l.discountValue }),
     })),
   };
-  try {
-    const { taskId } = await ApiService.submitSalesReturnOrderAsync(payload);
-    const task = await pollUntilDone(taskId);
-    if (task.status === 'done') {
-      returnsSeriesNo.value = (task.result as Record<string, string>)?.no ?? '';
-      returnsStatus.value = 'done';
-      triggerSweep();
-      showToast('Return orders submitted!', 'success');
-    } else {
-      throw new Error(task.error ?? 'Order processing failed');
-    }
-  } catch (err) {
-    returnsErrorObj.value = err instanceof Error ? err : new Error(String(err));
-    returnsError.value = returnsErrorObj.value.message;
-    returnsStatus.value = 'failed';
-    showToast('Return submission failed. Will save locally.', 'danger');
-  }
+  await submitReturns(session.value, payload);
 }
+
+// Submission progress now lives in useOrderSubmission's shared state (see that file for
+// why), so the toast/sweep side effects that used to sit inline in doSubmitSales/
+// doSubmitReturns are driven by watchers instead — they simply won't fire if the user
+// has already navigated away, which is exactly the right behavior for a page-specific
+// toast. Guarded on 'pending' so these don't fire on the initial mount value.
+watch(salesStatus, (status, prev) => {
+  if (prev === 'pending') return;
+  if (status === 'done') { triggerSweep(); showToast('Sales orders submitted!', 'success'); }
+  else if (status === 'failed') { showToast('Sales submission failed. Will save locally.', 'danger'); }
+});
+watch(returnsStatus, (status, prev) => {
+  if (prev === 'pending') return;
+  if (status === 'done') { triggerSweep(); showToast('Return orders submitted!', 'success'); }
+  else if (status === 'failed') { showToast('Return submission failed. Will save locally.', 'danger'); }
+});
 
 function finalizeSession() {
   // Nothing submitted yet — keep as draft and return home
@@ -526,14 +553,24 @@ function finalizeSession() {
     router.replace('/app/home');
     return;
   }
-  const combinedError = [salesError.value, returnsError.value].filter(Boolean).join('; ');
-  if (anyFailed.value) {
-    sessionStore.markFailed(combinedError || 'Partial submission failure');
-  } else {
-    sessionStore.markSubmitted(salesSeriesNo.value || undefined, returnsSeriesNo.value || undefined);
-  }
+  finalizeNow();
   router.replace('/app/history');
 }
+
+// Submissions now survive navigation (see useOrderSubmission), so this page no longer
+// needs to block leaving while one is in flight — it just detaches currentSession so
+// Scan can start a fresh one immediately, and lets the shared state's own watcher
+// finalize into History whenever the submission actually resolves, wherever the user
+// happens to be by then.
+onBeforeRouteLeave(() => {
+  if (
+    (salesStatus.value === 'submitting' || returnsStatus.value === 'submitting') &&
+    sessionStore.currentSession?.id === pendingSession.value?.id
+  ) {
+    sessionStore.clearCurrentSession();
+  }
+  return true;
+});
 
 async function showToast(message: string, color: string) {
   const t = await toastController.create({ message, duration: 2500, color, position: 'bottom' });
@@ -796,6 +833,18 @@ async function showToast(message: string, color: string) {
 
 .status-badge p { margin: 0; }
 
+/* ── Section edit hint ── */
+.section-edit-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--ion-color-medium);
+  margin: 5px 0 0;
+  opacity: 0.75;
+}
+.section-edit-hint ion-icon { font-size: 12px; }
+
 /* ── No customer ── */
 .no-customer-warn {
   display: flex;
@@ -853,6 +902,191 @@ async function showToast(message: string, color: string) {
   color: var(--app-text-muted);
 }
 .empty-session ion-icon { font-size: 48px; }
+
+/* ── Queue loading panel ── */
+.queue-loading-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 16px 18px;
+  border-radius: 14px;
+  background: var(--app-surface-alt);
+  border: 1px solid var(--app-border);
+  overflow: hidden;
+}
+
+/* Broadcast rings */
+.queue-broadcast {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-bottom: 2px;
+}
+
+.queue-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1.5px solid var(--ion-color-primary);
+  animation: ring-broadcast 1.8s ease-out infinite;
+  opacity: 0;
+}
+.queue-ring--1 { width: 44px; height: 44px; animation-delay: 0s; }
+.queue-ring--2 { width: 44px; height: 44px; animation-delay: 0.6s; }
+.queue-ring--3 { width: 44px; height: 44px; animation-delay: 1.2s; }
+
+.queue-broadcast--returns .queue-ring {
+  border-color: var(--ion-color-danger);
+}
+
+@keyframes ring-broadcast {
+  0%   { transform: scale(1);   opacity: 0.75; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+.queue-icon-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--ion-color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+  animation: icon-breathe 2.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.queue-broadcast--returns .queue-icon-wrap {
+  background: var(--ion-color-danger);
+}
+
+@keyframes icon-breathe {
+  0%, 100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(var(--ion-color-primary-rgb), 0.3); }
+  50%       { transform: scale(1.05); box-shadow: 0 0 0 6px rgba(var(--ion-color-primary-rgb), 0); }
+}
+
+.queue-icon {
+  font-size: 20px;
+  color: #fff;
+}
+
+/* Text */
+.queue-headline {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--app-fg);
+  margin: 0;
+  letter-spacing: 0.1px;
+}
+
+.queue-sub {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  margin: 0;
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* Step indicator */
+.queue-steps {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.queue-step {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--app-text-muted);
+  opacity: 0.45;
+}
+
+.queue-step--done {
+  opacity: 1;
+  color: var(--ion-color-success);
+}
+
+.queue-step--active {
+  opacity: 1;
+  color: var(--ion-color-primary);
+  animation: step-pulse 1.2s ease-in-out infinite;
+}
+.queue-step--active--returns {
+  color: var(--ion-color-danger);
+}
+
+@keyframes step-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+.queue-step-sep {
+  font-size: 10px;
+  color: var(--app-text-muted);
+  opacity: 0.4;
+}
+
+/* Shimmer progress bar */
+.queue-shimmer-track {
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--app-border);
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.queue-shimmer-bar {
+  height: 100%;
+  width: 40%;
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--ion-color-primary) 40%,
+    rgba(var(--ion-color-primary-rgb), 0.6) 60%,
+    transparent 100%
+  );
+  animation: shimmer-slide 1.6s ease-in-out infinite;
+}
+.queue-shimmer-bar--returns {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--ion-color-danger) 40%,
+    rgba(var(--ion-color-danger-rgb), 0.6) 60%,
+    transparent 100%
+  );
+}
+
+@keyframes shimmer-slide {
+  0%   { transform: translateX(-150%); }
+  100% { transform: translateX(350%); }
+}
+
+/* Swap transition */
+.queue-swap-enter-active {
+  transition: opacity 0.22s ease, transform 0.22s var(--ease-out-quart);
+}
+.queue-swap-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.queue-swap-enter-from {
+  opacity: 0;
+  transform: translateY(8px) scale(0.97);
+}
+.queue-swap-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+}
 
 /* ── Offline notice ── */
 .offline-notice {

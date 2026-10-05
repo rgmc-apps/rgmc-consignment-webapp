@@ -8,8 +8,8 @@
       <div class="login-container">
         <!-- Logo block -->
         <div class="login-logo-block">
-          <img :src="logoSrc" alt="RGMC Consignment" :class="['login-logo', { 'login-logo--loading': companiesLoading || brandsLoading }]" />
-          <h1 class="login-title">RGMC Consignment</h1>
+          <img :src="logoSrc" alt="RGMC Consignment - Garments" :class="['login-logo', { 'login-logo--loading': companiesLoading || brandsLoading }]" />
+          <h1 class="login-title">RGMC Consignment - Garments</h1>
           <p class="login-subtitle">Web App</p>
         </div>
 
@@ -80,30 +80,53 @@
                   </ion-select>
                 </ion-item>
 
-                <!-- Brand dropdown -->
-                <ion-item
-                  lines="full"
-                  :class="['login-field', 'login-field--stagger-2', { 'login-field--unlocking': selectedCompanyId && !brandsLoading }]"
+                <!-- Brand dropdown — custom picker so options can carry sync indicators -->
+                <div
+                  :class="['brand-picker-wrap', 'login-field--stagger-2', { 'login-field--unlocking': selectedCompanyId && !brandsLoading }]"
                 >
-                  <ion-label position="stacked">Brand</ion-label>
-                  <ion-select
-                    v-model="selectedBrandId"
-                    placeholder="Select brand"
-                    interface="action-sheet"
-                    :disabled="isLoading || brandsLoading || !selectedCompanyId"
+                  <div
+                    class="brand-picker-trigger"
+                    :class="{
+                      'brand-picker-trigger--open': showBrandPicker,
+                      'brand-picker-trigger--disabled': isLoading || brandsLoading || !selectedCompanyId,
+                    }"
+                    @click="toggleBrandPicker"
                   >
-                    <ion-select-option
-                      v-for="b in brands"
-                      :key="b.id"
-                      :value="b.id"
-                    >
-                      {{ b.displayName }}
-                    </ion-select-option>
-                  </ion-select>
-                  <Transition name="spin-fade">
-                    <ion-spinner v-if="brandsLoading" slot="end" name="crescent" />
+                    <span class="brand-picker-label">Brand</span>
+                    <div class="brand-picker-value-row">
+                      <span :class="['brand-picker-value', { 'brand-picker-value--ph': !selectedBrand }]">
+                        {{ selectedBrand?.displayName ?? 'Select brand' }}
+                      </span>
+                      <Transition name="spin-fade">
+                        <ion-spinner v-if="brandsLoading" name="crescent" class="brand-picker-spinner" />
+                      </Transition>
+                      <ion-icon
+                        v-if="!brandsLoading"
+                        :icon="chevronDownOutline"
+                        class="brand-picker-chevron"
+                        :class="{ 'brand-picker-chevron--open': showBrandPicker }"
+                      />
+                    </div>
+                  </div>
+
+                  <!-- Inline options — each brand can show a "cached" tag -->
+                  <Transition name="brand-drop">
+                    <div v-if="showBrandPicker && brands.length" class="brand-picker-list">
+                      <button
+                        v-for="b in brands"
+                        :key="b.id"
+                        class="brand-opt"
+                        :class="{ 'brand-opt--selected': b.id === selectedBrandId }"
+                        @click="selectBrand(b)"
+                      >
+                        <span class="brand-opt-name">{{ b.displayName }}</span>
+                        <span v-if="brandSyncMap[b.code]" class="brand-opt-cached">
+                          <ion-icon :icon="cloudDoneOutline" />cached
+                        </span>
+                      </button>
+                    </div>
                   </Transition>
-                </ion-item>
+                </div>
               </div>
             </Transition>
 
@@ -115,31 +138,13 @@
               </div>
             </Transition>
 
-            <!-- App mode toggle -->
-            <div class="mode-toggle-row login-field--stagger-3">
-              <div class="mode-toggle-icon-wrap">
-                <ion-icon :icon="mode === 'offline' ? cloudOfflineOutline : wifiOutline" class="mode-toggle-icon" />
+            <!-- Cached sync indicator for selected company + brand -->
+            <Transition name="sync-chip-fade">
+              <div v-if="selectedSyncLabel" class="brand-sync-chip">
+                <ion-icon :icon="cloudDoneOutline" />
+                <span>Data cached &middot; {{ selectedSyncLabel }}</span>
               </div>
-              <div class="mode-toggle-labels">
-                <span class="mode-toggle-title">{{ mode === 'offline' ? 'Offline Mode' : 'Online Mode' }}</span>
-                <span class="mode-toggle-hint">
-                  <template v-if="mode === 'offline'">
-                    <span v-if="offlineReady" class="mode-ready-tag">
-                      <ion-icon :icon="cloudDoneOutline" />ready
-                    </span>
-                    <span v-else class="mode-sync-tag">sync required</span>
-                    &mdash; slower startup
-                  </template>
-                  <template v-else>loads data on demand</template>
-                </span>
-              </div>
-              <ion-toggle
-                :checked="mode === 'offline'"
-                :disabled="isLoading || isSyncing"
-                @ion-change="onModeToggle"
-                class="mode-toggle"
-              />
-            </div>
+            </Transition>
 
             <!-- Username -->
             <ion-item lines="full" :class="['login-field', 'login-field--stagger-4', { 'login-field--error': loginState === 'error' }]">
@@ -203,15 +208,18 @@
               }}</span>
             </ion-button>
 
-            <!-- Sync status panel — shown after login success in offline mode while data loads -->
+            <!-- Sync status panel — shown after login when no local cache exists -->
             <Transition name="sync-status-fade">
-              <div v-if="loginState === 'success' && isSyncing && mode === 'offline'" class="login-sync-status">
+              <div v-if="loginState === 'success' && isSyncing" class="login-sync-status">
                 <ion-spinner name="dots" class="sync-status-dots" />
                 <div class="sync-status-text">
                   <div class="sync-status-top">
-                    <span class="sync-status-mode-label">Preparing offline mode</span>
+                    <span class="sync-status-mode-label">{{ isSyncDelta ? 'Updating catalog' : 'Loading catalog' }}</span>
                     <span :key="syncHeaderText" class="sync-status-label cycling-text">{{ syncHeaderText }}</span>
-                    <span class="sync-status-pct">{{ syncProgress }}%</span>
+                    <div class="sync-status-nums">
+                      <span class="sync-status-elapsed">{{ syncElapsedLabel }}</span>
+                      <span class="sync-status-pct">{{ syncProgress }}%</span>
+                    </div>
                   </div>
                   <!-- Per-table rows — shown for all phases -->
                   <div v-if="syncSubTasks.length" class="sync-subtasks">
@@ -248,7 +256,32 @@
           </ion-card-content>
         </ion-card>
 
-        <p class="login-footer">RGMC Group Inc. - IT/MIS &copy; {{ currentYear }}</p>
+        <!-- Footer with settings toggle -->
+        <div class="login-footer-row">
+          <p class="login-footer">RGMC Group Inc. - IT/MIS &copy; {{ currentYear }}</p>
+          <button
+            class="login-settings-btn"
+            :class="{ 'login-settings-btn--active': showSettings }"
+            @click="showSettings = !showSettings"
+          >
+            <ion-icon :icon="settingsOutline" />
+          </button>
+        </div>
+
+        <!-- Settings panel -->
+        <Transition name="settings-panel">
+          <div v-if="showSettings" class="login-settings-panel">
+            <div class="lsp-version-block">
+              <span class="lsp-version-label">Release</span>
+              <span class="lsp-version-main">v{{ appVersion }}</span>
+              <span class="lsp-version-build">{{ appBuild }}</span>
+            </div>
+            <button class="lsp-update-btn" :disabled="isUpdating" @click="onUpdate">
+              <ion-icon :icon="cloudDownloadOutline" />
+              {{ isUpdating ? 'Reloading…' : 'Update Application' }}
+            </button>
+          </div>
+        </Transition>
       </div>
     </ion-content>
   </ion-page>
@@ -270,14 +303,12 @@ import {
   IonButton,
   IonIcon,
   IonSpinner,
-  IonToggle,
 } from '@ionic/vue';
-import { eyeOutline, eyeOffOutline, alertCircleOutline, cloudOfflineOutline, warningOutline, pricetagOutline, checkmarkCircleOutline, wifiOutline, cloudDoneOutline } from 'ionicons/icons';
+import { eyeOutline, eyeOffOutline, alertCircleOutline, cloudOfflineOutline, warningOutline, pricetagOutline, checkmarkCircleOutline, cloudDoneOutline, chevronDownOutline, settingsOutline, cloudDownloadOutline } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { ApiService, setApiCompany } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 import { useSync } from '@/composables/useSync';
-import { useAppModeStore } from '@/stores/app-mode.store';
 import { useLoadingText } from '@/composables/useLoadingText';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import SetPasswordModal from '@/components/SetPasswordModal.vue';
@@ -289,6 +320,26 @@ const isMinimalist = computed(() => theme.value === 'minimalist');
 const logoSrc = computed(() =>
   isMinimalist.value ? '/static/logo-bnw.png' : '/static/cons-logo.png',
 );
+
+const appVersion = __APP_VERSION__;
+const appBuild = __APP_BUILD__;
+const showSettings = ref(false);
+const isUpdating = ref(false);
+
+async function onUpdate() {
+  if (isUpdating.value) return;
+  isUpdating.value = true;
+  if ('serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration('/');
+      if (reg?.waiting) {
+        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        await new Promise(r => setTimeout(r, 400));
+      }
+    } catch { /* ignore */ }
+  }
+  window.location.reload();
+}
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -308,28 +359,30 @@ const currentYear = new Date().getFullYear();
 /* ─── Login animation state ─── */
 const loginState = ref<'idle' | 'loading' | 'success' | 'error'>('idle');
 const isCardShaking = ref(false);
+const showBrandPicker = ref(false);
 
 watch([username, password], () => {
   if (loginState.value === 'error') loginState.value = 'idle';
 });
 
 const isLoading = computed(() => authStore.isLoading);
-const { isSyncing, syncPhase, syncProgress, syncSubTasks, sync } = useSync();
-const { mode, offlineReady, setMode } = useAppModeStore();
-
-function onModeToggle(e: Event) {
-  setMode((e as CustomEvent).detail.checked ? 'offline' : 'online');
-}
+const { isSyncing, isSyncDelta, syncPhase, syncProgress, syncSubTasks, sync, lastSyncDate, syncElapsedLabel } = useSync();
 
 const loginLoadingText = useLoadingText(
   ['Signing in…', 'Verifying credentials…', 'Checking permissions…', 'Almost there…'],
   isLoading,
 );
-const syncHeaderText = useLoadingText(
+const syncHeaderTextFull = useLoadingText(
   ['Syncing data…', 'Fetching customer list…', 'Loading product catalog…', 'Retrieving contacts…', 'Getting latest prices…', 'Almost done…'],
   isSyncing,
 );
-const syncSubCycleText = useLoadingText(
+const syncHeaderTextDelta = useLoadingText(
+  ['Checking for updates…', 'Syncing recent changes…', 'Merging catalog updates…', 'Refreshing prices…', 'Almost done…'],
+  isSyncing,
+);
+const syncHeaderText = computed(() => isSyncDelta.value ? syncHeaderTextDelta.value : syncHeaderTextFull.value);
+
+const syncSubCycleTextFull = useLoadingText(
   [
     'Preparing your workspace for offline use',
     'Building local data cache…',
@@ -340,6 +393,17 @@ const syncSubCycleText = useLoadingText(
   isSyncing,
   3200,
 );
+const syncSubCycleTextDelta = useLoadingText(
+  [
+    'Syncing only changes since your last update',
+    'Keeping your cached catalog fresh…',
+    'Applying item and price updates…',
+    'Almost up to date…',
+  ],
+  isSyncing,
+  3200,
+);
+const syncSubCycleText = computed(() => isSyncDelta.value ? syncSubCycleTextDelta.value : syncSubCycleTextFull.value);
 
 onUnmounted(() => {
   if (syncSlowTimer) { clearTimeout(syncSlowTimer); syncSlowTimer = null; }
@@ -375,11 +439,51 @@ const networkNotice = computed<'offline' | 'slow' | null>(() => {
 const selectedCompany = computed(() => companies.value.find((c) => c.id === selectedCompanyId.value) ?? null);
 const selectedBrand = computed(() => brands.value.find((b) => b.id === selectedBrandId.value) ?? null);
 
+const selectedSyncLabel = computed(() => {
+  void lastSyncDate.value; // re-evaluate after a sync completes
+  const company = selectedCompany.value?.code;
+  const brand = selectedBrand.value?.code;
+  if (!company || !brand) return null;
+  const d = StorageService.getLastSync(company, brand);
+  if (!d) return null;
+  return d.toLocaleDateString('en-PH', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+});
+
+// Which brand codes have cached sync data for the currently-selected company
+const brandSyncMap = computed<Record<string, boolean>>(() => {
+  const company = selectedCompany.value?.code;
+  if (!company) return {};
+  const allTs = StorageService.getAllSyncTimestamps();
+  const map: Record<string, boolean> = {};
+  for (const key of Object.keys(allTs)) {
+    const [c, b] = key.split('::');
+    if (c === company && b) map[b] = true;
+  }
+  return map;
+});
+
+function toggleBrandPicker() {
+  if (isLoading.value || brandsLoading.value || !selectedCompanyId.value) return;
+  showBrandPicker.value = !showBrandPicker.value;
+}
+
+function selectBrand(brand: Brand) {
+  selectedBrandId.value = brand.id;
+  showBrandPicker.value = false;
+}
+
 const canSubmit = computed(
   () => selectedCompanyId.value && selectedBrandId.value && username.value.trim(),
 );
 
 onMounted(() => {
+  StorageService.init(); // Populate _itemsMemory from IndexedDB so offlineReady is accurate
   loadCompanies();
 });
 
@@ -389,6 +493,7 @@ watch(selectedCompanyId, (id) => {
   username.value = '';
   password.value = '';
   brands.value = [];
+  showBrandPicker.value = false;
   authStore.clearError();
 
   if (!id) return;
@@ -456,11 +561,18 @@ async function handleLogin() {
 
   loginState.value = 'success';
 
-  if (mode.value === 'offline') {
+  const hadPriorSync = !!StorageService.getLastSync(
+    selectedCompany.value!.code,
+    selectedBrand.value!.code,
+  );
+  if (hadPriorSync) {
+    // Cache exists — go straight in. Sync only when the user explicitly requests it.
+    router.replace('/app/home');
+  } else {
+    // First use: no cache at all, block until the initial full sync finishes.
     await sync();
+    router.replace('/app/home');
   }
-
-  router.replace('/app/home');
 }
 </script>
 
@@ -601,12 +713,7 @@ async function handleLogin() {
 .err-fade-enter-from   { opacity: 0; transform: translateY(-6px); }
 .err-fade-leave-to     { opacity: 0; }
 
-.login-footer {
-  font-size: 12px;
-  color: var(--app-text-muted);
-  margin: 0;
-  text-align: center;
-}
+/* .login-footer styles moved to the .login-footer-row block below */
 
 /* ── Network notice ── */
 .net-notice {
@@ -651,88 +758,6 @@ async function handleLogin() {
 .net-notice-fade-enter-from,
 .net-notice-fade-leave-to    { opacity: 0; transform: translateY(-6px); }
 
-/* ── App mode toggle ── */
-.mode-toggle-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 10px 0 6px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--app-border);
-}
-
-.mode-toggle-icon-wrap {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-}
-
-.mode-toggle-icon {
-  font-size: 1.15rem;
-  color: var(--app-text-muted);
-}
-
-.mode-toggle-labels {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.mode-toggle-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--app-fg);
-}
-
-.mode-toggle-hint {
-  font-size: 11px;
-  color: var(--app-text-muted);
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex-wrap: wrap;
-}
-
-.mode-ready-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  background: oklch(52% 0.15 145 / 0.15);
-  color: oklch(62% 0.15 145);
-  border-radius: 5px;
-  padding: 1px 6px;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-}
-
-.mode-ready-tag ion-icon {
-  font-size: 11px;
-}
-
-.mode-sync-tag {
-  display: inline-flex;
-  background: rgba(var(--ion-color-warning-rgb), 0.15);
-  color: var(--ion-color-warning-shade);
-  border-radius: 5px;
-  padding: 1px 6px;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-}
-
-.mode-toggle {
-  --track-background: var(--app-border);
-  --track-background-checked: var(--app-gold);
-  flex-shrink: 0;
-}
-
 /* ── Sync status mode label ── */
 .sync-status-mode-label {
   font-size: 10px;
@@ -772,6 +797,30 @@ async function handleLogin() {
 .family-fade-leave-active { transition: opacity 0.15s ease; }
 .family-fade-enter-from   { opacity: 0; transform: translateY(-4px); }
 .family-fade-leave-to     { opacity: 0; }
+
+/* ── Cached sync chip ── */
+.brand-sync-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 4px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: oklch(52% 0.15 145 / 0.1);
+  border: 1px solid oklch(52% 0.15 145 / 0.25);
+  font-size: 12px;
+  color: oklch(68% 0.15 145);
+}
+
+.brand-sync-chip ion-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.sync-chip-fade-enter-active { transition: opacity 0.22s ease, transform 0.22s var(--ease-out-quart); }
+.sync-chip-fade-leave-active { transition: opacity 0.15s ease; }
+.sync-chip-fade-enter-from   { opacity: 0; transform: translateY(-4px); }
+.sync-chip-fade-leave-to     { opacity: 0; }
 
 /* Spinner fade-in/out (companies loading, brands loading) */
 .spin-fade-enter-active { transition: opacity 0.18s ease, transform 0.18s var(--ease-out-quart); }
@@ -1011,6 +1060,21 @@ async function handleLogin() {
   gap: 8px;
 }
 
+.sync-status-nums {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.sync-status-elapsed {
+  font-size: 11px;
+  font-weight: 700;
+  color: oklch(60% 0.10 145 / 0.65);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.3px;
+}
+
 .sync-status-pct {
   font-size: 12px;
   font-weight: 700;
@@ -1140,6 +1204,292 @@ async function handleLogin() {
 .login-selects .login-field--stagger-1 { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.02s both; }
 .login-selects .login-field--stagger-2 { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.08s both; }
 
+/* ══ Custom brand picker ══ */
+.brand-picker-wrap {
+  position: relative;
+  margin-bottom: 4px;
+}
+
+.brand-picker-trigger {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0 10px;
+  border-bottom: 1px solid var(--app-border);
+  cursor: pointer;
+  transition: border-color 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.brand-picker-trigger--open {
+  border-color: var(--app-gold);
+}
+
+.brand-picker-trigger--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.brand-picker-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--app-text-muted);
+}
+
+.brand-picker-value-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+}
+
+.brand-picker-value {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--app-fg);
+}
+
+.brand-picker-value--ph {
+  color: var(--app-text-muted);
+}
+
+.brand-picker-spinner {
+  width: 16px;
+  height: 16px;
+  color: var(--app-gold);
+  flex-shrink: 0;
+}
+
+.brand-picker-chevron {
+  font-size: 15px;
+  color: var(--app-text-muted);
+  flex-shrink: 0;
+  transition: transform 0.24s var(--ease-out-expo), color 0.18s ease;
+}
+
+.brand-picker-chevron--open {
+  transform: rotate(180deg);
+  color: var(--app-gold);
+}
+
+/* ── Brand options list ── */
+.brand-picker-list {
+  border: 1px solid var(--app-border);
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+  overflow: hidden;
+  background: var(--app-surface);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
+.brand-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s ease;
+}
+
+.brand-opt:last-child {
+  border-bottom: none;
+}
+
+.brand-opt:active {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.brand-opt--selected {
+  background: rgba(160, 115, 32, 0.08);
+}
+
+.brand-opt-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--app-fg);
+}
+
+.brand-opt--selected .brand-opt-name {
+  color: var(--app-gold-light);
+  font-weight: 700;
+}
+
+.brand-opt-cached {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: oklch(52% 0.15 145 / 0.12);
+  border: 1px solid oklch(52% 0.15 145 / 0.3);
+  color: oklch(66% 0.15 145);
+  border-radius: 6px;
+  padding: 2px 7px 2px 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.brand-opt-cached ion-icon {
+  font-size: 11px;
+}
+
+/* Brand drop transition */
+.brand-drop-enter-active {
+  transition: opacity 0.2s ease, transform 0.22s var(--ease-out-expo);
+  transform-origin: top center;
+}
+.brand-drop-leave-active {
+  transition: opacity 0.14s ease, transform 0.14s ease;
+  transform-origin: top center;
+}
+.brand-drop-enter-from {
+  opacity: 0;
+  transform: scaleY(0.92) translateY(-6px);
+}
+.brand-drop-leave-to {
+  opacity: 0;
+  transform: scaleY(0.96) translateY(-3px);
+}
+
+
+/* ── Footer + settings ── */
+.login-footer-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.login-footer {
+  flex: 1;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin: 0;
+  text-align: center;
+}
+
+.login-settings-btn {
+  background: transparent;
+  border: none;
+  color: var(--app-text-muted);
+  font-size: 17px;
+  padding: 5px;
+  cursor: pointer;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+}
+
+.login-settings-btn:active,
+.login-settings-btn--active {
+  color: var(--app-gold);
+  background: rgba(160, 115, 32, 0.12);
+}
+
+.login-settings-panel {
+  width: 100%;
+  max-width: 420px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.lsp-version-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.lsp-version-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--app-text-muted);
+}
+
+.lsp-version-main {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--app-fg);
+  letter-spacing: -0.3px;
+  line-height: 1.1;
+}
+
+.lsp-version-build {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--app-text-muted);
+  font-family: monospace;
+  letter-spacing: 0.2px;
+  margin-top: 1px;
+}
+
+.lsp-update-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  color: var(--app-gold);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lsp-update-btn:active:not(:disabled) {
+  background: rgba(160, 115, 32, 0.1);
+}
+
+.lsp-update-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.lsp-update-btn ion-icon {
+  font-size: 16px;
+}
+
+.settings-panel-enter-active {
+  transition: opacity 0.22s ease, transform 0.24s var(--ease-out-expo);
+}
+.settings-panel-leave-active {
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+.settings-panel-enter-from {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.97);
+}
+.settings-panel-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   .login-card--shake,
@@ -1169,7 +1519,9 @@ async function handleLogin() {
   .sync-status-fade-enter-active,
   .sync-status-fade-leave-active,
   .sync-label-swap-enter-active,
-  .sync-label-swap-leave-active {
+  .sync-label-swap-leave-active,
+  .settings-panel-enter-active,
+  .settings-panel-leave-active {
     transition: none !important;
   }
   .sync-progress-fill {

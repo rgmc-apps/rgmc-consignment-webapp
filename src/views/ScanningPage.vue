@@ -51,9 +51,9 @@
       <ion-refresher slot="fixed" @ionRefresh="onPullRefresh($event)">
         <ion-refresher-content
           :pulling-icon="chevronDownCircleOutline"
-          :pulling-text="isOnline ? 'Pull to sync' : 'Offline — nothing to sync'"
+          :pulling-text="isOnline ? (sessionStore.hasLines ? 'Pull to update prices' : 'Pull to sync') : 'Offline — nothing to sync'"
           refreshing-spinner="crescent"
-          :refreshing-text="isOnline ? 'Syncing…' : 'Offline'"
+          :refreshing-text="isOnline ? (sessionStore.hasLines ? 'Updating prices…' : 'Syncing…') : 'Offline'"
         />
       </ion-refresher>
 
@@ -129,6 +129,9 @@
             <ion-icon v-else :icon="cloudDownloadOutline" slot="start" />
             {{ isTriggering ? 'Triggering…' : 'Trigger Server Sync' }}
           </ion-button>
+          <p v-if="!triggerMessage" class="trigger-server-hint">
+            Asks Business Central to rebuild the item price catalog on the server. Wait 2–3 minutes, then tap Sync Now.
+          </p>
           <p v-if="triggerMessage" class="trigger-msg" :class="{ 'trigger-msg--error': triggerMessage.startsWith('Failed') }">
             {{ triggerMessage }}
           </p>
@@ -245,15 +248,25 @@
 
             <!-- Order date -->
             <div class="order-date-section">
-              <p class="field-label">POSTING DATE</p>
-              <div class="order-date-row">
-                <ion-icon :icon="calendarOutline" color="medium" class="order-date-icon" />
+              <div class="field-label-row">
+                <p class="field-label">POSTING DATE</p>
+                <button class="info-icon-btn" aria-label="About posting date" @click="showInfo('Posting Date', 'The posting date determines which price list applies to each item. Business Central prices are date-sensitive — using the correct date ensures the right retail price is fetched. Changing this date will update all prices in your current session.')">
+                  <ion-icon :icon="informationCircleOutline" />
+                </button>
+              </div>
+              <div :class="['order-date-row', { 'order-date-row--updating': isUpdatingLinePrices }]">
+                <ion-icon
+                  :icon="calendarOutline"
+                  :color="isUpdatingLinePrices ? 'primary' : 'medium'"
+                  class="order-date-icon"
+                />
                 <input
                   type="date"
                   :value="orderDateValue"
                   @change="(e) => { orderDateValue = (e.target as HTMLInputElement).value }"
                   class="order-date-input"
                 />
+                <ion-spinner v-if="isUpdatingLinePrices" name="dots" class="date-update-spinner" />
               </div>
             </div>
 
@@ -261,7 +274,7 @@
             <div class="no-sales-row">
               <div class="no-sales-label-group">
                 <span class="no-sales-label">No Sales</span>
-                <span class="no-sales-hint">Submit a sales order without items</span>
+                <span class="no-sales-hint">Record a store visit — no items sold</span>
               </div>
               <ion-toggle
                 :checked="sessionStore.currentSession?.noSales ?? false"
@@ -273,128 +286,22 @@
           </ion-card-content>
         </ion-card>
 
-        <!-- ══ Item Form Card ══ -->
-        <ion-card class="form-card">
-          <ion-card-content class="item-form-body">
-            <p class="field-label">ADD ITEM</p>
-
-            <!-- Item Category -->
-            <ion-item lines="inset" class="form-row">
-              <ion-label>Category</ion-label>
-              <ion-select
-                v-model="form.categoryCode"
-                placeholder="All categories"
-                interface="popover"
-                class="form-select"
-              >
-                <ion-select-option value="">All categories</ion-select-option>
-                <ion-select-option
-                  v-for="cat in categories"
-                  :key="cat.code"
-                  :value="cat.code"
-                >{{ cat.displayName }}</ion-select-option>
-              </ion-select>
-            </ion-item>
-
-            <!-- Item selector trigger -->
-            <ion-item lines="inset" button :detail="false" class="form-row" @click="showItemModal = true">
-              <ion-label>Item</ion-label>
-              <div slot="end" class="item-trigger-end">
-                <span v-if="form.itemName" class="item-trigger-name">{{ form.itemName }}</span>
-                <span v-else class="item-trigger-placeholder">Select or scan</span>
-                <ion-icon :icon="barcodeOutline" color="primary" />
-              </div>
-            </ion-item>
-
-            <!-- Fields below only visible once item is selected -->
-            <Transition name="form-fields">
-            <div v-if="form.itemNumber" class="form-fields-group">
-              <!-- Description -->
-              <ion-item lines="inset" class="form-row form-row--readonly">
-                <ion-label>Description</ion-label>
-                <ion-note slot="end" class="readonly-val">{{ form.description || '—' }}</ion-note>
-              </ion-item>
-
-              <!-- SRP -->
-              <ion-item lines="inset" class="form-row form-row--readonly">
-                <ion-label>SRP</ion-label>
-                <ion-note slot="end" class="readonly-val readonly-val--gold">
-                  <ion-spinner v-if="fetchingPrice" name="dots" style="width:16px;height:16px;vertical-align:middle" />
-                  <template v-else>
-                    {{ formatCurrency(form.srp) }}
-                    <span v-if="form.priceListCode" class="price-list-code">{{ form.priceListCode }}</span>
-                  </template>
-                </ion-note>
-              </ion-item>
-              <p class="srp-date-hint">
-                <ion-icon :icon="informationCircleOutline" />
-                Price reflects the posting date above. Changing the date updates all prices.
-              </p>
-
-              <!-- Quantity -->
-              <ion-item lines="inset" class="form-row">
-                <ion-label>Quantity</ion-label>
-                <ion-input
-                  v-model.number="form.quantity"
-                  type="number"
-                  inputmode="numeric"
-                  min="1"
-                  slot="end"
-                  class="num-input"
-                />
-              </ion-item>
-
-              <!-- Discount type + value (same row) -->
-              <ion-item lines="inset" class="form-row">
-                <ion-label>Discount</ion-label>
-                <ion-select
-                  v-model="form.discountType"
-                  interface="popover"
-                  slot="end"
-                  class="disc-type-select"
-                >
-                  <ion-select-option value="percent">%</ion-select-option>
-                  <ion-select-option value="amount">₱ Amt</ion-select-option>
-                </ion-select>
-                <ion-input
-                  v-model.number="form.discountValue"
-                  type="number"
-                  inputmode="decimal"
-                  min="0"
-                  placeholder="0"
-                  slot="end"
-                  class="num-input"
-                />
-              </ion-item>
-
-              <!-- Total amount -->
-              <ion-item lines="none" class="form-row total-row">
-                <ion-label><strong>Total Amount</strong></ion-label>
-                <ion-note slot="end" class="total-val">
-                  {{ formatCurrency(totalAmount) }}
-                </ion-note>
-              </ion-item>
-
-              <!-- Action buttons -->
-              <div v-if="selectedCustomer" class="action-btns">
-                <ion-button expand="block" color="primary" @click="addToSales">
-                  <ion-icon :icon="addCircleOutline" slot="start" />
-                  Add to Sales
-                </ion-button>
-                <ion-button expand="block" fill="outline" color="danger" @click="addToReturn">
-                  <ion-icon :icon="returnDownBackOutline" slot="start" />
-                  Add to Return
-                </ion-button>
-              </div>
-
-              <div v-else class="no-cust-notice">
-                <ion-icon :icon="alertCircleOutline" color="warning" />
-                <p>Select a customer above to add items.</p>
-              </div>
-            </div>
-            </Transition>
-          </ion-card-content>
-        </ion-card>
+        <!-- ══ Add Item button ══ -->
+        <div class="add-item-bar">
+          <ion-button
+            expand="block"
+            color="primary"
+            class="add-item-btn"
+            @click="showItemModal = true"
+          >
+            <ion-icon :icon="addCircleOutline" slot="start" />
+            Add Item
+          </ion-button>
+          <div v-if="!selectedCustomer" class="no-cust-notice">
+            <ion-icon :icon="alertCircleOutline" color="warning" />
+            <p>Select a customer above to add items.</p>
+          </div>
+        </div>
 
         </div><!-- /scan-form-col -->
         <div class="scan-list-col">
@@ -426,6 +333,7 @@
               </ion-label>
             </ion-segment-button>
           </ion-segment>
+          <p class="swipe-hint">Swipe an item left to remove it</p>
 
           <ion-list class="order-list" lines="full">
             <TransitionGroup name="order-item">
@@ -437,10 +345,17 @@
                 <ion-label>
                   <h3>{{ line.itemName }}</h3>
                   <p>
-                    {{ line.itemNumber }} &bull;
+                    {{ line.itemNumber }}
+                    <span v-if="line.categoryCode" class="line-category">&bull; {{ categories.find(c => c.code === line.categoryCode)?.displayName ?? line.categoryCode }}</span>
+                  </p>
+                  <p>
                     Qty {{ line.quantity }} &times;
                     <span :class="{ 'price-stale': isUpdatingLinePrices }">{{ formatCurrency(line.srp) }}</span>
-                    <span v-if="line.priceListCode" class="price-list-code">{{ line.priceListCode }}</span>
+                    <button
+                      v-if="line.priceListCode"
+                      class="price-list-code price-list-code--btn"
+                      @click.stop="showPriceListInfo(line.priceListCode)"
+                    >{{ line.priceListCode }}</button>
                   </p>
                   <p>
                     Disc: {{ formatDiscount(line.discountType, line.discountValue) }}
@@ -484,7 +399,7 @@
 
         <div v-else class="empty-orders">
           <ion-icon :icon="cartOutline" color="medium" />
-          <p>No items added yet.<br />Select an item and tap Add to Sales or Add to Return.</p>
+          <p>No items added yet.</p>
         </div>
         </div><!-- /scan-list-col -->
         </div><!-- /scan-panels -->
@@ -500,7 +415,7 @@
         </span>
         <span class="submit-bar__amount">{{ formatCurrency(sessionStore.salesTotal + sessionStore.returnTotal) }}</span>
       </div>
-      <ion-button class="submit-bar__btn" router-link="/app/submit">
+      <ion-button class="submit-bar__btn" :disabled="isUpdatingLinePrices" router-link="/app/submit">
         Review &amp; Submit
         <ion-icon :icon="arrowForwardOutline" slot="end" />
       </ion-button>
@@ -600,8 +515,29 @@
                   <span class="conf-srp-label">Fetching price…</span>
                 </span>
                 <span v-else :key="priceRevealKey" class="conf-srp-value">
-                  {{ formatCurrency(confirmedSrp) }} <span class="conf-srp-label">SRP</span>
-                  <span v-if="confirmedPriceListCode" class="price-list-code">{{ confirmedPriceListCode }}</span>
+                  <span :class="{ 'conf-price-updated': confirmPriceCheckState === 'updated' }">
+                    {{ formatCurrency(confirmedSrp) }}
+                  </span>
+                  <span class="conf-srp-label">SRP</span>
+                  <button
+                    v-if="confirmedPriceListCode"
+                    class="price-list-code price-list-code--btn"
+                    @click.stop="showPriceListInfo(confirmedPriceListCode)"
+                  >{{ confirmedPriceListCode }}</button>
+                  <ion-button
+                    v-if="isOnline"
+                    fill="clear"
+                    size="small"
+                    class="conf-price-sync-btn"
+                    :disabled="confirmPriceCheckState === 'loading' || fetchingPrice"
+                    @click.stop="updateConfirmPrice"
+                  >
+                    <ion-spinner v-if="confirmPriceCheckState === 'loading'" name="lines-small" slot="icon-only" class="price-sync-spinner" />
+                    <ion-icon v-else-if="confirmPriceCheckState === 'updated'" :icon="checkmarkCircleOutline" color="success" slot="icon-only" />
+                    <ion-icon v-else-if="confirmPriceCheckState === 'same'" :icon="checkmarkCircleOutline" color="medium" slot="icon-only" />
+                    <ion-icon v-else-if="confirmPriceCheckState === 'error'" :icon="alertCircleOutline" color="danger" slot="icon-only" />
+                    <ion-icon v-else :icon="syncOutline" slot="icon-only" class="price-sync-icon" />
+                  </ion-button>
                 </span>
               </Transition>
             </p>
@@ -679,7 +615,7 @@
           <ion-button
             expand="block"
             color="primary"
-            :disabled="!selectedCustomer"
+            :disabled="!selectedCustomer || fetchingPrice"
             class="conf-btn"
             @click="doConfirm('sales')"
           >
@@ -690,7 +626,7 @@
             expand="block"
             fill="outline"
             color="danger"
-            :disabled="!selectedCustomer"
+            :disabled="!selectedCustomer || fetchingPrice"
             class="conf-btn"
             @click="doConfirm('returns')"
           >
@@ -741,6 +677,7 @@ import {
   IonToggle,
   toastController,
   alertController,
+  onIonViewWillEnter,
 } from '@ionic/vue';
 import {
   syncOutline,
@@ -761,6 +698,7 @@ import {
   cartOutline,
   storefrontOutline,
   checkmarkOutline,
+  checkmarkCircleOutline,
   closeOutline,
   arrowForwardOutline,
   saveOutline,
@@ -773,7 +711,6 @@ import { useSync } from '@/composables/useSync';
 import { usePriceListCheck } from '@/composables/usePriceListCheck';
 import { useCustomerFilter } from '@/composables/useCustomerFilter';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
-import { useAppModeStore } from '@/stores/app-mode.store';
 import { useTheme } from '@/composables/useTheme';
 import { useGoldAccent } from '@/composables/useGoldAccent';
 import { StorageService } from '@/services/storage.service';
@@ -795,7 +732,6 @@ const {
 } = useSync();
 const { alerts: priceListAlerts, hasAlerts: hasPriceListAlerts, check: checkPriceLists, dismiss: dismissPriceListAlert } = usePriceListCheck();
 const { isOnline, isSlowConnection } = useNetworkStatus();
-const { mode: appMode } = useAppModeStore();
 const { theme } = useTheme();
 const isMinimalist = computed(() => theme.value === 'minimalist');
 const headerLogoSrc = computed(() =>
@@ -817,14 +753,11 @@ const hasCache = computed(
   () => cachedItems.value.length > 0 && cachedCustomers.value.length > 0 && categories.value.length > 0,
 );
 
-// In online mode, items are fetched live by ItemSelectorModal — no local cache required
-const canScan = computed(
-  () => hasCache.value || (appMode.value === 'online' && isOnline.value),
-);
+const canScan = computed(() => hasCache.value);
 
 function refreshCache() {
   const brandCode = authStore.brand?.code;
-  cachedCustomers.value = StorageService.getCachedCustomers();
+  cachedCustomers.value = StorageService.getCachedCustomers(authStore.company?.code, authStore.brand?.code);
   const allItems = StorageService.getCachedItems();
   cachedItems.value = brandCode
     ? allItems.filter((i) => i.familyCode === brandCode)
@@ -834,9 +767,20 @@ function refreshCache() {
 
 function onItemModalClose() {
   showItemModal.value = false;
-  // In online mode the modal may have saved freshly fetched items to storage.
-  // Refresh so cachedItems reflects what was just persisted.
-  if (appMode.value === 'online') refreshCache();
+  // The modal may have persisted freshly fetched items (first-use API path).
+  // Always refresh so cachedItems reflects whatever was just stored.
+  refreshCache();
+}
+
+function applyLastCustomer() {
+  const lastId = StorageService.getLastCustomerId();
+  if (!lastId) return;
+  const match = cachedCustomers.value.find((c) => c.id === lastId);
+  if (match) {
+    sessionStore.setCustomer(match);
+    customerFlash.value = true;
+    setTimeout(() => { customerFlash.value = false; }, 450);
+  }
 }
 
 onMounted(async () => {
@@ -844,15 +788,48 @@ onMounted(async () => {
      are available after a browser refresh even when offline. */
   await StorageService.init();
   refreshCache();
-  if (!sessionStore.currentSession && authStore.brand && authStore.user) {
-    sessionStore.startNewSession(authStore.brand, authStore.user);
+  ensureSessionForCurrentBrand();
+  // Auto-select last customer after refreshCache() — covers first mount and the race
+  // where onIonViewWillEnter fired before customers were loaded.
+  if (sessionStore.currentSession && !sessionStore.currentSession.customer) {
+    applyLastCustomer();
   }
-  if (cachedItems.value.length === 0 && isOnline.value && appMode.value === 'offline') {
+  const hadPriorSync = !!StorageService.getLastSync(
+    authStore.company?.code ?? '',
+    authStore.brand?.code ?? '',
+  );
+  if (cachedItems.value.length === 0 && isOnline.value && !hadPriorSync) {
     await sync();
   } else if (isOnline.value) {
     checkPriceLists();
+    prefetchAllPrices(orderDateValue.value);
   }
 });
+
+// Ionic keep-alive: ion-router-outlet caches tab views, so onMounted only fires once.
+// onIonViewWillEnter fires every time the tab becomes active — refresh the cache here
+// so cachedItems always reflects the current user's brand, even after a brand/user switch
+// mid-session (the previous user's items would otherwise remain in cachedItems).
+onIonViewWillEnter(() => {
+  refreshCache();
+  if (ensureSessionForCurrentBrand()) {
+    applyLastCustomer();
+  }
+});
+
+/** Starts a fresh session for the logged-in brand if there isn't one yet, or if the
+ *  existing one belongs to a different brand — e.g. left over from a previous login
+ *  that was signed out before a customer was picked (see session.store.ts / auth.store.ts
+ *  logout()). Reaching the Scan tab directly (not via "Start New Session") is the
+ *  path that would otherwise reuse that stale session and its wrong brand.
+ *  Returns true if a new session was started. */
+function ensureSessionForCurrentBrand(): boolean {
+  if (!authStore.brand || !authStore.user) return false;
+  const current = sessionStore.currentSession;
+  if (current && current.brand.code === authStore.brand.code) return false;
+  sessionStore.startNewSession(authStore.brand, authStore.user, authStore.company?.code);
+  return true;
+}
 
 /* ─── Sync ─── */
 function doTriggerRemoteSync() {
@@ -869,10 +846,85 @@ onBeforeRouteLeave(() => {
   sessionStore.autoSaveDraft();
 });
 
+async function refreshSessionPrices(): Promise<void> {
+  const allLines = [
+    ...sessionStore.salesOrders.map((l) => ({ line: l, type: 'sales' as const })),
+    ...sessionStore.returnOrders.map((l) => ({ line: l, type: 'returns' as const })),
+  ];
+  if (!allLines.length || !isOnline.value) return;
+
+  isUpdatingLinePrices.value = true;
+  try {
+    const allNos = [...new Set(allLines.map(({ line }) => line.itemNumber))];
+    const priceMap: Record<string, number> = {};
+
+    // Sync each session item directly from BC — bypasses GCS/price-list cache staleness.
+    const queue = [...allNos];
+    const CONCURRENCY = 5;
+    const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+      while (queue.length) {
+        const no = queue.shift()!;
+        try {
+          const result = await ApiService.syncItemPrice(no, orderDateValue.value);
+          if (result.bcPrice !== null) priceMap[no] = result.bcPrice;
+        } catch { /* per-item failure is non-fatal */ }
+      }
+    });
+    await Promise.all(workers);
+
+    let updatedCount = 0;
+    for (const { line, type } of allLines) {
+      const price = priceMap[line.itemNumber] ?? null;
+      if (price !== null && Math.abs(price - line.srp) >= 0.005) {
+        sessionStore.updateLineSrp(line.id, type, price);
+        updatedCount++;
+      }
+    }
+
+    // Also refresh the confirm sheet if an item is being added right now.
+    if (confirmItem.value) {
+      const price = priceMap[confirmItem.value.number] ?? null;
+      if (price !== null && Math.abs(price - confirmedSrp.value) >= 0.005) {
+        confirmedSrp.value = price;
+        form.srp = price;
+        priceRevealKey.value++;
+      }
+    }
+
+    // Patch both caches so subsequent lookups and modal re-opens get the correct price.
+    for (const [itemNo, price] of Object.entries(priceMap)) {
+      StorageService.patchCachedItemPrice(itemNo, price);
+    }
+    const existingPrices = StorageService.getCachedItemPrices();
+    if (existingPrices) {
+      StorageService.setCachedItemPrices(existingPrices.date, { ...existingPrices.prices, ...priceMap });
+    }
+    if (sessionPriceCache.value?.date === orderDateValue.value) {
+      sessionPriceCache.value = {
+        ...sessionPriceCache.value,
+        prices: { ...sessionPriceCache.value.prices, ...priceMap },
+      };
+    }
+
+    toast(
+      updatedCount > 0
+        ? `${updatedCount} ${updatedCount === 1 ? 'price' : 'prices'} updated.`
+        : 'All prices are up to date.',
+      updatedCount > 0 ? 'success' : 'medium',
+    );
+  } finally {
+    isUpdatingLinePrices.value = false;
+  }
+}
+
 async function onPullRefresh(ev: CustomEvent) {
   if (isOnline.value) {
-    await sync();
-    refreshCache();
+    if (sessionStore.hasLines) {
+      await refreshSessionPrices();
+    } else {
+      await sync();
+      refreshCache();
+    }
   }
   (ev.target as HTMLIonRefresherElement).complete();
 }
@@ -906,6 +958,8 @@ watch(isSyncing, (active) => {
     isSyncingSlow.value = false;
     refreshCache();
     if (isOnline.value) checkPriceLists();
+    sessionPriceCache.value = null;
+    if (isOnline.value) prefetchAllPrices(orderDateValue.value);
     // Apply fresh prices to any open session lines — uses the price map already
     // written by sync, so no extra API calls are needed.
     const priceCache = StorageService.getCachedItemPrices();
@@ -930,8 +984,9 @@ watch(isSyncing, (active) => {
 });
 
 onUnmounted(() => {
-  if (syncMsgTimer)  { clearInterval(syncMsgTimer);  syncMsgTimer  = null; }
-  if (syncSlowTimer) { clearTimeout(syncSlowTimer);  syncSlowTimer = null; }
+  if (syncMsgTimer)      { clearInterval(syncMsgTimer);      syncMsgTimer      = null; }
+  if (syncSlowTimer)     { clearTimeout(syncSlowTimer);      syncSlowTimer     = null; }
+  if (_confirmPriceTimer){ clearTimeout(_confirmPriceTimer); _confirmPriceTimer = null; }
 });
 
 const syncMainMsg = computed(() => syncMessages[syncMsgIndex.value].main);
@@ -962,6 +1017,7 @@ const orderDateValue = computed({
 
 function selectCustomer(c: Customer) {
   sessionStore.setCustomer(c);
+  StorageService.setLastCustomerId(c.id);
   showCustomerModal.value = false;
   customerSearch.value = '';
   customerFlash.value = true;
@@ -1028,6 +1084,18 @@ const fetchingPrice = ref(false);
 const isUpdatingLinePrices = ref(false);
 const priceRevealKey = ref(0);
 
+type PriceCheckState = 'loading' | 'same' | 'updated' | 'error';
+const confirmPriceCheckState = ref<PriceCheckState | null>(null);
+let _confirmPriceTimer: ReturnType<typeof setTimeout> | null = null;
+
+// In-memory price cache for the current session date — populated once by prefetchAllPrices
+// so that each item scan is served from memory instead of triggering a per-item API call.
+const sessionPriceCache = ref<{
+  date: string;
+  prices: Record<string, number>;
+  priceListCodes: Record<string, string | null>;
+} | null>(null);
+
 const confirmTotal = computed(() =>
   computeTotal(
     confirmedSrp.value,
@@ -1037,32 +1105,160 @@ const confirmTotal = computed(() =>
   ),
 );
 
-// Returns price + priceListCode — cache-first, API only when date isn't cached.
-async function lookupPrice(itemNumber: string, onDate: string): Promise<{ price: number | null; priceListCode: string | null }> {
-  const cached = StorageService.getCachedItemPrices();
-  if (cached?.date === onDate && itemNumber in cached.prices) {
-    return { price: cached.prices[itemNumber], priceListCode: null };
+// Populates sessionPriceCache for the given date so item scans are served from memory.
+//
+// For today's date the price map written by the last sync is already on the device, so
+// it is used directly and only a cheap delta request (items whose price or details
+// changed since that sync) goes to the server. Re-downloading the whole family catalog
+// here — the old behaviour — was the single heaviest call the app made, on every visit
+// to this tab. Other posting dates still need the full date-specific fetch.
+async function prefetchAllPrices(date: string): Promise<void> {
+  if (!isOnline.value) return;
+  const familyCode = authStore.brand?.code;
+  const allNos = cachedItems.value.map((i) => i.number);
+  if (!familyCode && !allNos.length) return;
+
+  const local = StorageService.getCachedItemPrices();
+  if (local?.date === date && Object.keys(local.prices).length) {
+    const priceListCodes: Record<string, string | null> = {};
+    for (const item of cachedItems.value) priceListCodes[item.number] = item.priceListCode ?? null;
+    sessionPriceCache.value = { date, prices: { ...local.prices }, priceListCodes };
+    void refreshChangedPrices(date, familyCode);
+    return;
   }
+
+  try {
+    const { priceMap, priceListMap } = await ApiService.getAllItemPricesForDate(
+      date, allNos, undefined, undefined, familyCode,
+    );
+    sessionPriceCache.value = { date, prices: priceMap, priceListCodes: priceListMap };
+  } catch {
+    // non-fatal — lookupPrice will fall back to per-item API call on cache miss
+  }
+}
+
+// Pulls only the items changed since the last sync (a few KB) and merges them into the
+// local caches and sessionPriceCache. Price-list-driven price changes are included:
+// the server stamps priceChangedAt on those records.
+async function refreshChangedPrices(date: string, familyCode?: string): Promise<void> {
+  const company = authStore.company?.code ?? '';
+  const brand = authStore.brand?.code ?? '';
+  if (!company || !brand || !familyCode) return;
+  const since = StorageService.getSyncTimestamps(company, brand).items;
+  if (!since) return;
+  try {
+    const { items, priceMap } = await ApiService.getItemsForDate(date, familyCode, undefined, 30_000, since);
+    if (!items.length) return;
+    StorageService.mergeCachedItems(items, brand);
+    const existing = StorageService.getCachedItemPrices();
+    StorageService.setCachedItemPrices(date, { ...(existing?.prices ?? {}), ...priceMap });
+    StorageService.setSyncTimestamp('items', company, brand);
+    refreshCache();
+    if (sessionPriceCache.value?.date === date) {
+      for (const item of items) {
+        sessionPriceCache.value.prices[item.number] = item.unitPriceIncVAT;
+        sessionPriceCache.value.priceListCodes[item.number] = item.priceListCode ?? null;
+      }
+    }
+  } catch {
+    // Advisory refresh — the cached prices remain in use.
+  }
+}
+
+// Returns price + priceListCode for a single item on the given posting date.
+// Online: checks sessionPriceCache first (populated by prefetchAllPrices); falls back
+//   to a per-item API call only on cache miss (prefetch not yet done / item not in catalog).
+// Offline: uses local storage cache and item memory.
+async function lookupPrice(itemNumber: string, onDate: string): Promise<{ price: number | null; priceListCode: string | null }> {
   if (isOnline.value) {
+    if (sessionPriceCache.value?.date === onDate) {
+      const price = sessionPriceCache.value.prices[itemNumber] ?? null;
+      const priceListCode = sessionPriceCache.value.priceListCodes[itemNumber] ?? null;
+      if (price !== null) {
+        // Cross-check localStorage — the Update Price sync may have corrected this item
+        // after the session cache was populated from the GCS catalog.
+        const ls = StorageService.getCachedItemPrices();
+        const lsPrice = ls?.date === onDate ? (ls.prices[itemNumber] ?? null) : null;
+        const resolvedPrice = (lsPrice !== null && Math.abs(lsPrice - price) >= 0.005) ? lsPrice : price;
+        return { price: resolvedPrice, priceListCode };
+      }
+    }
     return ApiService.getActiveItemPrice(itemNumber, onDate);
   }
-  return { price: cached?.prices[itemNumber] ?? null, priceListCode: null };
+
+  // Offline — use cached price; priceListCode from item memory (best effort).
+  const cached = StorageService.getCachedItemPrices();
+  const cachedPrice = cached?.prices[itemNumber] ?? null;
+  const itemPriceListCode = cachedItems.value.find((i) => i.number === itemNumber)?.priceListCode ?? null;
+  return { price: cachedPrice, priceListCode: itemPriceListCode };
+}
+
+async function updateConfirmPrice() {
+  if (!confirmItem.value || confirmPriceCheckState.value === 'loading') return;
+  if (_confirmPriceTimer) { clearTimeout(_confirmPriceTimer); _confirmPriceTimer = null; }
+  confirmPriceCheckState.value = 'loading';
+  try {
+    const currentPrice = confirmedSrp.value;
+    const result = await ApiService.syncItemPrice(confirmItem.value.number, orderDateValue.value);
+    if (result.bcPrice !== null) {
+      const localDiffers = Math.abs(result.bcPrice - currentPrice) >= 0.005;
+      if (localDiffers || result.updated) {
+        confirmedSrp.value = result.bcPrice;
+        form.srp = result.bcPrice;
+        priceRevealKey.value++;
+        // Keep sessionPriceCache coherent so future item selects use the corrected price.
+        if (sessionPriceCache.value?.date === orderDateValue.value) {
+          sessionPriceCache.value.prices[confirmItem.value.number] = result.bcPrice;
+        }
+        StorageService.patchCachedItemPrice(confirmItem.value.number, result.bcPrice);
+        const cachedPrices = StorageService.getCachedItemPrices();
+        if (cachedPrices) {
+          StorageService.setCachedItemPrices(cachedPrices.date, {
+            ...cachedPrices.prices, [confirmItem.value.number]: result.bcPrice,
+          });
+        }
+        confirmPriceCheckState.value = 'updated';
+      } else {
+        confirmPriceCheckState.value = 'same';
+      }
+    } else {
+      confirmPriceCheckState.value = 'same';
+    }
+  } catch {
+    confirmPriceCheckState.value = 'error';
+  }
+  _confirmPriceTimer = setTimeout(() => { confirmPriceCheckState.value = null; }, 3000);
 }
 
 async function fetchActivePrice(itemNumber: string, onDate: string): Promise<void> {
   fetchingPrice.value = true;
   try {
-    const { price, priceListCode } = await lookupPrice(itemNumber, onDate);
-    const resolved = price ?? confirmItem.value?.unitPriceIncVAT ?? 0;
-    confirmedSrp.value = resolved;
-    form.srp = resolved;
-    priceRevealKey.value++;
-    if (priceListCode !== null) {
-      form.priceListCode = priceListCode;
-      confirmedPriceListCode.value = priceListCode;
-    }
-    if (price !== null && isOnline.value) {
-      StorageService.patchCachedItemPrice(itemNumber, price);
+    if (isOnline.value) {
+      // Sync directly from BC — bypasses stale sessionPriceCache and GCS overlay.
+      const result = await ApiService.syncItemPrice(itemNumber, onDate);
+      if (result.bcPrice !== null) {
+        confirmedSrp.value = result.bcPrice;
+        form.srp = result.bcPrice;
+        priceRevealKey.value++;
+        if (result.bcPriceListCode !== null) {
+          form.priceListCode = result.bcPriceListCode;
+          confirmedPriceListCode.value = result.bcPriceListCode;
+        }
+        StorageService.patchCachedItemPrice(itemNumber, result.bcPrice);
+        if (sessionPriceCache.value?.date === onDate) {
+          sessionPriceCache.value.prices[itemNumber] = result.bcPrice;
+        }
+      }
+    } else {
+      const { price, priceListCode } = await lookupPrice(itemNumber, onDate);
+      const resolved = price ?? confirmItem.value?.unitPriceIncVAT ?? 0;
+      confirmedSrp.value = resolved;
+      form.srp = resolved;
+      priceRevealKey.value++;
+      if (priceListCode !== null) {
+        form.priceListCode = priceListCode;
+        confirmedPriceListCode.value = priceListCode;
+      }
     }
   } finally {
     fetchingPrice.value = false;
@@ -1074,12 +1270,18 @@ let _dateWatchAbort: AbortController | null = null;
 watch(orderDateValue, async (newDate) => {
   if (!newDate) return;
 
+  // Invalidate session cache immediately so stale prices from the old date aren't served.
+  sessionPriceCache.value = null;
+
   const allLines = [
     ...sessionStore.salesOrders.map((l) => ({ line: l, type: 'sales' as const })),
     ...sessionStore.returnOrders.map((l) => ({ line: l, type: 'returns' as const })),
   ];
   const hasFormItem = !!form.itemNumber;
-  if (!allLines.length && !hasFormItem) return;
+  if (!allLines.length && !hasFormItem) {
+    prefetchAllPrices(newDate);
+    return;
+  }
 
   // Offline: apply cached prices immediately — no network call, no loading state.
   if (!isOnline.value) {
@@ -1102,15 +1304,19 @@ watch(orderDateValue, async (newDate) => {
     if (hasFormItem) {
       const price = priceMap[form.itemNumber] ?? null;
       if (price !== null) { confirmedSrp.value = price; form.srp = price; }
+      // Cache date matches posting date — item memory priceListCode is accurate for this date.
+      const plc = cachedItems.value.find((i) => i.number === form.itemNumber)?.priceListCode ?? null;
+      if (plc !== null) { form.priceListCode = plc; confirmedPriceListCode.value = plc; }
     }
     for (const { line, type } of allLines) {
       const price = priceMap[line.itemNumber] ?? null;
       if (price !== null) sessionStore.updateLineSrp(line.id, type, price);
     }
+    prefetchAllPrices(newDate);
     return;
   }
 
-  // No cached prices for this date — fetch from API.
+  // No cached prices for this date — sync each item directly from BC.
   _dateWatchAbort?.abort();
   _dateWatchAbort = new AbortController();
   const { signal } = _dateWatchAbort;
@@ -1121,7 +1327,23 @@ watch(orderDateValue, async (newDate) => {
   isUpdatingLinePrices.value = true;
   let updatedCount = 0;
   try {
-    const priceMap = await ApiService.getAllItemPricesForDate(newDate, allNos, signal);
+    const priceMap: Record<string, number> = {};
+    const priceListMap: Record<string, string | null> = {};
+    const CONCURRENCY = 5;
+    const queue = [...allNos];
+    const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+      while (queue.length && !signal.aborted) {
+        const no = queue.shift()!;
+        try {
+          const result = await ApiService.syncItemPrice(no, newDate);
+          if (signal.aborted) break;
+          if (result.bcPrice !== null) priceMap[no] = result.bcPrice;
+          if (result.bcPriceListCode !== null) priceListMap[no] = result.bcPriceListCode;
+        } catch { /* per-item failure is non-fatal */ }
+      }
+    });
+    await Promise.all(workers);
+    if (signal.aborted) return;
 
     if (hasFormItem) {
       const price = priceMap[form.itemNumber] ?? null;
@@ -1130,6 +1352,8 @@ watch(orderDateValue, async (newDate) => {
         form.srp = price;
         StorageService.patchCachedItemPrice(form.itemNumber, price);
       }
+      const plc = priceListMap[form.itemNumber] ?? null;
+      if (plc !== null) { form.priceListCode = plc; confirmedPriceListCode.value = plc; }
     }
 
     for (const { line, type } of allLines) {
@@ -1141,6 +1365,14 @@ watch(orderDateValue, async (newDate) => {
       }
     }
 
+    // Keep sessionPriceCache and localStorage coherent for future lookups.
+    const existingPrices = StorageService.getCachedItemPrices();
+    StorageService.setCachedItemPrices(newDate, { ...(existingPrices?.prices ?? {}), ...priceMap });
+    const scWatcher = sessionPriceCache.value as { date: string; prices: Record<string, number>; priceListCodes: Record<string, string | null> } | null;
+    if (scWatcher !== null && scWatcher.date === newDate) {
+      sessionPriceCache.value = { ...scWatcher, prices: { ...scWatcher.prices, ...priceMap } };
+    }
+
     if (updatedCount > 0) {
       const t = await toastController.create({
         message: `${updatedCount} ${updatedCount === 1 ? 'item price' : 'item prices'} updated for ${newDate}.`,
@@ -1150,8 +1382,10 @@ watch(orderDateValue, async (newDate) => {
       });
       await t.present();
     }
+    // Warm the full session cache in the background for future item scans.
+    prefetchAllPrices(newDate);
   } catch (err) {
-    if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) return;
+    if (signal.aborted || (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError'))) return;
     throw err;
   } finally {
     isUpdatingLinePrices.value = false;
@@ -1176,7 +1410,19 @@ watch(isOnline, async (online, wasOnline) => {
           const hasFormItem = !!form.itemNumber;
           const lineNos = allLines.map(({ line }) => line.itemNumber);
           const allNos = [...new Set(hasFormItem ? [form.itemNumber, ...lineNos] : lineNos)];
-          const priceMap = await ApiService.getAllItemPricesForDate(orderDateValue.value, allNos);
+          const priceMap: Record<string, number> = {};
+          const CONCURRENCY = 5;
+          const queue = [...allNos];
+          const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+            while (queue.length) {
+              const no = queue.shift()!;
+              try {
+                const result = await ApiService.syncItemPrice(no, orderDateValue.value);
+                if (result.bcPrice !== null) priceMap[no] = result.bcPrice;
+              } catch { /* per-item failure is non-fatal */ }
+            }
+          });
+          await Promise.all(workers);
           if (hasFormItem) {
             const price = priceMap[form.itemNumber] ?? null;
             if (price !== null) {
@@ -1191,6 +1437,12 @@ watch(isOnline, async (online, wasOnline) => {
               sessionStore.updateLineSrp(line.id, type, price);
               StorageService.patchCachedItemPrice(line.itemNumber, price);
             }
+          }
+          const existingPrices = StorageService.getCachedItemPrices();
+          StorageService.setCachedItemPrices(orderDateValue.value, { ...(existingPrices?.prices ?? {}), ...priceMap });
+          const sc = sessionPriceCache.value;
+          if (sc !== null && sc.date === orderDateValue.value) {
+            sessionPriceCache.value = { ...sc, prices: { ...sc.prices, ...priceMap } };
           }
         },
       },
@@ -1209,13 +1461,16 @@ function onItemSelected(item: Item) {
   form.quantity = 1;
   form.discountType = 'percent';
   form.discountValue = 0;
-  showItemModal.value = false;
+  // Keep the item modal open so search results are retained — the confirm
+  // sheet slides up on top, and when dismissed the modal is ready for the next pick.
   confirmItem.value = item;
   confirmedSrp.value = item.unitPriceIncVAT;
   confirmedPriceListCode.value = item.priceListCode ?? '';
   confirmQty.value = 1;
   confirmDiscountType.value = 'percent';
   confirmDiscountValue.value = 0;
+  if (_confirmPriceTimer) { clearTimeout(_confirmPriceTimer); _confirmPriceTimer = null; }
+  confirmPriceCheckState.value = null;
   showConfirmModal.value = true;
   fetchActivePrice(item.number, orderDateValue.value);
 }
@@ -1241,6 +1496,7 @@ function doConfirm(orderType: 'sales' | 'returns') {
     itemNumber: item.number,
     itemName: item.displayName,
     description: item.description || item.displayName,
+    categoryCode: item.itemCategoryCode || undefined,
     srp: confirmedSrp.value,
     priceListCode: confirmedPriceListCode.value || undefined,
     quantity: Math.max(1, confirmQty.value || 1),
@@ -1265,43 +1521,6 @@ function doConfirm(orderType: 'sales' | 'returns') {
   toast(`${item.displayName} added to ${orderType === 'sales' ? 'Sales' : 'Returns'}`, 'success');
 }
 
-/* ─── Add lines ─── */
-async function addToSales() {
-  if (!form.itemNumber || !selectedCustomer.value) return;
-  sessionStore.addSalesOrder({
-    itemNumber: form.itemNumber,
-    itemName: form.itemName,
-    description: form.description,
-    srp: form.srp,
-    priceListCode: form.priceListCode || undefined,
-    quantity: Math.max(1, form.quantity),
-    discountType: form.discountType,
-    discountValue: Math.max(0, form.discountValue),
-  });
-  resetItemForm();
-  activeTab.value = 'sales';
-  await toast(`${form.itemName || 'Item'} added to Sales`, 'success');
-  triggerSubmitFlash();
-}
-
-async function addToReturn() {
-  if (!form.itemNumber || !selectedCustomer.value) return;
-  sessionStore.addReturnOrder({
-    itemNumber: form.itemNumber,
-    itemName: form.itemName,
-    description: form.description,
-    srp: form.srp,
-    priceListCode: form.priceListCode || undefined,
-    quantity: Math.max(1, form.quantity),
-    discountType: form.discountType,
-    discountValue: Math.max(0, form.discountValue),
-  });
-  resetItemForm();
-  activeTab.value = 'returns';
-  await toast(`${form.itemName || 'Item'} added to Returns`, 'success');
-  triggerSubmitFlash();
-}
-
 function deleteActiveLine(lineId: string) {
   if (activeTab.value === 'sales') {
     sessionStore.removeSalesOrder(lineId);
@@ -1311,7 +1530,7 @@ function deleteActiveLine(lineId: string) {
 }
 
 function resetItemForm() {
-  /* Keep category; clear item-specific fields */
+  form.categoryCode = '';
   form.itemNumber = '';
   form.itemName = '';
   form.description = '';
@@ -1330,6 +1549,20 @@ async function toast(message: string, color: string) {
     position: 'bottom',
   });
   t.present();
+}
+
+async function showInfo(header: string, message: string) {
+  const alert = await alertController.create({ header, message, buttons: ['Got it'] });
+  await alert.present();
+}
+
+async function showPriceListInfo(code: string) {
+  const alert = await alertController.create({
+    header: 'Price List',
+    message: `<strong>${code}</strong><br><br>This is the Business Central price list that applies to this item on the selected posting date. Different dates or customer segments may resolve to different price lists.`,
+    buttons: ['Got it'],
+  });
+  await alert.present();
 }
 </script>
 
@@ -1706,6 +1939,11 @@ async function toast(message: string, color: string) {
 }
 .line-price-spinner { width: 16px; height: 16px; }
 
+.line-category {
+  font-weight: 500;
+  color: var(--ion-color-primary);
+}
+
 .price-list-code {
   display: inline-block;
   margin-left: 5px;
@@ -1736,7 +1974,8 @@ async function toast(message: string, color: string) {
   .skel-form-card,
   .skel-form-card--delay,
   .skel-sync-status,
-  .cycling-text {
+  .cycling-text,
+  .order-date-row--updating .order-date-input {
     animation: none !important;
   }
   .order-item-enter-active,
@@ -1973,9 +2212,24 @@ async function toast(message: string, color: string) {
 /* ── State card fade ── */
 .state-card { animation: fade-in 0.3s ease both; }
 
+/* ── Add Item bar ── */
+.add-item-bar {
+  padding: 4px 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: fade-slide-up 0.32s var(--ease-out-quart) 0.07s both;
+}
+
+.add-item-btn {
+  --border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  height: 48px;
+}
+
 /* ── Scan column entrance ── */
-.scan-form-col .form-card:nth-child(1) { animation: fade-slide-up 0.32s var(--ease-out-quart) both; }
-.scan-form-col .form-card:nth-child(2) { animation: fade-slide-up 0.32s var(--ease-out-quart) 0.07s both; }
+.scan-form-col .form-card { animation: fade-slide-up 0.32s var(--ease-out-quart) both; }
 .order-segment { animation: fade-in 0.28s ease 0.04s both; }
 .empty-orders  { animation: fade-in 0.28s ease both; }
 
@@ -2164,8 +2418,21 @@ async function toast(message: string, color: string) {
 .conf-srp-loading,
 .conf-srp-value {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 4px;
+}
+
+.conf-price-updated {
+  color: var(--ion-color-success);
+  transition: color 0.3s ease;
+}
+
+.conf-price-sync-btn {
+  --padding-start: 2px;
+  --padding-end: 2px;
+  height: 28px;
+  min-width: 28px;
+  margin-left: 2px;
 }
 
 .srp-spinner { margin-right: 4px; vertical-align: middle; }
@@ -2215,7 +2482,7 @@ async function toast(message: string, color: string) {
 
   /* Form column stays at a fixed width; list column fills the rest */
   .scan-form-col {
-    flex: 0 0 340px;
+    flex: 0 0 300px;
     /* Stick to the top of the scrollable area so the form stays in view
        while a long order list scrolls past on the right */
     position: sticky;
@@ -2255,7 +2522,7 @@ async function toast(message: string, color: string) {
     gap: 24px;
   }
 
-  .scan-form-col { flex: 0 0 400px; }
+  .scan-form-col { flex: 0 0 340px; }
 }
 
 /* Landscape phone: trim vertical padding so the form fits without heavy scrolling */
@@ -2277,6 +2544,71 @@ async function toast(message: string, color: string) {
    spin buttons) in light mode even when the app is dark */
 .order-date-input { color-scheme: light; }
 [data-theme="dark"] .order-date-input { color-scheme: dark; }
+
+/* ── Field label row (label + info button) ── */
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.field-label-row .field-label { margin-bottom: 0; }
+
+.info-icon-btn {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  cursor: pointer;
+  color: var(--app-text-muted);
+  display: flex;
+  align-items: center;
+  font-size: 16px;
+  opacity: 0.65;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.info-icon-btn:active { opacity: 1; }
+
+/* ── Label note (SRP abbreviation) ── */
+.label-note {
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.5;
+  margin-left: 3px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* ── Price list code as tappable button ── */
+.price-list-code--btn {
+  background: none;
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+.price-list-code--btn:active {
+  background: rgba(var(--ion-color-medium-rgb), 0.2);
+  border-radius: 3px;
+}
+
+/* ── Swipe hint ── */
+.swipe-hint {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  text-align: center;
+  margin: 5px 12px 0;
+  opacity: 0.6;
+}
+
+/* ── Trigger server sync hint ── */
+.trigger-server-hint {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  text-align: center;
+  line-height: 1.5;
+  max-width: 270px;
+  margin: 4px 0 0;
+}
 
 /* ── Order date ── */
 .order-date-section {
@@ -2332,5 +2664,23 @@ async function toast(message: string, color: string) {
   color: var(--app-fg);
   font-family: inherit;
   padding: 4px 0;
+  transition: color 180ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.order-date-row--updating .order-date-input {
+  color: var(--ion-color-primary);
+  animation: date-updating-pulse 1.5s ease-in-out infinite;
+}
+
+.date-update-spinner {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--ion-color-primary);
+}
+
+@keyframes date-updating-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%       { opacity: 1; }
 }
 </style>

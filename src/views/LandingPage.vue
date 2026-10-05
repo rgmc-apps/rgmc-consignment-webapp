@@ -146,6 +146,7 @@
           Customers — {{ authStore.brand?.displayName }}
           <span class="section-count">({{ customers.length }})</span>
         </p>
+        <p class="section-sublabel">Synced customer list — select one when starting a session.</p>
         <ion-list lines="full" class="customers-list">
           <ion-item v-for="c in customers.slice(0, 8)" :key="c.id" class="customer-item">
             <div slot="start" class="customer-avatar">{{ c.displayName?.charAt(0)?.toUpperCase() ?? '?' }}</div>
@@ -222,7 +223,7 @@ const syncNotice = computed(() => syncError.value || syncWarning.value);
 
 async function doSync() {
   await sync();
-  allCustomers.value = StorageService.getCachedCustomers();
+  allCustomers.value = StorageService.getCachedCustomers(authStore.company?.code, authStore.brand?.code);
 }
 const isMinimalist = computed(() => theme.value === 'minimalist');
 const headerLogoSrc = computed(() =>
@@ -236,11 +237,19 @@ function onWelcomeDone() {
   showWelcome.value = false;
 }
 
-const visibleDrafts = computed(() =>
-  sessionStore.drafts
-    .filter((d) => d.customer !== null)
-    .sort((a, b) => a.brand.displayName.localeCompare(b.brand.displayName)),
-);
+const visibleDrafts = computed(() => {
+  const company = authStore.company?.code;
+  const brand   = authStore.brand?.code;
+  return sessionStore.drafts
+    .filter((d) => {
+      if (d.customer === null) return false;
+      if (brand && d.brand.code !== brand) return false;
+      // companyCode is optional on older drafts — only filter when both sides are set
+      if (company && d.companyCode && d.companyCode !== company) return false;
+      return true;
+    })
+    .sort((a, b) => a.brand.displayName.localeCompare(b.brand.displayName));
+});
 
 const allCustomers = ref<Customer[]>([]);
 const searchQuery = ref('');
@@ -259,11 +268,11 @@ const todayLabel = computed(() =>
 );
 
 onMounted(() => {
-  allCustomers.value = StorageService.getCachedCustomers();
+  allCustomers.value = StorageService.getCachedCustomers(authStore.company?.code, authStore.brand?.code);
 });
 
 function onPullRefresh(ev: CustomEvent) {
-  allCustomers.value = StorageService.getCachedCustomers();
+  allCustomers.value = StorageService.getCachedCustomers(authStore.company?.code, authStore.brand?.code);
   sessionStore.loadFromStorage();
   (ev.target as HTMLIonRefresherElement).complete();
 }
@@ -519,6 +528,15 @@ async function confirmDeleteDraft(id: string) {
 
 .see-more { --min-height: 36px; }
 .see-more p { font-size: 13px; text-align: center; }
+
+/* ── Section sublabel ── */
+.section-sublabel {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  margin: -6px 16px 6px;
+  line-height: 1.4;
+  opacity: 0.8;
+}
 
 /* ── Empty state ── */
 .empty-customers {

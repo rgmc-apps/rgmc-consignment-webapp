@@ -12,7 +12,7 @@
             'logo-wrap--error': hasError,
           }"
         >
-          <img :src="logoSrc" alt="RGMC Consignment" class="logo-img" />
+          <img :src="logoSrc" alt="RGMC Consignment - Garments" class="logo-img" />
         </div>
 
         <!-- Phase: loading companies -->
@@ -78,10 +78,23 @@
           </div>
         </Transition>
 
+        <!-- Slow / connection notice (non-blocking) -->
+        <Transition name="notice-fade">
+          <div v-if="slowNoticeMsg && !hasError" class="slow-notice">
+            <ion-icon :icon="informationCircleOutline" class="slow-notice__icon" />
+            <span class="slow-notice__text">{{ slowNoticeMsg }}</span>
+          </div>
+        </Transition>
+
         <!-- Error block -->
         <Transition name="err-fade">
           <div v-if="hasError" class="error-block">
-            <ion-icon :icon="wifiOutline" class="error-block__icon" />
+            <ion-icon
+              :icon="isTimeout ? hourglassOutline : wifiOutline"
+              class="error-block__icon"
+              :class="{ 'error-block__icon--timeout': isTimeout }"
+            />
+            <p class="error-block__kind" :class="{ 'error-block__kind--timeout': isTimeout }">{{ isTimeout ? 'Connection timed out' : 'Connection error' }}</p>
             <p class="error-block__msg">{{ errorText }}</p>
             <ion-button class="retry-btn" @click="load">
               <ion-icon :icon="refreshOutline" slot="start" />
@@ -105,6 +118,8 @@ import {
   closeCircleOutline,
   wifiOutline,
   refreshOutline,
+  hourglassOutline,
+  informationCircleOutline,
 } from 'ionicons/icons';
 import { ApiService, setApiCompany } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
@@ -112,6 +127,16 @@ import { useAuthStore } from '@/stores/auth.store';
 import { useTheme } from '@/composables/useTheme';
 import { useLoadingText } from '@/composables/useLoadingText';
 import type { Company } from '@/types';
+
+const TIMEOUT_MS = { companies: 15_000, step: 20_000 };
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('__timeout__')), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
 const { theme } = useTheme();
 const isMinimalist = computed(() => theme.value === 'minimalist');
@@ -142,7 +167,10 @@ const steps = ref<LoadStep[]>([
   { key: 'contacts',      label: 'Loading user directory', status: 'idle' },
 ]);
 
-const errorText = ref('');
+const errorText     = ref('');
+const isTimeout     = ref(false);
+const slowNoticeMsg = ref('');
+const isSlowNetwork = ref(false);
 
 const hasError    = computed(() => !!errorText.value);
 const allDone     = computed(() => steps.value.every((s) => s.status === 'done'));
@@ -154,15 +182,15 @@ const progressPct = computed(() => {
 // Cycling text for the "Connecting to server…" phase
 const isConnecting = computed(() => loadPhase.value === 'companies' && !hasError.value);
 const connectingText = useLoadingText(
-  ['Connecting to server…', 'Establishing API connection…', 'Fetching available companies…', 'Reaching RGMC API…'],
+  ['Connecting to server…', 'Establishing API connection…', 'Fetching available companies…', 'Reaching RGMC API…', 'Taking a bit longer than usual…', 'Still trying, please wait…'],
   isConnecting,
 );
 
 // Per-step cycling messages while a step is in 'loading' state
 const stepMessages: Record<string, string[]> = {
-  'brands':        ['Loading company data',   'Fetching brand catalog',   'Reading brand settings', 'Mapping brand data'],
-  'item-families': ['Matching item families', 'Linking brand families',   'Resolving family codes', 'Mapping item groups'],
-  'contacts':      ['Loading user directory', 'Fetching contact records', 'Syncing user accounts',  'Building user list'],
+  'brands':        ['Loading company data',   'Fetching brand catalog',   'Reading brand settings', 'Mapping brand data',       'Still loading, please wait…', 'Taking longer than expected…'],
+  'item-families': ['Matching item families', 'Linking brand families',   'Resolving family codes', 'Mapping item groups',      'Still loading, please wait…', 'Taking longer than expected…'],
+  'contacts':      ['Loading user directory', 'Fetching contact records', 'Syncing user accounts',  'Building user list',       'Still loading, please wait…', 'Taking longer than expected…'],
 };
 const stepCycleIdx = ref(0);
 let stepCycleTimer: ReturnType<typeof setInterval> | null = null;
@@ -181,6 +209,7 @@ watch(
 
 onUnmounted(() => {
   if (stepCycleTimer) clearInterval(stepCycleTimer);
+  clearSlowTimers();
 });
 
 function stepLabel(step: LoadStep): string {
@@ -194,6 +223,59 @@ function setStep(key: string, status: StepStatus) {
   if (s) s.status = status;
 }
 
+function handleStepError(err: unknown, fallback: string) {
+  if (err instanceof Error && err.message === '__timeout__') {
+    isTimeout.value = true;
+    errorText.value = 'The server took too long to respond. Check your connection and try again.';
+  } else {
+    isTimeout.value = false;
+    errorText.value = err instanceof Error ? err.message : fallback;
+  }
+}
+
+// ── Slow-notice timers ──────────────────────────────────────────────────────
+
+let slowTimer1: ReturnType<typeof setTimeout> | null = null;
+let slowTimer2: ReturnType<typeof setTimeout> | null = null;
+
+function clearSlowTimers() {
+  if (slowTimer1) { clearTimeout(slowTimer1); slowTimer1 = null; }
+  if (slowTimer2) { clearTimeout(slowTimer2); slowTimer2 = null; }
+  slowNoticeMsg.value = '';
+}
+
+function startSlowTimers(phase: 'companies' | 'data') {
+  clearSlowTimers();
+
+  slowTimer1 = setTimeout(() => {
+    if (hasError.value) return;
+    slowNoticeMsg.value = isSlowNetwork.value
+      ? 'Your internet connection is slow — loading may take a while'
+      : phase === 'companies'
+        ? 'Taking longer than usual — server may be starting up'
+        : 'Syncing is taking longer than usual';
+  }, 6_000);
+
+  slowTimer2 = setTimeout(() => {
+    if (hasError.value) return;
+    slowNoticeMsg.value = phase === 'companies'
+      ? 'Server cold start detected — this can take up to 30 seconds'
+      : 'Almost there — the server may be under load';
+  }, 13_000);
+}
+
+function checkConnectionSpeed() {
+  const conn = (navigator as any).connection ?? (navigator as any).mozConnection ?? (navigator as any).webkitConnection;
+  if (!conn) return;
+  const type: string = conn.effectiveType ?? '';
+  if (type === 'slow-2g' || type === '2g') {
+    isSlowNetwork.value = true;
+    slowNoticeMsg.value = 'Slow connection detected — loading may take longer';
+  } else if (type === '3g') {
+    isSlowNetwork.value = true;
+  }
+}
+
 watch(selectedCompanyId, async (id) => {
   if (!id || loadPhase.value !== 'selecting') return;
   const company = companies.value.find((c) => c.id === id);
@@ -205,65 +287,91 @@ watch(selectedCompanyId, async (id) => {
 
 async function load() {
   errorText.value         = '';
+  isTimeout.value         = false;
   loadPhase.value         = 'companies';
   selectedCompanyId.value = '';
   companies.value         = [];
   steps.value.forEach((s) => (s.status = 'idle'));
+  startSlowTimers('companies');
 
   try {
-    companies.value = await ApiService.getCompanies();
+    companies.value = await withTimeout(ApiService.getCompanies(), TIMEOUT_MS.companies);
+    clearSlowTimers();
     loadPhase.value = 'selecting';
   } catch (err) {
-    errorText.value =
-      err instanceof Error ? err.message : 'Failed to reach the RGMC API. Check your connection.';
+    clearSlowTimers();
+    if (err instanceof Error && err.message === '__timeout__') {
+      isTimeout.value = true;
+      errorText.value = 'Could not reach the RGMC API — the server took too long to respond. Check your connection and try again.';
+    } else {
+      isTimeout.value = false;
+      errorText.value = err instanceof Error ? err.message : 'Failed to reach the RGMC API. Check your connection.';
+    }
   }
 }
 
 async function loadData(companyName?: string) {
   loadPhase.value = 'data';
+  startSlowTimers('data');
 
-  setStep('brands', 'loading');
-  let rawBrands: Awaited<ReturnType<typeof ApiService.getBrands>> = [];
-  try {
-    rawBrands = await ApiService.getBrands(companyName);
-    setStep('brands', 'done');
-  } catch (err) {
-    setStep('brands', 'error');
-    errorText.value = err instanceof Error ? err.message : 'Failed to load brand data.';
+  const hasBrands   = StorageService.getCachedBrands().length > 0;
+  const hasContacts = StorageService.getCachedContacts().length > 0;
+
+  // Fast-path: everything already in cache — skip all network calls
+  if (hasBrands && hasContacts) {
+    clearSlowTimers();
+    steps.value.forEach((s) => (s.status = 'done'));
+    await new Promise((r) => setTimeout(r, 400));
+    router.replace(authStore.isAuthenticated ? '/app/home' : '/login');
     return;
   }
 
-  setStep('item-families', 'loading');
-  try {
-    const families = await ApiService.getItemFamilies();
-    StorageService.setCachedBrands(
-      rawBrands.map((b) => ({
-        ...b,
-        itemFamilyCode: families.find((f) => f.description === b.displayName)?.code,
-      })),
-    );
-    setStep('item-families', 'done');
-  } catch (err) {
-    setStep('item-families', 'error');
-    errorText.value = err instanceof Error ? err.message : 'Failed to load item families.';
+  // Mark which steps are already satisfied by cache
+  setStep('brands',        hasBrands ? 'done' : 'loading');
+  setStep('item-families', hasBrands ? 'done' : 'loading');
+  setStep('contacts',      hasContacts ? 'done' : 'loading');
+
+  // Fetch brands+families and contacts in parallel — they're completely independent.
+  // Brands and families are combined because both are needed to build the stored brand list.
+  const [brandsResult, contactsResult] = await Promise.allSettled([
+    hasBrands
+      ? Promise.resolve()
+      : Promise.all([
+          withTimeout(ApiService.getBrands(companyName), TIMEOUT_MS.step),
+          withTimeout(ApiService.getItemFamilies(), TIMEOUT_MS.step),
+        ])
+          .then(([brands, families]) => {
+            StorageService.setCachedBrands(
+              brands.map((b) => ({
+                ...b,
+                itemFamilyCode: families.find((f) => f.description === b.displayName)?.code,
+              })),
+            );
+            setStep('brands', 'done');
+            setStep('item-families', 'done');
+          })
+          .catch((err) => { setStep('brands', 'error'); setStep('item-families', 'error'); throw err; }),
+    hasContacts
+      ? Promise.resolve()
+      : withTimeout(ApiService.getContacts(), TIMEOUT_MS.step)
+          .then((contacts) => { StorageService.setCachedContacts(contacts); setStep('contacts', 'done'); })
+          .catch((err) => { setStep('contacts', 'error'); throw err; }),
+  ]);
+
+  const failed = [brandsResult, contactsResult].find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
+  if (failed) {
+    clearSlowTimers();
+    handleStepError(failed.reason, 'Failed to load required data.');
     return;
   }
 
-  setStep('contacts', 'loading');
-  try {
-    StorageService.setCachedContacts(await ApiService.getContacts());
-    setStep('contacts', 'done');
-  } catch (err) {
-    setStep('contacts', 'error');
-    errorText.value = err instanceof Error ? err.message : 'Failed to load user directory.';
-    return;
-  }
-
+  clearSlowTimers();
   await new Promise((r) => setTimeout(r, 700));
   router.replace(authStore.isAuthenticated ? '/app/home' : '/login');
 }
 
 onMounted(async () => {
+  checkConnectionSpeed();
   await StorageService.init();
 
   if (authStore.isAuthenticated) {
@@ -533,6 +641,23 @@ onMounted(async () => {
   color: var(--ion-color-danger);
 }
 
+.error-block__icon--timeout {
+  color: oklch(72% 0.14 55);
+}
+
+.error-block__kind {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--ion-color-danger);
+  margin: 0;
+}
+
+.error-block__kind--timeout {
+  color: oklch(72% 0.14 55);
+}
+
 .error-block__msg {
   font-size: 14px;
   color: #999;
@@ -546,6 +671,42 @@ onMounted(async () => {
   --border-radius: 10px;
   min-width: 120px;
 }
+
+/* ── Slow / connection notice ── */
+.slow-notice {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: oklch(22% 0.03 55 / 0.85);
+  border: 1px solid oklch(60% 0.12 55 / 0.3);
+  border-radius: 20px;
+  padding: 7px 14px;
+  max-width: 260px;
+  text-align: left;
+  backdrop-filter: blur(4px);
+  margin-top: 20px;
+}
+
+.slow-notice__icon {
+  font-size: 15px;
+  color: oklch(72% 0.14 55);
+  flex-shrink: 0;
+}
+
+.slow-notice__text {
+  font-size: 12px;
+  color: oklch(72% 0.10 55);
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.splash--minimalist .slow-notice {
+  background: oklch(96% 0.02 55 / 0.9);
+  border-color: oklch(60% 0.10 55 / 0.25);
+}
+
+.splash--minimalist .slow-notice__text { color: oklch(48% 0.09 55); }
+.splash--minimalist .slow-notice__icon { color: oklch(55% 0.12 55); }
 
 /* ── Version ── */
 .splash-version {
@@ -639,4 +800,10 @@ onMounted(async () => {
 .err-fade-leave-active { transition: opacity 0.16s ease; }
 .err-fade-enter-from   { opacity: 0; transform: translateY(10px); }
 .err-fade-leave-to     { opacity: 0; }
+
+/* ── Notice fade transition ── */
+.notice-fade-enter-active { transition: opacity 0.4s var(--ease-out-expo), transform 0.4s var(--ease-out-expo); }
+.notice-fade-leave-active { transition: opacity 0.2s ease; }
+.notice-fade-enter-from   { opacity: 0; transform: translateY(6px); }
+.notice-fade-leave-to     { opacity: 0; }
 </style>

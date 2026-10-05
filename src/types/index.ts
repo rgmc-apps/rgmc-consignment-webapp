@@ -59,6 +59,7 @@ export interface Customer {
   currencyCode: string;
   blocked?: string;
   lastModifiedDateTime: string;
+  chain?: boolean;
 }
 
 export interface Item {
@@ -91,6 +92,7 @@ export interface OrderLine {
   itemNumber: string;
   itemName: string;
   description: string;
+  categoryCode?: string;
   srp: number;
   priceListCode?: string;
   quantity: number;
@@ -102,7 +104,8 @@ export interface OrderLine {
 export interface ScanSession {
   id: string;
   brand: Pick<Brand, 'id' | 'code' | 'displayName'>;
-  user: { displayName: string };
+  companyCode?: string;
+  user: { displayName: string; id?: string; email?: string; number?: string };
   customer: Customer | null;
   postingDate?: string;
   noSales?: boolean;
@@ -134,11 +137,16 @@ export interface AuthSession {
   company?: Company;
 }
 
-export interface SyncTimestamps {
+/** Per-company-brand sync record (what gets stored at each map entry). */
+export interface SyncTimestampEntry {
   customers?: string;
   items?: string;
   itemCategories?: string;
+  contacts?: string;
 }
+
+/** Full map stored in localStorage — keyed by "companyCode::brandCode". */
+export type SyncTimestamps = Record<string, SyncTimestampEntry>;
 
 export interface SalesOrderLine {
   itemNumber: string;

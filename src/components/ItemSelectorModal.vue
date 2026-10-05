@@ -37,24 +37,21 @@
       </ion-header>
 
       <ion-content>
+        <ion-refresher
+          v-if="viewMode === 'list'"
+          slot="fixed"
+          @ionRefresh="onListRefresh($event)"
+        >
+          <ion-refresher-content
+            :pulling-icon="chevronDownCircleOutline"
+            :pulling-text="isOnline ? 'Pull to update prices' : 'Offline'"
+            refreshing-spinner="crescent"
+            :refreshing-text="isOnline ? 'Updating prices…' : 'Offline'"
+          />
+        </ion-refresher>
+
         <!-- ══════════════ LIST MODE ══════════════ -->
         <template v-if="viewMode === 'list'">
-          <!-- Category chips -->
-          <div class="category-scroll">
-            <ion-chip
-              :color="!selectedCat ? 'primary' : 'medium'"
-              @click="selectedCat = ''"
-              class="cat-chip"
-            >All</ion-chip>
-            <ion-chip
-              v-for="cat in effectiveCategories"
-              :key="cat.code"
-              :color="selectedCat === cat.code ? 'primary' : 'medium'"
-              @click="selectedCat = cat.code"
-              class="cat-chip"
-            >{{ cat.code }}</ion-chip>
-          </div>
-
           <!-- Barcode not-found banner -->
           <div v-if="barcodeNotFound" class="barcode-miss">
             <ion-icon :icon="alertCircleOutline" color="warning" />
@@ -107,7 +104,25 @@
                   v-if="isFetchingPrices && livePrices[item.number] === undefined"
                   class="price-skeleton"
                 />
-                <template v-else>{{ formatCurrency(livePrices[item.number] ?? item.unitPriceIncVAT) }}</template>
+                <template v-else>
+                  <span :class="{ 'price-updated': priceCheckState[item.number] === 'updated' }">
+                    {{ formatCurrency(livePrices[item.number] ?? item.unitPriceIncVAT) }}
+                  </span>
+                  <ion-button
+                    v-if="props.isOnline"
+                    fill="clear"
+                    size="small"
+                    class="price-sync-btn"
+                    :disabled="priceCheckState[item.number] === 'loading'"
+                    @click="updateItemPrice(item, $event)"
+                  >
+                    <ion-spinner v-if="priceCheckState[item.number] === 'loading'" name="lines-small" slot="icon-only" class="price-sync-spinner" />
+                    <ion-icon v-else-if="priceCheckState[item.number] === 'updated'" :icon="checkmarkCircleOutline" color="success" slot="icon-only" />
+                    <ion-icon v-else-if="priceCheckState[item.number] === 'same'" :icon="checkmarkCircleOutline" color="medium" slot="icon-only" />
+                    <ion-icon v-else-if="priceCheckState[item.number] === 'error'" :icon="alertCircleOutline" color="danger" slot="icon-only" />
+                    <ion-icon v-else :icon="syncOutline" slot="icon-only" class="price-sync-icon" />
+                  </ion-button>
+                </template>
               </ion-note>
             </ion-item>
           </ion-list>
@@ -133,9 +148,69 @@
             </ion-button>
           </div>
 
-          <div v-if="!displayItems.length" class="empty-results">
+          <!-- BC search results — shown when a BC lookup returned items not already in local results -->
+          <div v-if="dedupedBcResults.length" class="bc-results-wrap">
+            <div class="bc-results-header">
+              <ion-icon :icon="cloudDownloadOutline" class="bc-hdr-icon" />
+              <span class="bc-hdr-label">Business Central results for "{{ bcSearchedQuery }}"</span>
+              <ion-button fill="clear" size="small" class="bc-hdr-clear" @click="clearBcResults">
+                <ion-icon :icon="closeOutline" slot="icon-only" />
+              </ion-button>
+            </div>
+            <ion-list lines="full" class="item-list">
+              <ion-item
+                v-for="item in dedupedBcResults"
+                :key="item.id"
+                button
+                :detail="false"
+                @click="handleSelect(item)"
+              >
+                <ion-label>
+                  <h3>{{ item.displayName }}</h3>
+                  <p>{{ item.number }} &bull; {{ item.itemCategoryCode }}</p>
+                  <p v-if="item.description && item.description !== item.displayName" class="item-desc">
+                    {{ item.description }}
+                  </p>
+                </ion-label>
+                <ion-note slot="end" color="dark" class="item-price">
+                  {{ formatCurrency(item.unitPriceIncVAT) }}
+                </ion-note>
+              </ion-item>
+            </ion-list>
+          </div>
+
+          <!-- Empty state — only when no local results and no BC results -->
+          <div v-if="!displayItems.length && !dedupedBcResults.length" class="empty-results">
             <ion-icon :icon="searchOutline" />
-            <p>No items found.<br />Try a different search term or category.</p>
+            <p v-if="!searchQuery.trim()">No items found.<br />Try a different search term or category.</p>
+            <p v-else-if="searchQuery.trim().length < MIN_SEARCH_LEN">Type at least {{ MIN_SEARCH_LEN }} characters to search.</p>
+            <p v-else>No local items match "{{ searchQuery }}".</p>
+          </div>
+
+          <!-- BC search — available once a real (3+ char) query is typed and online -->
+          <div v-if="searchQuery.trim().length >= MIN_SEARCH_LEN && props.isOnline" class="bc-search-area">
+            <p class="bc-search-hint">
+              {{ displayItems.length || dedupedBcResults.length ? 'Not finding it? Search Business Central directly:' : 'Not in local cache? Search Business Central directly:' }}
+            </p>
+            <ion-button
+              v-if="!isBcSearching"
+              expand="block"
+              fill="outline"
+              color="primary"
+              class="bc-search-btn"
+              @click="searchInBC"
+            >
+              <ion-icon :icon="cloudDownloadOutline" slot="start" />
+              {{ bcSearchedQuery ? 'Search BC Again' : 'Search Business Central' }}
+            </ion-button>
+            <div v-else class="bc-searching">
+              <ion-spinner name="dots" class="bc-spinner" />
+              <span>Searching Business Central…</span>
+            </div>
+            <p v-if="bcSearchedQuery && !isBcSearching && !bcSearchError && !bcSearchResults.length" class="bc-no-results">
+              No results found in Business Central for "{{ bcSearchedQuery }}".
+            </p>
+            <p v-if="bcSearchError" class="bc-search-error">{{ bcSearchError }}</p>
           </div>
         </template>
 
@@ -201,6 +276,30 @@
               </button>
             </div>
 
+            <!-- Not found in cache (online) — BC search prompt -->
+            <div v-if="scanStatus === 'not-found'" class="not-found-wrap">
+              <div class="not-found-header">
+                <ion-icon :icon="alertCircleOutline" class="not-found-icon" />
+                <p class="not-found-title">Item not in local cache</p>
+              </div>
+              <p class="not-found-code">{{ lastScannedBarcode }}</p>
+              <ion-button
+                expand="block"
+                color="primary"
+                class="not-found-bc-btn"
+                :disabled="isBcSearching"
+                @click="searchScannedInBC"
+              >
+                <ion-spinner v-if="isBcSearching" name="dots" slot="start" class="bc-spinner" />
+                <ion-icon v-else :icon="cloudDownloadOutline" slot="start" />
+                {{ isBcSearching ? 'Searching…' : 'Search Business Central' }}
+              </ion-button>
+              <button class="multi-rescan-btn" @click="resumeScanning">
+                <ion-icon :icon="refreshOutline" />
+                Scan Again
+              </button>
+            </div>
+
             <!-- Manual input fallback -->
             <div class="manual-wrap">
               <p class="manual-label">Or enter barcode manually:</p>
@@ -240,9 +339,10 @@ import {
   IonItem,
   IonLabel,
   IonNote,
-  IonChip,
   IonInput,
   IonSpinner,
+  IonRefresher,
+  IonRefresherContent,
 } from '@ionic/vue';
 import {
   closeOutline,
@@ -254,20 +354,27 @@ import {
   checkmarkCircleOutline,
   chevronBackOutline,
   chevronForwardOutline,
+  chevronDownCircleOutline,
+  cloudDownloadOutline,
+  syncOutline,
 } from 'ionicons/icons';
 import { ApiService } from '@/services/api.service';
 import { StorageService } from '@/services/storage.service';
 import { formatCurrency } from '@/utils/format';
 import { useTheme } from '@/composables/useTheme';
-import { useAppModeStore } from '@/stores/app-mode.store';
+import { useAuthStore } from '@/stores/auth.store';
 import type { Item, ItemCategory } from '@/types';
 
 const { theme } = useTheme();
 const isMinimalist = computed(() => theme.value === 'minimalist');
-const { mode } = useAppModeStore();
+const authStore = useAuthStore();
 
 const PAGE_SIZE = 100;
 const currentPage = ref(1);
+
+// Below this, a keystroke is still "typing a code" — matching floods the list with
+// noise (e.g. every item whose No. or description contains a single digit).
+const MIN_SEARCH_LEN = 3;
 
 const onlineItems = ref<Item[]>([]);
 const isLoadingOnline = ref(false);
@@ -288,34 +395,21 @@ const emit = defineEmits<{
 
 /* ─── List state ─── */
 const searchQuery = ref('');
-const selectedCat = ref(props.initialCategoryCode ?? '');
 const barcodeNotFound = ref(false);
 const lastScannedBarcode = ref('');
 
-const effectiveItems = computed(() => mode.value === 'online' ? onlineItems.value : props.items);
-
-const effectiveCategories = computed<ItemCategory[]>(() => {
-  if (mode.value === 'online' && onlineItems.value.length > 0) {
-    const seen = new Set<string>();
-    return onlineItems.value
-      .filter((i) => i.itemCategoryCode && !seen.has(i.itemCategoryCode) && seen.add(i.itemCategoryCode))
-      .map((i) => ({ id: i.itemCategoryCode, code: i.itemCategoryCode, displayName: i.itemCategoryCode, lastModifiedDateTime: '' }));
-  }
-  return props.categories;
-});
+// Cache-first: use props.items when available; fall back to API-fetched onlineItems for first use.
+const effectiveItems = computed(() => props.items.length > 0 ? props.items : onlineItems.value);
 
 const filteredItems = computed(() => {
   let src = effectiveItems.value;
-  if (selectedCat.value) {
-    src = src.filter((i) => i.itemCategoryCode === selectedCat.value);
-  }
   const q = searchQuery.value.trim().toUpperCase();
-  if (q) {
+  if (q.length >= MIN_SEARCH_LEN) {
     src = src.filter(
       (i) =>
-        (i.displayName ?? '').toUpperCase().includes(q) ||
         (i.number ?? '').toUpperCase().includes(q) ||
-        (i.description ?? '').toUpperCase().includes(q),
+        (i.description ?? '').toUpperCase().includes(q) ||
+        (i.displayName ?? '').toUpperCase().includes(q),
     );
   }
   return src;
@@ -329,7 +423,7 @@ const displayItems = computed(() => {
 });
 
 // Reset to page 1 whenever the filtered set changes
-watch([searchQuery, selectedCat], () => { currentPage.value = 1; });
+watch(searchQuery, () => { currentPage.value = 1; });
 
 /* ─── Live prices ─── */
 // Keyed by item.number; seeded from the sync price-map, then filled on-demand.
@@ -339,64 +433,41 @@ const isFetchingPrices = ref(false);
 const lookupDate = computed(() => props.onDate ?? new Date().toISOString().split('T')[0]);
 
 onMounted(async () => {
-  if (mode.value === 'online') {
-    // Seed from previously loaded items immediately (stale-while-revalidate).
-    // This makes search work instantly on repeat opens without a loading wait.
-    const allCached = StorageService.getCachedItems();
-    const seedItems = props.familyCode
-      ? allCached.filter((i) => i.familyCode === props.familyCode)
-      : allCached;
-    const cachedPrices = StorageService.getCachedItemPrices();
-    if (seedItems.length > 0) {
-      onlineItems.value = seedItems;
-      if (cachedPrices?.date === lookupDate.value) {
-        livePrices.value = { ...cachedPrices.prices };
-      }
+  if (props.items.length > 0) {
+    // Seed from whatever cached prices exist — date match not required.
+    // fetchMissingPrices will only hit the network for items with no price at all.
+    const cached = StorageService.getCachedItemPrices();
+    if (cached?.prices) {
+      livePrices.value = { ...cached.prices };
     }
-
-    // Cache hit: items loaded and prices match the posting date — no API call needed.
-    if (seedItems.length > 0 && cachedPrices?.date === lookupDate.value) {
-      isLoadingOnline.value = false;
-      return;
-    }
-
-    // Cache miss (no items) or date mismatch — fetch from API.
-    isLoadingOnline.value = seedItems.length === 0;
-    try {
-      const result = await ApiService.getItemsPage(lookupDate.value, props.familyCode);
-      onlineItems.value = result.items;
-      livePrices.value = result.priceMap;
-
-      // Persist so the next open at the same date is instant.
-      // Merge by familyCode so items from other families aren't overwritten.
-      const existing = StorageService.getCachedItems();
-      const others = props.familyCode
-        ? existing.filter((i) => i.familyCode !== props.familyCode)
-        : [];
-      StorageService.setCachedItems([...others, ...result.items]);
-
-      const existingPrices = StorageService.getCachedItemPrices();
-      StorageService.setCachedItemPrices(
-        lookupDate.value,
-        existingPrices?.date === lookupDate.value
-          ? { ...existingPrices.prices, ...result.priceMap }
-          : result.priceMap,
-      );
-    } catch (err) {
-      // Keep showing seed items if the API call fails.
-    } finally {
-      isLoadingOnline.value = false;
-    }
+    if (priceTimer) clearTimeout(priceTimer);
+    priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 100);
     return;
   }
 
-  // Offline mode: use cached prices and batch-fetch any missing ones for the current page.
-  const cached = StorageService.getCachedItemPrices();
-  if (cached?.date === lookupDate.value) {
-    livePrices.value = { ...cached.prices };
+  // No local cache yet — fetch from API (first-use path).
+  isLoadingOnline.value = true;
+  try {
+    const result = await ApiService.getItemsPage(lookupDate.value, props.familyCode);
+    onlineItems.value = result.items;
+    livePrices.value = result.priceMap;
+
+    // Persist so a full sync can pick these up (and so re-opens are instant).
+    // Pass familyCode so setCachedItems uses the brand-isolated path and keeps other brands intact.
+    StorageService.setCachedItems(result.items, props.familyCode || undefined);
+
+    const existingPrices = StorageService.getCachedItemPrices();
+    StorageService.setCachedItemPrices(
+      lookupDate.value,
+      existingPrices?.date === lookupDate.value
+        ? { ...existingPrices.prices, ...result.priceMap }
+        : result.priceMap,
+    );
+  } catch {
+    // Nothing to show — caller (ScanningPage) will surface an error state.
+  } finally {
+    isLoadingOnline.value = false;
   }
-  if (priceTimer) clearTimeout(priceTimer);
-  priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 100);
 });
 
 let priceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -407,16 +478,23 @@ async function fetchMissingPrices(items: typeof displayItems.value) {
   if (!missing.length) return;
   isFetchingPrices.value = true;
   try {
-    const priceMap = await ApiService.getAllItemPricesForDate(
+    const { priceMap } = await ApiService.getAllItemPricesForDate(
       lookupDate.value,
       missing.map((i) => i.number),
       undefined,
       undefined,
       props.familyCode,
     );
+    // `missing` is a snapshot taken before this (potentially slow — see
+    // getAllItemPricesForDate's family_code fast path) bulk call started. If the user
+    // pulls to refresh while it's still in flight, onListRefresh's per-item live sync
+    // can write a fresher, more authoritative price for one of these same items before
+    // this call resolves. Re-checking livePrices is still undefined at write time (not
+    // just at snapshot time) stops this slower bulk result from clobbering that fresher
+    // value — the same class of bug fixed in onListRefresh's own background branch.
     for (const item of missing) {
       const price = priceMap[item.number] ?? null;
-      if (price !== null) {
+      if (price !== null && livePrices.value[item.number] === undefined) {
         livePrices.value[item.number] = price;
         StorageService.patchCachedItemPrice(item.number, price);
       }
@@ -426,30 +504,237 @@ async function fetchMissingPrices(items: typeof displayItems.value) {
   }
 }
 
+async function onListRefresh(ev: CustomEvent) {
+  if (!props.isOnline) {
+    (ev.target as HTMLIonRefresherElement).complete();
+    return;
+  }
+  const refresher = ev.target as HTMLIonRefresherElement;
+  let refresherDone = false;
+  const completeRefresher = () => {
+    if (!refresherDone) { refresherDone = true; refresher.complete(); }
+  };
+
+  isFetchingPrices.value = true;
+  try {
+    const allItems = effectiveItems.value;
+    if (!allItems.length) return;
+
+    // Sync visible items directly from BC via the sync endpoint — bypasses GCS cache staleness.
+    // Concurrency-limited so we don't flood the BC API.
+    const CONCURRENCY = 5;
+    const syncItems = async (items: typeof allItems): Promise<Record<string, number>> => {
+      const queue = items.map((i) => i.number);
+      const priceMap: Record<string, number> = {};
+      const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+        while (queue.length) {
+          const no = queue.shift()!;
+          try {
+            const result = await ApiService.syncItemPrice(no, lookupDate.value);
+            if (result.bcPrice !== null) {
+              livePrices.value[no] = result.bcPrice;
+              priceMap[no] = result.bcPrice;
+            }
+          } catch { /* per-item failure is non-fatal */ }
+        }
+      });
+      await Promise.all(workers);
+      return priceMap;
+    };
+
+    const visibleItems = displayItems.value;
+    const visiblePriceMap = await syncItems(visibleItems);
+    if (Object.keys(visiblePriceMap).length) {
+      const existing = StorageService.getCachedItemPrices();
+      StorageService.setCachedItemPrices(lookupDate.value, { ...(existing?.prices ?? {}), ...visiblePriceMap });
+    }
+
+    // Release the pull-to-refresh spinner once visible items are done.
+    completeRefresher();
+
+    // Background: update remaining (non-visible) items via bulk endpoint.
+    if (visibleItems.length < allItems.length) {
+      const visibleNos = new Set(visibleItems.map((i) => i.number));
+      const restItems = allItems.filter((i) => !visibleNos.has(i.number));
+      if (restItems.length) {
+        const restNos = new Set(restItems.map((i) => i.number));
+        const { priceMap: restMapRaw } = await ApiService.getAllItemPricesForDate(
+          lookupDate.value, restItems.map((i) => i.number), undefined, undefined, props.familyCode,
+        );
+        // getAllItemPricesForDate's family_code fast path fetches the WHOLE family's
+        // prices, silently ignoring the productNos scoping (see its own comment) — that
+        // response therefore also includes the visible items this call was meant to
+        // exclude. Filtering back down to restNos here stops it from clobbering the
+        // live prices syncItems() just wrote for the visible items above: without this,
+        // the list would briefly show the correct synced price and then flicker back to
+        // the stale one a moment later as this background call resolves.
+        const restMap: Record<string, number> = {};
+        for (const [no, price] of Object.entries(restMapRaw)) {
+          if (restNos.has(no)) restMap[no] = price;
+        }
+        // Same "only fill gaps, never overwrite a live value" rule as fetchMissingPrices:
+        // an item can leave the visible set (e.g. the user broadens the search) after
+        // already being live-synced, and this is a slow, best-effort background call —
+        // don't let it stomp a value that's already live-confirmed.
+        for (const [no, price] of Object.entries(restMap)) {
+          if (livePrices.value[no] === undefined) livePrices.value[no] = price;
+        }
+        const existing = StorageService.getCachedItemPrices();
+        StorageService.setCachedItemPrices(lookupDate.value, { ...(existing?.prices ?? {}), ...restMap });
+      }
+    }
+  } finally {
+    completeRefresher();
+    isFetchingPrices.value = false;
+  }
+}
+
 watch(displayItems, (items) => {
   if (priceTimer) clearTimeout(priceTimer);
   priceTimer = setTimeout(() => fetchMissingPrices(items), 300);
 });
 
-watch(lookupDate, () => {
-  livePrices.value = {};
+watch(lookupDate, (newDate) => {
+  const cached = StorageService.getCachedItemPrices();
+  // Only seed from cache when the cached date matches the new lookup date.
+  // A date mismatch means prices are stale — wipe so fetchMissingPrices re-fetches all.
+  livePrices.value = cached?.date === newDate && cached.prices ? { ...cached.prices } : {};
   if (priceTimer) clearTimeout(priceTimer);
-  // Only fetch prices for the current page — page navigation triggers its own fetch.
   priceTimer = setTimeout(() => fetchMissingPrices(displayItems.value), 300);
 });
 
-watch(
-  () => props.initialCategoryCode,
-  (v) => { if (v) selectedCat.value = v; },
-);
+// The list row displays livePrices[item.number] ?? item.unitPriceIncVAT (see template
+// above) — livePrices holds prices already confirmed live from BC (via the swipe-to-
+// sync "Update Price" pull-to-refresh, or a per-row sync). Selecting used to emit the
+// raw `item` object, whose unitPriceIncVAT is whatever was in the passed-in item list —
+// silently discarding the live correction the user was just looking at, so the confirm
+// sheet showed the pre-sync price instead of the one on screen. Resolving the same way
+// the row renders (here and for barcode matches below) keeps them in sync.
+function withLivePrice(item: Item): Item {
+  const livePrice = livePrices.value[item.number];
+  return livePrice !== undefined ? { ...item, unitPriceIncVAT: livePrice } : item;
+}
 
 function handleSelect(item: Item) {
-  emit('select', item);
+  emit('select', withLivePrice(item));
+}
+
+/* ─── Update Price ─── */
+type PriceCheckState = 'loading' | 'same' | 'updated' | 'error';
+const priceCheckState = ref<Record<string, PriceCheckState>>({});
+const priceCheckResult = ref<Record<string, { old: number; new: number } | null>>({});
+
+async function updateItemPrice(item: Item, event: Event) {
+  event.stopPropagation();
+  if (priceCheckState.value[item.number] === 'loading') return;
+
+  priceCheckState.value[item.number] = 'loading';
+  priceCheckResult.value[item.number] = null;
+
+  try {
+    const currentPrice = livePrices.value[item.number] ?? item.unitPriceIncVAT;
+    const result = await ApiService.syncItemPrice(item.number, lookupDate.value);
+
+    if (result.bcPrice !== null) {
+      const localDiffers = Math.abs(result.bcPrice - (currentPrice ?? 0)) >= 0.005;
+      if (localDiffers || result.updated) {
+        livePrices.value[item.number] = result.bcPrice;
+        StorageService.patchCachedItemPrice(item.number, result.bcPrice);
+        const cachedPrices = StorageService.getCachedItemPrices();
+        if (cachedPrices) {
+          StorageService.setCachedItemPrices(cachedPrices.date, {
+            ...cachedPrices.prices, [item.number]: result.bcPrice,
+          });
+        }
+        priceCheckResult.value[item.number] = { old: currentPrice, new: result.bcPrice };
+        priceCheckState.value[item.number] = 'updated';
+      } else {
+        priceCheckState.value[item.number] = 'same';
+      }
+    } else {
+      priceCheckState.value[item.number] = 'same';
+    }
+  } catch {
+    priceCheckState.value[item.number] = 'error';
+  }
+
+  setTimeout(() => {
+    delete priceCheckState.value[item.number];
+    delete priceCheckResult.value[item.number];
+  }, 3000);
+}
+
+/* ─── Business Central search ─── */
+const bcSearchResults = ref<Item[]>([]);
+const isBcSearching = ref(false);
+const bcSearchError = ref('');
+const bcSearchedQuery = ref('');
+let _bcSearchId = 0;
+
+// Exclude items already visible in local results so BC results don't repeat them.
+const dedupedBcResults = computed(() => {
+  if (!bcSearchResults.value.length) return [];
+  const localNos = new Set(filteredItems.value.map((i) => i.number));
+  return bcSearchResults.value.filter((i) => !localNos.has(i.number));
+});
+
+// Clear BC results whenever the local search query changes
+watch(searchQuery, () => {
+  clearBcResults();
+});
+
+// Auto-trigger BC search when the scanner finds no local match
+watch(barcodeNotFound, (found) => {
+  if (found && props.isOnline && searchQuery.value.trim().length >= MIN_SEARCH_LEN) {
+    searchInBC();
+  }
+});
+
+async function searchInBC() {
+  const q = searchQuery.value.trim();
+  if (q.length < MIN_SEARCH_LEN || !props.isOnline) return;
+  const id = ++_bcSearchId;
+  isBcSearching.value = true;
+  bcSearchError.value = '';
+  bcSearchedQuery.value = q;
+  try {
+    const results = await ApiService.searchItemsByNumber(q, lookupDate.value, props.familyCode);
+    if (id !== _bcSearchId) return;
+    bcSearchResults.value = results;
+    for (const item of results) {
+      if (item.unitPriceIncVAT) livePrices.value[item.number] = item.unitPriceIncVAT;
+    }
+    if (results.length) {
+      StorageService.mergeCachedItems(results, props.familyCode || undefined);
+      const priceMap: Record<string, number> = {};
+      for (const item of results) {
+        if (item.unitPriceIncVAT) priceMap[item.number] = item.unitPriceIncVAT;
+      }
+      if (Object.keys(priceMap).length) {
+        const existing = StorageService.getCachedItemPrices();
+        StorageService.setCachedItemPrices(lookupDate.value, { ...(existing?.prices ?? {}), ...priceMap });
+        StorageService.applyPriceMapToItems(priceMap, props.familyCode || undefined);
+      }
+    }
+  } catch {
+    if (id !== _bcSearchId) return;
+    bcSearchError.value = 'Failed to search Business Central. Please try again.';
+  } finally {
+    if (id === _bcSearchId) isBcSearching.value = false;
+  }
+}
+
+function clearBcResults() {
+  _bcSearchId++;
+  bcSearchResults.value = [];
+  bcSearchError.value = '';
+  bcSearchedQuery.value = '';
+  isBcSearching.value = false;
 }
 
 /* ─── Scanner state ─── */
 type ViewMode = 'list' | 'scanner';
-type ScanStatus = 'starting' | 'scanning' | 'detected' | 'error' | 'multiple' | 'confirm';
+type ScanStatus = 'starting' | 'scanning' | 'detected' | 'error' | 'multiple' | 'confirm' | 'not-found';
 
 interface DetectedBarcode { rawValue: string; format: string; }
 
@@ -479,8 +764,9 @@ const scanHintText = computed(() => {
     case 'scanning':  return 'Point camera at barcode';
     case 'detected':  return 'Barcode detected!';
     case 'confirm':   return 'Barcode detected — confirm to use it';
-    case 'multiple':  return 'Multiple barcodes found — select one below';
-    case 'error':     return 'Camera unavailable — use manual input';
+    case 'multiple':   return 'Multiple barcodes found — select one below';
+    case 'not-found':  return 'Item not found in local cache';
+    case 'error':      return 'Camera unavailable — use manual input';
     default: return '';
   }
 });
@@ -591,6 +877,12 @@ function pickBarcode(code: string) {
 function resumeScanning() {
   detectedBarcodes.value = [];
   confirmedBarcode.value = '';
+  // Camera was fully stopped (e.g. after resolveBarcode in not-found path) — restart it.
+  // In confirm/multiple states the stream is still active; only detection was paused.
+  if (!videoStream.value) {
+    void openScanner();
+    return;
+  }
   scanStatus.value = 'scanning';
   if ('BarcodeDetector' in window) startAutoDetection();
 }
@@ -621,21 +913,35 @@ function resolveBarcode(code: string) {
     (i) => i.number.toUpperCase() === code.toUpperCase(),
   );
   if (exactMatch) {
-    emit('select', exactMatch);
+    emit('select', withLivePrice(exactMatch));
     return;
   }
   const partialMatch = props.items.find(
     (i) => i.number.toUpperCase().includes(code.toUpperCase()) || code.toUpperCase().includes(i.number.toUpperCase()),
   );
   if (partialMatch) {
-    emit('select', partialMatch);
+    emit('select', withLivePrice(partialMatch));
     return;
   }
-  /* No match — switch to list mode with barcode as search query */
+  /* No match — if online, show BC search prompt on the scanner page;
+     if offline, fall back to list view so the user can see the miss banner. */
   lastScannedBarcode.value = code;
+  if (props.isOnline) {
+    scanStatus.value = 'not-found';
+  } else {
+    searchQuery.value = code;
+    barcodeNotFound.value = true;
+    viewMode.value = 'list';
+  }
+}
+
+function searchScannedInBC() {
+  const code = lastScannedBarcode.value;
+  if (!code || !props.isOnline) return;
   searchQuery.value = code;
   barcodeNotFound.value = true;
   viewMode.value = 'list';
+  // barcodeNotFound watcher auto-triggers searchInBC()
 }
 
 onUnmounted(() => {
@@ -646,25 +952,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* ── Category chips ── */
-.category-scroll {
-  display: flex;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  gap: 6px;
-  padding: 10px 12px;
-  scrollbar-width: none;
-}
-.category-scroll::-webkit-scrollbar { display: none; }
-
-.cat-chip {
-  flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 600;
-  height: 28px;
-  margin: 0;
-}
-
 /* ── Barcode miss banner ── */
 .barcode-miss {
   display: flex;
@@ -698,8 +985,33 @@ onUnmounted(() => {
 }
 
 .item-price {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   font-size: 14px;
   font-weight: 700;
+}
+
+.price-updated {
+  color: var(--ion-color-success);
+  transition: color 0.3s ease;
+}
+
+.price-sync-btn {
+  --padding-start: 2px;
+  --padding-end: 2px;
+  height: 28px;
+  min-width: 28px;
+}
+
+.price-sync-icon {
+  font-size: 14px;
+  opacity: 0.45;
+}
+
+.price-sync-spinner {
+  width: 14px;
+  height: 14px;
 }
 
 /* ── Pagination ── */
@@ -726,13 +1038,98 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 48px 24px;
+  padding: 36px 24px 28px;
   gap: 12px;
   text-align: center;
   color: var(--app-text-muted);
 }
 .empty-results ion-icon { font-size: 48px; }
 .empty-results p { font-size: 14px; line-height: 1.6; margin: 0; }
+
+/* ── BC search area (inside empty state) ── */
+.bc-search-area {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  border-top: 1px solid var(--app-border);
+  padding: 12px 16px 8px;
+  margin-top: 4px;
+}
+
+.bc-search-hint {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin: 0;
+  text-align: center;
+}
+
+.bc-search-btn {
+  --border-radius: 10px;
+}
+
+.bc-searching {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  font-size: 13px;
+  color: var(--ion-color-primary);
+}
+
+.bc-spinner { width: 16px; height: 16px; }
+
+.bc-no-results {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin: 0;
+  text-align: center;
+}
+
+.bc-search-error {
+  font-size: 12px;
+  color: var(--ion-color-danger);
+  margin: 0;
+  text-align: center;
+}
+
+/* ── BC results section ── */
+.bc-results-wrap {
+  border-top: 2px solid color-mix(in srgb, var(--ion-color-primary) 30%, transparent);
+  margin-top: 4px;
+}
+
+.bc-results-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 6px;
+  background: color-mix(in srgb, var(--ion-color-primary) 8%, transparent);
+}
+
+.bc-hdr-icon {
+  font-size: 16px;
+  color: var(--ion-color-primary);
+  flex-shrink: 0;
+}
+
+.bc-hdr-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ion-color-primary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bc-hdr-clear {
+  flex-shrink: 0;
+  --padding-start: 4px;
+  --padding-end: 4px;
+}
 
 /* ── Scanner ── */
 .scanner-wrap {
@@ -930,8 +1327,56 @@ onUnmounted(() => {
   -webkit-tap-highlight-color: transparent;
 }
 
-.scan-hint--multiple { color: var(--app-gold); }
-.scan-hint--confirm  { color: var(--ion-color-success); }
+.scan-hint--multiple   { color: var(--app-gold); }
+.scan-hint--confirm    { color: var(--ion-color-success); }
+.scan-hint--not-found  { color: var(--ion-color-warning); }
+
+/* ── Not found panel (scanner view, online) ── */
+.not-found-wrap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  background: rgba(10, 10, 10, 0.96);
+  border-top: 1px solid #2a2a2a;
+  padding: 20px 16px 12px;
+  pointer-events: all;
+}
+
+.not-found-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.not-found-icon {
+  font-size: 22px;
+  color: var(--ion-color-warning);
+  flex-shrink: 0;
+}
+
+.not-found-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+}
+
+.not-found-code {
+  font-size: 13px;
+  font-family: monospace;
+  color: #888;
+  margin: 0 0 16px;
+  padding-left: 32px;
+  word-break: break-all;
+}
+
+.not-found-bc-btn {
+  --border-radius: 10px;
+  margin-bottom: 10px;
+}
 
 /* ── Single barcode confirm panel ── */
 .single-confirm {

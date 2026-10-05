@@ -13,9 +13,11 @@
           <ion-button
             v-if="filteredSessions.length"
             fill="clear"
+            size="small"
             @click="downloadHistory"
           >
-            <ion-icon :icon="downloadOutline" slot="icon-only" />
+            <ion-icon :icon="downloadOutline" slot="start" />
+            Export
           </ion-button>
           <bug-report-button />
         </ion-buttons>
@@ -28,7 +30,7 @@
             :color="activeFilter === 'all' ? 'primary' : 'medium'"
             @click="activeFilter = 'all'"
             class="filter-chip"
-          >All ({{ sessionStore.completedSessions.length }})</ion-chip>
+          >All ({{ mergedSessions.length }})</ion-chip>
           <ion-chip
             :color="activeFilter === 'submitted' ? 'success' : 'medium'"
             @click="activeFilter = 'submitted'"
@@ -51,7 +53,7 @@
             class="filter-chip"
           >
             <ion-icon :icon="cloudDoneOutline" />
-            BC Orders
+            Business Central
           </ion-chip>
         </div>
       </ion-toolbar>
@@ -69,9 +71,50 @@
         />
       </ion-refresher>
 
+      <!-- Sync failure banner — synced (cross-device) history couldn't load even after
+           retrying; local sessions on this device still show below. -->
+      <div v-if="firestoreError" class="sync-error-banner" @click="loadFirestoreHistory">
+        <ion-icon :icon="cloudOfflineOutline" />
+        <span>Couldn't load synced history. Showing this device only — tap to retry.</span>
+      </div>
+
+      <!-- Pending submissions — visible regardless of filter tab; each updates live as
+           its in-flight order resolves and disappears once it's written to history
+           below. Not tappable: the card already shows the full live status, and (now
+           that leaving Submit mid-flight detaches it — see SubmitPage's
+           onBeforeRouteLeave) there is no live review screen left to navigate back to.
+           Rendered as a list (not a single card) because more than one submission can
+           genuinely be in flight at once — e.g. a rep starts a second customer before
+           BC responds to the first. -->
+      <div v-for="entry in pendingCards" :key="entry.session.id" class="pending-card">
+        <div class="pending-card-icon">
+          <ion-spinner name="crescent" />
+        </div>
+        <div class="pending-card-body">
+          <p class="pending-card-title">Order still processing&hellip;</p>
+          <p class="pending-card-sub">
+            {{ entry.session.customer?.displayName ?? 'No customer' }} &bull; {{ entry.session.brand.displayName }}
+          </p>
+          <div class="pending-card-rows">
+            <span v-if="entry.session.salesOrders.length || entry.session.noSales" class="pending-row">
+              <ion-spinner v-if="entry.salesStatus === 'submitting'" name="crescent" class="pending-row-spinner" />
+              <ion-icon v-else-if="entry.salesStatus === 'done'" :icon="checkmarkCircleOutline" color="success" />
+              <ion-icon v-else-if="entry.salesStatus === 'failed'" :icon="alertCircleOutline" color="danger" />
+              <span>Sales{{ entry.salesStatus === 'done' && entry.salesSeriesNo ? `: ${entry.salesSeriesNo}` : '' }}</span>
+            </span>
+            <span v-if="entry.session.returnOrders.length" class="pending-row">
+              <ion-spinner v-if="entry.returnsStatus === 'submitting'" name="crescent" class="pending-row-spinner" />
+              <ion-icon v-else-if="entry.returnsStatus === 'done'" :icon="checkmarkCircleOutline" color="success" />
+              <ion-icon v-else-if="entry.returnsStatus === 'failed'" :icon="alertCircleOutline" color="danger" />
+              <span>Returns{{ entry.returnsStatus === 'done' && entry.returnsSeriesNo ? `: ${entry.returnsSeriesNo}` : '' }}</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
       <!-- Local session history -->
       <template v-if="activeFilter !== 'bc'">
-        <div v-if="!sessionStore.completedSessions.length" class="empty-history">
+        <div v-if="!mergedSessions.length" class="empty-history">
           <ion-icon :icon="timeOutline" color="medium" />
           <p>No submitted sessions yet.<br />Completed sessions will appear here.</p>
         </div>
@@ -98,7 +141,7 @@
             <ion-label>
               <h3 class="session-customer">{{ session.customer?.displayName ?? '— No customer —' }}</h3>
               <p class="session-meta">
-                {{ session.brand.displayName }} &bull; {{ session.postingDate ? formatDate(session.postingDate) : formatDate(session.createdAt) }}
+                {{ session.user.displayName }} &bull; {{ session.brand.displayName }} &bull; {{ session.postingDate ? formatDate(session.postingDate) : formatDate(session.createdAt) }}
               </p>
               <p class="session-counts">
                 <span v-if="session.salesOrders.length">
@@ -112,9 +155,9 @@
                 </span>
               </p>
               <p v-if="session.salesOrderSeries || session.returnOrderSeries" class="session-series">
-                <span v-if="session.salesOrderSeries">SO# {{ session.salesOrderSeries }}</span>
+                <span v-if="session.salesOrderSeries">Sales Order: {{ session.salesOrderSeries }}</span>
                 <span v-if="session.salesOrderSeries && session.returnOrderSeries"> &bull; </span>
-                <span v-if="session.returnOrderSeries">SRO# {{ session.returnOrderSeries }}</span>
+                <span v-if="session.returnOrderSeries">Return Order: {{ session.returnOrderSeries }}</span>
               </p>
               <p v-if="session.status === 'failed' && session.errorMessage" class="session-error">
                 {{ session.errorMessage }}
@@ -132,6 +175,7 @@
 
       <!-- ── BC Orders Panel ── -->
       <div v-else class="bc-panel">
+        <p class="bc-panel-intro">Your orders posted to Business Central for the selected date. Tap an order to see its line items.</p>
         <!-- Date picker -->
         <div class="bc-date-bar">
           <ion-icon :icon="calendarOutline" class="bc-date-icon" />
@@ -173,7 +217,7 @@
                 <ion-label>
                   <h3 class="session-customer">{{ order.sellToCustomerName ?? order.sellToCustomerNo ?? '—' }}</h3>
                   <p class="session-meta">
-                    {{ order.no ?? '—' }}
+                    {{ order.number ?? '—' }}
                     <span v-if="order.externalDocumentNo"> &bull; {{ order.externalDocumentNo }}</span>
                   </p>
                   <p v-if="order.submittedBy" class="session-counts">{{ order.submittedBy }}</p>
@@ -206,7 +250,7 @@
                 <ion-label>
                   <h3 class="session-customer">{{ order.sellToCustomerName ?? order.sellToCustomerNo ?? '—' }}</h3>
                   <p class="session-meta">
-                    {{ order.no ?? '—' }}
+                    {{ order.number ?? '—' }}
                     <span v-if="order.externalDocumentNo"> &bull; {{ order.externalDocumentNo }}</span>
                   </p>
                   <p v-if="order.submittedBy" class="session-counts">{{ order.submittedBy }}</p>
@@ -286,12 +330,29 @@
                   </ion-badge>
                 </div>
                 <div v-if="selectedSession.salesOrderSeries" class="info-row">
-                  <span class="info-label">SO#</span>
+                  <span class="info-label">Sales Order</span>
                   <span class="info-value series-num">{{ selectedSession.salesOrderSeries }}</span>
                 </div>
                 <div v-if="selectedSession.returnOrderSeries" class="info-row">
-                  <span class="info-label">SRO#</span>
+                  <span class="info-label">Return Order</span>
                   <span class="info-value series-num">{{ selectedSession.returnOrderSeries }}</span>
+                </div>
+                <div
+                  v-if="selectedSession.status === 'submitted' && missingOrderNumber(selectedSession)"
+                  class="info-row"
+                >
+                  <span class="info-label">BC Order No.</span>
+                  <ion-button
+                    size="small"
+                    fill="outline"
+                    color="primary"
+                    :disabled="fetchingOrderNo"
+                    @click="fetchOrderNumber(selectedSession)"
+                  >
+                    <ion-spinner v-if="fetchingOrderNo" name="crescent" slot="start" />
+                    <ion-icon v-else :icon="cloudDownloadOutline" slot="start" />
+                    {{ fetchingOrderNo ? 'Fetching…' : 'Fetch from BC' }}
+                  </ion-button>
                 </div>
               </div>
 
@@ -430,7 +491,7 @@
               <div class="info-grid">
                 <div class="info-row">
                   <span class="info-label">{{ selectedBCType === 'sales' ? 'SO#' : 'SRO#' }}</span>
-                  <span class="info-value series-num">{{ selectedBCOrder.no ?? '—' }}</span>
+                  <span class="info-value series-num">{{ selectedBCOrder.number ?? '—' }}</span>
                 </div>
                 <div class="info-row">
                   <span class="info-label">Customer</span>
@@ -511,7 +572,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   IonPage,
@@ -533,6 +594,8 @@ import {
   IonModal,
   IonRefresher,
   IonRefresherContent,
+  IonSpinner,
+  toastController,
 } from '@ionic/vue';
 import {
   timeOutline,
@@ -549,12 +612,16 @@ import {
   cloudDoneOutline,
   calendarOutline,
   searchOutline,
+  cloudDownloadOutline,
+  cloudOfflineOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
+import { useOrderSubmission } from '@/composables/useOrderSubmission';
 import { useTheme } from '@/composables/useTheme';
 import { formatCurrency, formatDate, formatDateTime, formatDiscount } from '@/utils/format';
 import { useErrorReporter } from '@/composables/useErrorReporter';
 import { ApiService } from '@/services/api.service';
+import { StorageService } from '@/services/storage.service';
 import BugReportButton from '@/components/BugReportButton.vue';
 import type { ScanSession } from '@/types';
 
@@ -562,6 +629,24 @@ const router = useRouter();
 const sessionStore = useSessionStore();
 const { theme } = useTheme();
 const { openReport } = useErrorReporter();
+
+/* ─── Pending submissions (still processing on Submit, possibly a different page) ─── */
+const { pendingEntries } = useOrderSubmission();
+
+/** Scoped to the logged-in user — on a shared device, one rep's still-processing
+ *  order(s) must never appear under a different rep's session. More than one entry
+ *  can be in flight at once (e.g. a rep starts a second customer before BC responds
+ *  to the first), so this is a list, not a single card. */
+const pendingCards = computed(() => {
+  const auth = StorageService.getAuth();
+  if (!auth) return [];
+  return pendingEntries.value.filter((entry) => {
+    const sameUser = entry.session.user.id
+      ? entry.session.user.id === auth.user.id
+      : entry.session.user.displayName === auth.user.displayName;
+    return sameUser;
+  });
+});
 
 function reportSessionError(session: ScanSession) {
   openReport({
@@ -574,8 +659,58 @@ const headerLogoSrc = computed(() =>
   isMinimalist.value ? '/static/logo-bnw.png' : '/static/cons-logo.png',
 );
 
-function onPullRefresh(ev: CustomEvent) {
+/* ─── Firestore history ─── */
+const firestoreSessions = ref<ScanSession[]>([]);
+const firestoreLoading = ref(false);
+/** Set when the synced (cross-device) history couldn't be loaded even after
+ *  ApiService's internal retries — surfaced so a real failure doesn't read as
+ *  "you have no history", since local-only sessions still show underneath it. */
+const firestoreError = ref(false);
+
+async function loadFirestoreHistory() {
+  const auth = StorageService.getAuth();
+  const company = StorageService.getCompany();
+  if (!auth || !company) return;
+  firestoreLoading.value = true;
+  try {
+    const records = await ApiService.getSessionHistory(company.code, auth.user.id, auth.user.number);
+    firestoreSessions.value = records;
+    firestoreError.value = false;
+  } catch {
+    // local history still shows — but flag that synced history may be incomplete
+    firestoreError.value = true;
+  } finally {
+    firestoreLoading.value = false;
+  }
+}
+
+onMounted(() => {
+  loadFirestoreHistory();
+});
+
+/** Merge Firestore records with local sessions, deduplicated by id.
+ *  Local sessions take precedence (they may be more up to date for retries).
+ *  Sorted so the currently logged-in brand's sessions come first as a group (a rep
+ *  usually only cares about their current brand's orders), with everything — the
+ *  current brand's group and the rest — sorted newest-first within its group. Nothing
+ *  is hidden; other brands still show further down the list. */
+const mergedSessions = computed<ScanSession[]>(() => {
+  const localIds = new Set(sessionStore.completedSessions.map((s) => s.id));
+  const fromFirestore = firestoreSessions.value.filter((s) => !localIds.has(s.id));
+  const currentBrand = StorageService.getAuth()?.brand?.code;
+  return [...sessionStore.completedSessions, ...fromFirestore].sort((a, b) => {
+    if (currentBrand) {
+      const aCurrent = a.brand.code === currentBrand;
+      const bCurrent = b.brand.code === currentBrand;
+      if (aCurrent !== bCurrent) return aCurrent ? -1 : 1;
+    }
+    return (b.submittedAt ?? b.createdAt) > (a.submittedAt ?? a.createdAt) ? 1 : -1;
+  });
+});
+
+async function onPullRefresh(ev: CustomEvent) {
   sessionStore.loadFromStorage();
+  await loadFirestoreHistory();
   (ev.target as HTMLIonRefresherElement).complete();
 }
 
@@ -584,15 +719,15 @@ type FilterType = 'all' | 'submitted' | 'failed' | 'bc';
 const activeFilter = ref<FilterType>('all');
 
 const submittedCount = computed(() =>
-  sessionStore.completedSessions.filter((s) => s.status === 'submitted').length,
+  mergedSessions.value.filter((s) => s.status === 'submitted').length,
 );
 const failedCount = computed(() =>
-  sessionStore.completedSessions.filter((s) => s.status === 'failed').length,
+  mergedSessions.value.filter((s) => s.status === 'failed').length,
 );
 
 const filteredSessions = computed(() => {
-  if (activeFilter.value === 'all') return sessionStore.completedSessions;
-  return sessionStore.completedSessions.filter((s) => s.status === activeFilter.value);
+  if (activeFilter.value === 'all') return mergedSessions.value;
+  return mergedSessions.value.filter((s) => s.status === activeFilter.value);
 });
 
 /* ─── Session helpers ─── */
@@ -611,6 +746,108 @@ const selectedSession = ref<ScanSession | null>(null);
 
 function openDetail(session: ScanSession) {
   selectedSession.value = session;
+}
+
+/* ─── Fetch BC order number ─── */
+const fetchingOrderNo = ref(false);
+
+function missingOrderNumber(session: ScanSession): boolean {
+  return (
+    (session.salesOrders.length > 0 && !session.salesOrderSeries) ||
+    (session.returnOrders.length > 0 && !session.returnOrderSeries)
+  );
+}
+
+async function fetchOrderNumber(session: ScanSession): Promise<void> {
+  if (fetchingOrderNo.value) return;
+  const date = session.postingDate ?? session.submittedAt?.slice(0, 10);
+  if (!date || !session.customer?.number) {
+    const t = await toastController.create({
+      message: 'No posting date or customer on this session.',
+      duration: 3000,
+      color: 'warning',
+      position: 'bottom',
+    });
+    await t.present();
+    return;
+  }
+  fetchingOrderNo.value = true;
+  try {
+    type BCData = { data?: Array<Record<string, unknown>> };
+    const customerNo = session.customer.number;
+    const needSales   = session.salesOrders.length > 0 && !session.salesOrderSeries;
+    const needReturns = session.returnOrders.length > 0 && !session.returnOrderSeries;
+    const [soRes, sroRes] = await Promise.allSettled([
+      needSales   ? ApiService.getBCSalesOrders(date, customerNo)       : Promise.resolve(null),
+      needReturns ? ApiService.getBCSalesReturnOrders(date, customerNo) : Promise.resolve(null),
+    ]);
+    let salesOrderSeries   = session.salesOrderSeries;
+    let returnOrderSeries  = session.returnOrderSeries;
+
+    function matchOrder(orders: Array<Record<string, unknown>>): Record<string, unknown> | undefined {
+      const exact = orders.find((o) => o.sellToCustomerNo === customerNo);
+      if (exact) return exact;
+      const q = customerNo.toLowerCase();
+      return orders.find((o) => {
+        const bc = ((o.sellToCustomerNo as string) ?? '').toLowerCase();
+        return bc.includes(q) || q.includes(bc);
+      });
+    }
+
+    if (soRes.status === 'fulfilled' && soRes.value !== null) {
+      const orders = (soRes.value as BCData)?.data ?? [];
+      const match  = matchOrder(orders);
+      // BC's custom sales-order/return-order APIs return the document number as
+      // "number" — there is no "no" field. Reading .no here always came back
+      // undefined, so a real match was silently treated as "not found" and the
+      // series number was never captured (same bug affected capture at submission
+      // time — see useOrderSubmission.ts).
+      if (match?.number) salesOrderSeries = match.number as string;
+    }
+    if (sroRes.status === 'fulfilled' && sroRes.value !== null) {
+      const orders = (sroRes.value as BCData)?.data ?? [];
+      const match  = matchOrder(orders);
+      if (match?.number) returnOrderSeries = match.number as string;
+    }
+    const didFind =
+      (needSales   && salesOrderSeries   !== session.salesOrderSeries) ||
+      (needReturns && returnOrderSeries  !== session.returnOrderSeries);
+    if (didFind) {
+      const updated: ScanSession = { ...session, salesOrderSeries, returnOrderSeries };
+      StorageService.saveSession(updated);
+      sessionStore.loadFromStorage();
+      ApiService.saveSessionHistory(updated).catch(() => {});
+      selectedSession.value = updated;
+      const parts: string[] = [];
+      if (needSales   && salesOrderSeries)   parts.push(`Sales: ${salesOrderSeries}`);
+      if (needReturns && returnOrderSeries)  parts.push(`Returns: ${returnOrderSeries}`);
+      const t = await toastController.create({
+        message: `Saved — ${parts.join(' · ')}`,
+        duration: 4000,
+        color: 'success',
+        position: 'bottom',
+      });
+      await t.present();
+    } else {
+      const t = await toastController.create({
+        message: 'No matching BC order found for this customer on the posting date.',
+        duration: 4000,
+        color: 'warning',
+        position: 'bottom',
+      });
+      await t.present();
+    }
+  } catch {
+    const t = await toastController.create({
+      message: 'Failed to fetch from BC. Check your connection.',
+      duration: 3000,
+      color: 'danger',
+      position: 'bottom',
+    });
+    await t.present();
+  } finally {
+    fetchingOrderNo.value = false;
+  }
 }
 
 /* ─── BC Orders ─── */
@@ -636,6 +873,21 @@ function bcStatusColor(status: string | undefined): string {
   }
 }
 
+/** BC's sales-order / return-order list APIs return every rep's orders for the date —
+ *  there's no server-side "submitted by me" filter. Each order carries `submittedBy`
+ *  (the rep's display name, set at submission time — see SubmitPage.vue), so restrict
+ *  to the logged-in user's own orders here. Orders with no submittedBy (posted directly
+ *  in BC, or from before this field was tracked) can't be attributed to anyone and are
+ *  excluded rather than shown to everyone. */
+function mineOnly(orders: BCOrder[]): BCOrder[] {
+  const currentUser = StorageService.getAuth()?.user?.displayName?.trim().toLowerCase();
+  if (!currentUser) return [];
+  return orders.filter((o) => {
+    const by = o.submittedBy;
+    return typeof by === 'string' && by.trim().toLowerCase() === currentUser;
+  });
+}
+
 async function fetchBCOrders() {
   bcLoading.value = true;
   bcError.value = '';
@@ -645,10 +897,10 @@ async function fetchBCOrders() {
       ApiService.getBCSalesReturnOrders(bcDate.value),
     ]);
     bcSalesOrders.value = soRes.status === 'fulfilled'
-      ? ((soRes.value as { data?: BCOrder[] })?.data ?? [])
+      ? mineOnly((soRes.value as { data?: BCOrder[] })?.data ?? [])
       : [];
     bcReturnOrders.value = sroRes.status === 'fulfilled'
-      ? ((sroRes.value as { data?: BCOrder[] })?.data ?? [])
+      ? mineOnly((sroRes.value as { data?: BCOrder[] })?.data ?? [])
       : [];
     if (soRes.status === 'rejected' && sroRes.status === 'rejected') {
       bcError.value = 'Could not fetch orders from BC. Check your connection.';
@@ -714,7 +966,7 @@ function downloadHistory() {
   if (!sessions.length) return;
 
   const lines: string[] = [
-    'RGMC CONSIGNMENT — SESSION HISTORY',
+    'RGMC CONSIGNMENT - GARMENTS — SESSION HISTORY',
     `Exported : ${new Date().toLocaleString('en-PH')}`,
     `Filter   : ${activeFilter.value.toUpperCase()}`,
     '='.repeat(64),
@@ -818,6 +1070,74 @@ function buildSessionLines(s: ScanSession): string[] {
 
 /* ── Filter chip active transition ── */
 .filter-chip { transition: color 0.18s ease, background 0.18s ease, opacity 0.18s ease; }
+
+/* ── Sync error banner ── */
+.sync-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px;
+  padding: 10px 12px;
+  border-radius: var(--app-radius);
+  background: var(--app-danger-bg, rgba(var(--ion-color-danger-rgb), 0.08));
+  border: 1px solid var(--app-error-border, rgba(var(--ion-color-danger-rgb), 0.3));
+  color: var(--ion-color-danger);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sync-error-banner ion-icon { font-size: 18px; flex-shrink: 0; }
+
+/* ── Pending submission card ── */
+.pending-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px;
+  padding: 12px 14px;
+  border-radius: var(--app-radius);
+  background: rgba(var(--ion-color-primary-rgb), 0.08);
+  border: 1px solid rgba(var(--ion-color-primary-rgb), 0.3);
+  animation: fade-in 0.3s ease both;
+}
+.pending-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.pending-card-icon ion-spinner { width: 26px; height: 26px; color: var(--ion-color-primary); }
+.pending-card-body { flex: 1; min-width: 0; }
+.pending-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--app-fg);
+  margin: 0;
+}
+.pending-card-sub {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin: 2px 0 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pending-card-rows {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+.pending-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-text-muted);
+}
+.pending-row ion-icon { font-size: 15px; }
+.pending-row-spinner { width: 14px; height: 14px; color: var(--ion-color-primary); }
 
 /* ── Empty states ── */
 .empty-history {
@@ -1090,6 +1410,14 @@ ion-list ion-item:nth-child(8) { animation: fade-slide-up 0.28s var(--ease-out-q
 /* ── BC Orders Panel ── */
 .bc-panel {
   padding-bottom: 32px;
+}
+
+.bc-panel-intro {
+  padding: 10px 16px 0;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin: 0;
+  line-height: 1.5;
 }
 
 .bc-date-bar {
