@@ -51,24 +51,69 @@ function remove(key: string): void {
 
 /* Items are too large for localStorage's 5MB per-origin cap.
    Primary store: module-level variable for in-session access.
-   Secondary store: IndexedDB so items survive tab refresh / offline restarts. */
+   Secondary store: IndexedDB so items survive tab refresh / offline restarts.
+
+   Stored as one record per item (keyPath 'id'), not one giant array under a single
+   key — a single scanned-item price correction (patchCachedItemPrice, fired on
+   nearly every scan confirm) only needs to write that one record instead of
+   re-serializing and rewriting the entire catalog on every patch. */
 let _itemsMemory: Item[] = [];
 
 const IDB_NAME = 'rgmc-cache';
-const IDB_ITEMS_STORE = 'items';
+const IDB_ITEMS_STORE = 'items_kv';
+const IDB_ITEMS_STORE_LEGACY = 'items'; // v1: whole catalog as one blob keyed 'all'
 
 function openItemsIDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_NAME, 1);
+    const req = indexedDB.open(IDB_NAME, 2);
     req.onupgradeneeded = () => {
       const db = req.result;
-      if (!db.objectStoreNames.contains(IDB_ITEMS_STORE)) {
-        db.createObjectStore(IDB_ITEMS_STORE);
+      const tx = req.transaction;
+      const newStore = db.objectStoreNames.contains(IDB_ITEMS_STORE)
+        ? tx!.objectStore(IDB_ITEMS_STORE)
+        : db.createObjectStore(IDB_ITEMS_STORE, { keyPath: 'id' });
+      // One-time migration: pull the old single-blob cache into the new per-item
+      // store, then drop it — keeps the "new" sync's semantics for existing users
+      // instead of forcing a full resync on upgrade.
+      if (db.objectStoreNames.contains(IDB_ITEMS_STORE_LEGACY)) {
+        const legacyStore = tx!.objectStore(IDB_ITEMS_STORE_LEGACY);
+        const getReq = legacyStore.get('all');
+        getReq.onsuccess = () => {
+          const legacyItems = (getReq.result as Item[]) ?? [];
+          for (const item of legacyItems) newStore.put(item);
+          db.deleteObjectStore(IDB_ITEMS_STORE_LEGACY);
+        };
       }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror  = () => reject(req.error);
   });
+}
+
+/** Upsert only the given records — O(records), not O(whole catalog). Used for
+ *  incremental merges and single/few-item price patches. */
+function putItemsIDB(items: Item[]): void {
+  if (!items.length) return;
+  openItemsIDB().then((db) => {
+    const tx = db.transaction(IDB_ITEMS_STORE, 'readwrite');
+    const store = tx.objectStore(IDB_ITEMS_STORE);
+    for (const item of items) store.put(item);
+    tx.oncomplete = () => db.close();
+    tx.onerror   = () => db.close();
+  }).catch(() => {});
+}
+
+/** Replace the store's contents with exactly this set — used for a full (non-delta)
+ *  sync, where every record is expected to change anyway. */
+function replaceAllItemsIDB(items: Item[]): void {
+  openItemsIDB().then((db) => {
+    const tx = db.transaction(IDB_ITEMS_STORE, 'readwrite');
+    const store = tx.objectStore(IDB_ITEMS_STORE);
+    store.clear();
+    for (const item of items) store.put(item);
+    tx.oncomplete = () => db.close();
+    tx.onerror   = () => db.close();
+  }).catch(() => {});
 }
 
 let _initPromise: Promise<void> | null = null;
@@ -242,15 +287,9 @@ export const StorageService = {
     } else {
       _itemsMemory = slim;
     }
-    // Snapshot the reference now so concurrent setCachedItems calls can't overwrite this write.
-    const snapshot = _itemsMemory;
-    // Persist to IndexedDB — fire and forget so the sync isn't blocked
-    openItemsIDB().then((db) => {
-      const tx = db.transaction(IDB_ITEMS_STORE, 'readwrite');
-      tx.objectStore(IDB_ITEMS_STORE).put(snapshot, 'all');
-      tx.oncomplete = () => db.close();
-      tx.onerror   = () => db.close();
-    }).catch(() => {});
+    // Fire and forget so the sync isn't blocked — this is a full (non-delta) sync, so
+    // every record is expected to change anyway and a full replace is appropriate.
+    replaceAllItemsIDB(_itemsMemory);
   },
 
   /** Upsert a partial list of items into the cache (incremental sync). Existing items are
@@ -273,45 +312,31 @@ export const StorageService = {
       ..._itemsMemory.map((i) => incomingById.get(i.id) ?? i),
       ...slim.filter((i) => !existingIds.has(i.id)),
     ];
-    const snapshot = _itemsMemory;
-    openItemsIDB().then((db) => {
-      const tx = db.transaction(IDB_ITEMS_STORE, 'readwrite');
-      tx.objectStore(IDB_ITEMS_STORE).put(snapshot, 'all');
-      tx.oncomplete = () => db.close();
-      tx.onerror   = () => db.close();
-    }).catch(() => {});
+    // Only the incoming (changed/new) records need writing — unlike a full sync,
+    // the rest of the catalog is untouched.
+    putItemsIDB(slim);
   },
 
   patchCachedItemPrice(itemNumber: string, unitPrice: number): void {
     const item = _itemsMemory.find((i) => i.number === itemNumber);
     if (!item) return;
     item.unitPriceIncVAT = unitPrice;
-    openItemsIDB().then((db) => {
-      const tx = db.transaction(IDB_ITEMS_STORE, 'readwrite');
-      tx.objectStore(IDB_ITEMS_STORE).put(_itemsMemory, 'all');
-      tx.oncomplete = () => db.close();
-      tx.onerror   = () => db.close();
-    }).catch(() => {});
+    putItemsIDB([item]);
   },
 
   applyPriceMapToItems(prices: Record<string, number>, brand?: string): void {
-    let changed = false;
+    const changedItems: Item[] = [];
     for (const item of _itemsMemory) {
       // Skip items from other brands to prevent cross-brand price corruption.
       if (brand && item.familyCode !== brand) continue;
       const price = prices[item.number];
       if (price !== undefined && item.unitPriceIncVAT !== price) {
         item.unitPriceIncVAT = price;
-        changed = true;
+        changedItems.push(item);
       }
     }
-    if (!changed) return;
-    openItemsIDB().then((db) => {
-      const tx = db.transaction(IDB_ITEMS_STORE, 'readwrite');
-      tx.objectStore(IDB_ITEMS_STORE).put(_itemsMemory, 'all');
-      tx.oncomplete = () => db.close();
-      tx.onerror   = () => db.close();
-    }).catch(() => {});
+    // Only the items whose price actually changed need writing.
+    putItemsIDB(changedItems);
   },
 
   /* Restore items from IndexedDB into _itemsMemory on startup */
@@ -320,7 +345,7 @@ export const StorageService = {
       const db = await openItemsIDB();
       const items = await new Promise<Item[]>((res) => {
         const tx  = db.transaction(IDB_ITEMS_STORE, 'readonly');
-        const req = tx.objectStore(IDB_ITEMS_STORE).get('all');
+        const req = tx.objectStore(IDB_ITEMS_STORE).getAll();
         req.onsuccess = () => { db.close(); res((req.result as Item[]) ?? []); };
         req.onerror   = () => { db.close(); res([]); };
       });
@@ -359,6 +384,17 @@ export const StorageService = {
     return get<{ date: string; prices: Record<string, number> }>(KEYS.CACHE_ITEM_PRICES);
   },
   setCachedItemPrices(date: string, prices: Record<string, number>): void {
+    set(KEYS.CACHE_ITEM_PRICES, { date, prices });
+  },
+  /** Patch a single item's price for the given date in place, without cloning the
+   *  entire price map first. localStorage only writes whole values, so the full map
+   *  still gets re-serialized — but every call site that corrects one item's price
+   *  after a live BC check was separately doing get + spread-clone + set; this
+   *  collapses that into one call and skips the extra clone. */
+  patchCachedItemPriceForDate(date: string, itemNumber: string, price: number): void {
+    const cached = get<{ date: string; prices: Record<string, number> }>(KEYS.CACHE_ITEM_PRICES);
+    const prices = cached?.date === date ? cached.prices : {};
+    prices[itemNumber] = price;
     set(KEYS.CACHE_ITEM_PRICES, { date, prices });
   },
 
@@ -425,7 +461,14 @@ export const StorageService = {
   getSessions(): ScanSession[] {
     return get<ScanSession[]>(KEYS.SESSIONS) ?? [];
   },
-  saveSession(session: ScanSession): void {
+  /** Returns the resulting list so callers (session.store.ts fires this on nearly
+   *  every submit/retry) don't need a separate getSessions() round trip — a second
+   *  full localStorage read + JSON.parse of the data this call just wrote — right
+   *  after writing. Also caps local retention: Firestore (see ApiService.
+   *  getSessionHistory) is the canonical long-term history, so local storage only
+   *  needs enough for fast offline access to recent activity. */
+  saveSession(session: ScanSession): ScanSession[] {
+    const MAX_LOCAL_SESSIONS = 200;
     const sessions = this.getSessions();
     const idx = sessions.findIndex((s) => s.id === session.id);
     if (idx >= 0) {
@@ -433,18 +476,26 @@ export const StorageService = {
     } else {
       sessions.unshift(session);
     }
+    if (sessions.length > MAX_LOCAL_SESSIONS) sessions.length = MAX_LOCAL_SESSIONS;
     set(KEYS.SESSIONS, sessions);
+    return sessions;
   },
-  removeSession(sessionId: string): void {
+  removeSession(sessionId: string): ScanSession[] {
     const sessions = this.getSessions().filter((s) => s.id !== sessionId);
     set(KEYS.SESSIONS, sessions);
+    return sessions;
   },
 
   /* ─── Drafts ─── */
+  // Not retention-capped like sessions — a draft is unsynced in-progress work with no
+  // Firestore backup, so dropping one for space would lose data, not just history.
   getDrafts(): ScanSession[] {
     return get<ScanSession[]>(KEYS.DRAFTS) ?? [];
   },
-  saveDraft(session: ScanSession): void {
+  /** Returns the resulting list — see saveSession's note on avoiding a redundant
+   *  read-after-write. This one matters more: it fires on nearly every field edit
+   *  during an active scanning session (session.store.ts's _saveDraft). */
+  saveDraft(session: ScanSession): ScanSession[] {
     const drafts = this.getDrafts();
     const idx = drafts.findIndex((d) => d.id === session.id);
     if (idx >= 0) {
@@ -453,10 +504,12 @@ export const StorageService = {
       drafts.unshift(session);
     }
     set(KEYS.DRAFTS, drafts);
+    return drafts;
   },
-  removeDraft(sessionId: string): void {
+  removeDraft(sessionId: string): ScanSession[] {
     const drafts = this.getDrafts().filter((d) => d.id !== sessionId);
     set(KEYS.DRAFTS, drafts);
+    return drafts;
   },
   clearAllDrafts(): void {
     remove(KEYS.DRAFTS);

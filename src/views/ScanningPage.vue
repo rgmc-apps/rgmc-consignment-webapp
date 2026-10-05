@@ -1211,12 +1211,7 @@ async function updateConfirmPrice() {
           sessionPriceCache.value.prices[confirmItem.value.number] = result.bcPrice;
         }
         StorageService.patchCachedItemPrice(confirmItem.value.number, result.bcPrice);
-        const cachedPrices = StorageService.getCachedItemPrices();
-        if (cachedPrices) {
-          StorageService.setCachedItemPrices(cachedPrices.date, {
-            ...cachedPrices.prices, [confirmItem.value.number]: result.bcPrice,
-          });
-        }
+        StorageService.patchCachedItemPriceForDate(orderDateValue.value, confirmItem.value.number, result.bcPrice);
         confirmPriceCheckState.value = 'updated';
       } else {
         confirmPriceCheckState.value = 'same';

@@ -640,12 +640,7 @@ async function updateItemPrice(item: Item, event: Event) {
       if (localDiffers || result.updated) {
         livePrices.value[item.number] = result.bcPrice;
         StorageService.patchCachedItemPrice(item.number, result.bcPrice);
-        const cachedPrices = StorageService.getCachedItemPrices();
-        if (cachedPrices) {
-          StorageService.setCachedItemPrices(cachedPrices.date, {
-            ...cachedPrices.prices, [item.number]: result.bcPrice,
-          });
-        }
+        StorageService.patchCachedItemPriceForDate(lookupDate.value, item.number, result.bcPrice);
         priceCheckResult.value[item.number] = { old: currentPrice, new: result.bcPrice };
         priceCheckState.value[item.number] = 'updated';
       } else {

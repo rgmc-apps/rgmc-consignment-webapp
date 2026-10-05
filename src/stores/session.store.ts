@@ -165,8 +165,7 @@ export const useSessionStore = defineStore('session', () => {
     if (!currentSession.value || !currentSession.value.customer) return;
     currentSession.value.status = 'draft';
     _touch();
-    StorageService.saveDraft({ ...currentSession.value });
-    drafts.value = StorageService.getDrafts();
+    drafts.value = StorageService.saveDraft({ ...currentSession.value });
   }
 
   /** Called by "Save as Draft & Go Back" — keeps the session in drafts,
@@ -176,8 +175,7 @@ export const useSessionStore = defineStore('session', () => {
     if (currentSession.value.customer) {
       currentSession.value.status = 'draft';
       _touch();
-      StorageService.saveDraft({ ...currentSession.value });
-      drafts.value = StorageService.getDrafts();
+      drafts.value = StorageService.saveDraft({ ...currentSession.value });
     }
     currentSession.value = null;
   }
@@ -198,10 +196,8 @@ export const useSessionStore = defineStore('session', () => {
       ...(salesSeries ? { salesOrderSeries: salesSeries } : {}),
       ...(returnSeries ? { returnOrderSeries: returnSeries } : {}),
     };
-    StorageService.saveSession(updated);
-    StorageService.removeDraft(updated.id);
-    completedSessions.value = StorageService.getSessions();
-    drafts.value = StorageService.getDrafts();
+    completedSessions.value = StorageService.saveSession(updated);
+    drafts.value = StorageService.removeDraft(updated.id);
     ApiService.saveSessionHistory(updated).catch(() => {});
     if (!target || currentSession.value?.id === updated.id) currentSession.value = null;
   }
@@ -215,30 +211,25 @@ export const useSessionStore = defineStore('session', () => {
     const source = target ?? currentSession.value;
     if (!source) return;
     const updated: ScanSession = { ...source, status: 'failed', errorMessage };
-    StorageService.saveSession(updated);
-    StorageService.removeDraft(updated.id);
-    completedSessions.value = StorageService.getSessions();
-    drafts.value = StorageService.getDrafts();
+    completedSessions.value = StorageService.saveSession(updated);
+    drafts.value = StorageService.removeDraft(updated.id);
     ApiService.saveSessionHistory(updated).catch(() => {});
     if (target && currentSession.value?.id === updated.id) currentSession.value = null;
   }
 
   function retryFailedSession(session: ScanSession): void {
-    StorageService.removeSession(session.id);
-    completedSessions.value = StorageService.getSessions();
+    completedSessions.value = StorageService.removeSession(session.id);
     const restored: ScanSession = {
       ...session,
       status: 'draft',
       errorMessage: undefined,
     };
     currentSession.value = restored;
-    StorageService.saveDraft(restored);
-    drafts.value = StorageService.getDrafts();
+    drafts.value = StorageService.saveDraft(restored);
   }
 
   function deleteDraft(sessionId: string): void {
-    StorageService.removeDraft(sessionId);
-    drafts.value = StorageService.getDrafts();
+    drafts.value = StorageService.removeDraft(sessionId);
     if (currentSession.value?.id === sessionId) {
       currentSession.value = null;
     }
@@ -256,8 +247,7 @@ export const useSessionStore = defineStore('session', () => {
 
   function _saveDraft(): void {
     if (!currentSession.value || !currentSession.value.customer) return;
-    StorageService.saveDraft({ ...currentSession.value });
-    drafts.value = StorageService.getDrafts();
+    drafts.value = StorageService.saveDraft({ ...currentSession.value });
   }
 
   return {
