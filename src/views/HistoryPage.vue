@@ -124,53 +124,91 @@
           <p>No {{ activeFilter }} sessions.</p>
         </div>
 
-        <!-- Session list — :key forces remount on filter change to replay stagger -->
-        <ion-list v-else lines="full" :key="activeFilter">
-          <ion-item
-            v-for="session in filteredSessions"
-            :key="session.id"
-            button
-            :detail="false"
-            @click="openDetail(session)"
-          >
-            <ion-icon
-              :icon="session.status === 'submitted' ? checkmarkCircleOutline : alertCircleOutline"
-              :color="session.status === 'submitted' ? 'success' : 'danger'"
-              slot="start"
-            />
-            <ion-label>
-              <h3 class="session-customer">{{ session.customer?.displayName ?? '— No customer —' }}</h3>
-              <p class="session-meta">
-                {{ session.user.displayName }} &bull; {{ session.brand.displayName }} &bull; {{ session.postingDate ? formatDate(session.postingDate) : formatDate(session.createdAt) }}
-              </p>
-              <p class="session-counts">
-                <span v-if="session.salesOrders.length">
-                  Sales: {{ session.salesOrders.length }} lines
-                  ({{ formatCurrency(sessionSalesTotal(session)) }})
-                </span>
-                <span v-if="session.salesOrders.length && session.returnOrders.length"> &bull; </span>
-                <span v-if="session.returnOrders.length">
-                  Returns: {{ session.returnOrders.length }} lines
-                  ({{ formatCurrency(sessionReturnTotal(session)) }})
-                </span>
-              </p>
-              <p v-if="session.salesOrderSeries || session.returnOrderSeries" class="session-series">
-                <span v-if="session.salesOrderSeries">Sales Order: {{ session.salesOrderSeries }}</span>
-                <span v-if="session.salesOrderSeries && session.returnOrderSeries"> &bull; </span>
-                <span v-if="session.returnOrderSeries">Return Order: {{ session.returnOrderSeries }}</span>
-              </p>
-              <p v-if="session.status === 'failed' && session.errorMessage" class="session-error">
-                {{ session.errorMessage }}
-              </p>
-            </ion-label>
-            <div slot="end" class="item-end">
-              <ion-badge :color="session.status === 'submitted' ? 'success' : 'danger'" class="status-badge">
-                {{ session.status === 'submitted' ? 'Submitted' : 'Failed' }}
-              </ion-badge>
-              <ion-note class="item-total">{{ formatCurrency(sessionTotal(session)) }}</ion-note>
+        <!-- Grouped history — Month ▸ Store ▸ Session. :key forces remount on filter
+             change to replay the month stagger. Months are always expanded (they're
+             just section dividers); each store row is its own expand/collapse toggle,
+             collapsed by default so the default view is just "month + store". -->
+        <div v-else class="history-tree" :key="activeFilter">
+          <div v-for="month in groupedHistory" :key="month.key" class="month-group">
+            <div class="month-header">
+              <span class="month-label">{{ month.label }}</span>
+              <span class="month-rule" />
+              <span class="month-count">{{ month.totalCount }}</span>
             </div>
-          </ion-item>
-        </ion-list>
+
+            <div
+              v-for="store in month.stores"
+              :key="month.key + '::' + store.store"
+              class="store-group"
+            >
+              <button
+                type="button"
+                class="store-header"
+                :aria-expanded="isStoreExpanded(month.key, store.store)"
+                @click="toggleStore(month.key, store.store)"
+              >
+                <ion-icon
+                  :icon="isStoreExpanded(month.key, store.store) ? removeOutline : addOutline"
+                  class="store-toggle-icon"
+                />
+                <span class="store-name">{{ store.store }}</span>
+                <span class="store-count">{{ store.sessions.length }}</span>
+                <span class="store-total">{{ formatCurrency(store.total) }}</span>
+              </button>
+
+              <div class="store-sessions" :class="{ 'store-sessions--open': isStoreExpanded(month.key, store.store) }">
+                <div class="store-sessions-inner">
+                  <div
+                    v-for="session in store.sessions"
+                    :key="session.id"
+                    class="entry-item"
+                    role="button"
+                    tabindex="0"
+                    @click="openDetail(session)"
+                    @keyup.enter="openDetail(session)"
+                  >
+                    <ion-icon
+                      :icon="session.status === 'submitted' ? checkmarkCircleOutline : alertCircleOutline"
+                      :color="session.status === 'submitted' ? 'success' : 'danger'"
+                      class="entry-icon"
+                    />
+                    <div class="entry-body">
+                      <div class="entry-top-row">
+                        <h3 class="entry-date">{{ shortDay(session) }}</h3>
+                        <span class="entry-brand">{{ session.brand.displayName }}</span>
+                      </div>
+                      <p class="entry-counts">
+                        <span v-if="session.salesOrders.length">
+                          Sales: {{ session.salesOrders.length }} lines
+                          ({{ formatCurrency(sessionSalesTotal(session)) }})
+                        </span>
+                        <span v-if="session.salesOrders.length && session.returnOrders.length"> &bull; </span>
+                        <span v-if="session.returnOrders.length">
+                          Returns: {{ session.returnOrders.length }} lines
+                          ({{ formatCurrency(sessionReturnTotal(session)) }})
+                        </span>
+                      </p>
+                      <p v-if="session.salesOrderSeries || session.returnOrderSeries" class="session-series">
+                        <span v-if="session.salesOrderSeries">Sales Order: {{ session.salesOrderSeries }}</span>
+                        <span v-if="session.salesOrderSeries && session.returnOrderSeries"> &bull; </span>
+                        <span v-if="session.returnOrderSeries">Return Order: {{ session.returnOrderSeries }}</span>
+                      </p>
+                      <p v-if="session.status === 'failed' && session.errorMessage" class="session-error">
+                        {{ session.errorMessage }}
+                      </p>
+                    </div>
+                    <div class="entry-end">
+                      <ion-badge :color="session.status === 'submitted' ? 'success' : 'danger'" class="status-badge">
+                        {{ session.status === 'submitted' ? 'Submitted' : 'Failed' }}
+                      </ion-badge>
+                      <span class="entry-total">{{ formatCurrency(sessionTotal(session)) }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </template>
 
       <!-- ── BC Orders Panel ── -->
@@ -614,6 +652,8 @@ import {
   searchOutline,
   cloudDownloadOutline,
   cloudOfflineOutline,
+  addOutline,
+  removeOutline,
 } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
 import { useOrderSubmission } from '@/composables/useOrderSubmission';
@@ -729,6 +769,86 @@ const filteredSessions = computed(() => {
   if (activeFilter.value === 'all') return mergedSessions.value;
   return mergedSessions.value.filter((s) => s.status === activeFilter.value);
 });
+
+/* ─── Grouped history: Month ▸ Store ▸ Session ─── */
+interface StoreGroup {
+  store: string;
+  sessions: ScanSession[];
+  total: number;
+}
+interface MonthGroup {
+  key: string;
+  label: string;
+  stores: StoreGroup[];
+  totalCount: number;
+}
+
+function sessionDateValue(session: ScanSession): string {
+  return session.postingDate ?? session.submittedAt ?? session.createdAt;
+}
+
+function shortDay(session: ScanSession): string {
+  return new Date(sessionDateValue(session)).toLocaleDateString('en-PH', {
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+const groupedHistory = computed<MonthGroup[]>(() => {
+  const monthMap = new Map<string, Map<string, ScanSession[]>>();
+  for (const session of filteredSessions.value) {
+    const d = new Date(sessionDateValue(session));
+    const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const storeName = session.customer?.displayName ?? '— No customer —';
+    if (!monthMap.has(monthKey)) monthMap.set(monthKey, new Map());
+    const storeMap = monthMap.get(monthKey)!;
+    if (!storeMap.has(storeName)) storeMap.set(storeName, []);
+    storeMap.get(storeName)!.push(session);
+  }
+
+  return Array.from(monthMap.entries())
+    .sort(([a], [b]) => (a < b ? 1 : -1)) // newest month first
+    .map(([key, storeMap]) => {
+      const [y, m] = key.split('-').map(Number);
+      const label = new Date(y, m - 1, 1).toLocaleDateString('en-PH', {
+        month: 'long',
+        year: 'numeric',
+      });
+      const stores: StoreGroup[] = Array.from(storeMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([store, sessions]) => {
+          const sorted = [...sessions].sort((a, b) =>
+            (b.submittedAt ?? b.createdAt) > (a.submittedAt ?? a.createdAt) ? 1 : -1,
+          );
+          return {
+            store,
+            sessions: sorted,
+            total: sorted.reduce((sum, s) => sum + sessionTotal(s), 0),
+          };
+        });
+      const totalCount = stores.reduce((sum, g) => sum + g.sessions.length, 0);
+      return { key, label, stores, totalCount };
+    });
+});
+
+/** Which store rows are expanded, keyed by "<monthKey>::<store>". Collapsed by
+ *  default so the initial view is just the month + store directory, per the
+ *  requested default layout. */
+const expandedStores = ref<Set<string>>(new Set());
+
+function storeKey(monthKey: string, store: string): string {
+  return `${monthKey}::${store}`;
+}
+function isStoreExpanded(monthKey: string, store: string): boolean {
+  return expandedStores.value.has(storeKey(monthKey, store));
+}
+function toggleStore(monthKey: string, store: string): void {
+  const key = storeKey(monthKey, store);
+  const next = new Set(expandedStores.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  expandedStores.value = next;
+}
 
 /* ─── Session helpers ─── */
 function sessionSalesTotal(session: ScanSession): number {
@@ -1209,6 +1329,180 @@ ion-list ion-item:nth-child(5) { animation: fade-slide-up 0.28s var(--ease-out-q
 ion-list ion-item:nth-child(6) { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.17s both; }
 ion-list ion-item:nth-child(7) { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.20s both; }
 ion-list ion-item:nth-child(8) { animation: fade-slide-up 0.28s var(--ease-out-quart) 0.23s both; }
+
+/* ── Grouped history tree (Month ▸ Store ▸ Session) ── */
+.history-tree {
+  padding: 4px 12px 24px;
+}
+.month-group {
+  margin-bottom: 20px;
+}
+.month-group:nth-child(1) { animation: fade-slide-up 0.3s var(--ease-out-quart) 0.02s both; }
+.month-group:nth-child(2) { animation: fade-slide-up 0.3s var(--ease-out-quart) 0.06s both; }
+.month-group:nth-child(3) { animation: fade-slide-up 0.3s var(--ease-out-quart) 0.1s both; }
+.month-group:nth-child(n+4) { animation: fade-slide-up 0.3s var(--ease-out-quart) 0.13s both; }
+
+.month-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px 10px;
+}
+.month-label {
+  font-size: var(--text-xs);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wider);
+  color: var(--app-gold);
+  white-space: nowrap;
+}
+.month-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--app-border);
+}
+.month-count {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  color: var(--app-text-muted);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 20px;
+  padding: 2px 8px;
+}
+
+.store-group {
+  margin-bottom: 8px;
+}
+
+.store-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 12px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.store-header:hover,
+.store-header:active {
+  border-color: var(--app-gold);
+}
+.store-toggle-icon {
+  flex-shrink: 0;
+  font-size: 16px;
+  padding: 3px;
+  border-radius: 50%;
+  background: var(--app-gold-pale);
+  color: var(--app-gold);
+  box-sizing: content-box;
+}
+.store-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
+  color: var(--app-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.store-count {
+  flex-shrink: 0;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  color: var(--app-text-muted);
+}
+.store-total {
+  flex-shrink: 0;
+  font-size: var(--text-sm);
+  font-weight: 800;
+  color: var(--app-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Collapse/expand via grid-rows — no JS height measuring needed. */
+.store-sessions {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.26s var(--ease-out-quart);
+}
+.store-sessions--open {
+  grid-template-rows: 1fr;
+}
+.store-sessions-inner {
+  overflow: hidden;
+}
+
+.entry-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px 10px 14px;
+  margin: 8px 0 0 14px;
+  border-left: 2px solid var(--app-border);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.entry-item:hover,
+.entry-item:focus-visible {
+  border-left-color: var(--app-gold);
+  outline: none;
+}
+.entry-icon {
+  flex-shrink: 0;
+  font-size: 18px;
+  margin-top: 2px;
+}
+.entry-body {
+  flex: 1;
+  min-width: 0;
+}
+.entry-top-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.entry-date {
+  font-size: var(--text-base);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
+  color: var(--app-fg);
+  margin: 0;
+}
+.entry-brand {
+  font-size: var(--text-xs);
+  color: var(--app-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.entry-counts {
+  font-size: var(--text-xs);
+  color: var(--ion-color-medium);
+  margin: 2px 0 0;
+}
+.entry-end {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+}
+.entry-total {
+  font-size: var(--text-sm);
+  font-weight: 800;
+  color: var(--app-fg);
+  letter-spacing: var(--tracking-tighter);
+  font-variant-numeric: tabular-nums;
+}
 
 /* ══════════ DETAIL MODAL ══════════ */
 .detail-content {
