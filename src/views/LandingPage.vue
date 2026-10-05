@@ -153,6 +153,7 @@
             <ion-label>
               <h3 class="customer-name">{{ c.displayName }}</h3>
               <p class="customer-sub">{{ c.number }} &bull; {{ c.city }}</p>
+              <p v-if="c.prodShelfLife" class="customer-shelf-life">{{ c.prodShelfLife }}mo shelf life</p>
             </ion-label>
           </ion-item>
           <ion-item v-if="customers.length > 8" lines="none" class="see-more">
@@ -518,6 +519,11 @@ async function confirmDeleteDraft(id: string) {
 
 .customer-sub {
   font-size: 12px !important;
+  color: var(--app-text-muted) !important;
+}
+
+.customer-shelf-life {
+  font-size: 11px !important;
   color: var(--app-text-muted) !important;
 }
 

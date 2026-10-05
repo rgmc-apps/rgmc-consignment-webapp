@@ -459,6 +459,7 @@
               <ion-label>
                 <h3>{{ c.displayName }}</h3>
                 <p>{{ c.number }} &bull; {{ c.city }}</p>
+                <p v-if="c.prodShelfLife" class="cust-shelf-life">{{ c.prodShelfLife }}mo shelf life</p>
               </ion-label>
               <ion-icon
                 v-if="selectedCustomer?.id === c.id"
@@ -2256,6 +2257,10 @@ async function showPriceListInfo(code: string) {
   padding: 2px 6px;
   margin-left: 8px;
   vertical-align: middle;
+}
+.cust-shelf-life {
+  font-size: var(--text-2xs);
+  color: var(--app-text-muted);
 }
 
 .modal-empty {

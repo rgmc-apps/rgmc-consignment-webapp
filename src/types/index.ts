@@ -60,6 +60,10 @@ export interface Customer {
   blocked?: string;
   lastModifiedDateTime: string;
   chain?: boolean;
+  /** Months of shelf life this customer requires — from BC's "RGMC Prod Shelf Life"
+   *  table extension field. Informational for this app (no lot/expiration tracking
+   *  here); see the food consignment app for the field's original use. */
+  prodShelfLife?: number;
 }
 
 export interface Item {

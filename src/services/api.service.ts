@@ -292,6 +292,14 @@ export const ApiService = {
       try {
         const res = await apiClient.get('/bc/custom/v2/customers', {
           params: {
+            // chain is always true here — enforced via this request param rather than
+            // filtering client-side after the fact (matches the food consignment app's
+            // /food/customers, which enforces chain=true server-side). Unlike that
+            // dedicated endpoint, /bc/custom/v2/customers is a shared CRUD endpoint
+            // other callers (e.g. SO-import reconciliation) rely on for non-chain
+            // customers too, so it isn't hardcoded on the server — this app just
+            // always asks for the chain-only subset.
+            chain: true,
             ...(brandCode ? { brand: brandCode } : {}),
             ...(modifiedSince ? { modified_since: modifiedSince } : {}),
           },
@@ -299,7 +307,6 @@ export const ApiService = {
         });
         const raw = extractList<Record<string, unknown>>(res.data);
         return raw
-          .filter((c) => (c['chain'] ?? c['Chain']) === true)
           .map((c) => ({
             ...c,
             id:          (c['id']          ?? c['Id']                                         ?? '') as string,
@@ -312,6 +319,7 @@ export const ApiService = {
             currencyCode:(c['currencyCode']?? c['currency']                                   ?? '') as string,
             lastModifiedDateTime: (c['lastModifiedDateTime'] ?? '') as string,
             chain:       (c['chain']       ?? c['Chain']                                      ?? false) as boolean,
+            prodShelfLife: (c['prodShelfLife'] as number | undefined) ?? undefined,
           })) as Customer[];
       } catch (err) {
         if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) throw err;

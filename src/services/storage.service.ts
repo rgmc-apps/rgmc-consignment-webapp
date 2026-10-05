@@ -11,6 +11,17 @@ import type {
   SyncTimestamps,
 } from '@/types';
 
+/** The cached customer shape — slimmed down from the full BC Customer for localStorage
+ *  size (see getCachedCustomers/setCachedCustomers/mergeCachedCustomers below). */
+type SlimCustomer = {
+  id: string;
+  number: string;
+  displayName: string;
+  city: string;
+  brandCode?: string;
+  prodShelfLife?: number;
+};
+
 const KEYS = {
   AUTH: 'rgmc_auth',
   AUTH_PHOTO: 'rgmc_auth_photo',
@@ -202,7 +213,7 @@ export const StorageService = {
   },
 
   getCachedCustomers(company?: string, brand?: string): Customer[] {
-    const raw = get<{ company?: string; data?: Array<{ id: string; number: string; displayName: string; city: string; brandCode?: string }> } | Customer[]>(KEYS.CACHE_CUSTOMERS);
+    const raw = get<{ company?: string; data?: SlimCustomer[] } | Customer[]>(KEYS.CACHE_CUSTOMERS);
     if (!raw) return [];
     if (Array.isArray(raw)) {
       // Old format (no company context) — treat as stale if a company is expected
@@ -232,11 +243,12 @@ export const StorageService = {
       number: c.number,
       displayName: c.displayName,
       city: c.city,
+      prodShelfLife: c.prodShelfLife,
       ...(brand ? { brandCode: brand } : {}),
     }));
     if (brand) {
       // Replace only this brand's entries — keep other brands' data intact.
-      const raw = get<{ company?: string; data?: Array<{ id: string; number: string; displayName: string; city: string; brandCode?: string }> } | Customer[]>(KEYS.CACHE_CUSTOMERS);
+      const raw = get<{ company?: string; data?: SlimCustomer[] } | Customer[]>(KEYS.CACHE_CUSTOMERS);
       const existing = raw && !Array.isArray(raw) ? (raw.data ?? []) : [];
       const otherBrands = existing.filter((e) => e.brandCode !== brand);
       set(KEYS.CACHE_CUSTOMERS, { company: company ?? '', data: [...otherBrands, ...slim] });
@@ -247,14 +259,17 @@ export const StorageService = {
   /** Upsert a partial list of customers into the cache (incremental sync). */
   mergeCachedCustomers(updates: Customer[], company?: string, brand?: string): void {
     if (!updates.length) return;
-    const raw = get<{ company?: string; data?: Array<{ id: string; number: string; displayName: string; city: string; brandCode?: string }> } | Customer[]>(KEYS.CACHE_CUSTOMERS);
-    const existing: Array<{ id: string; number: string; displayName: string; city: string; brandCode?: string }> =
-      raw && !Array.isArray(raw) ? (raw.data ?? []) : [];
+    const raw = get<{ company?: string; data?: SlimCustomer[] } | Customer[]>(KEYS.CACHE_CUSTOMERS);
+    const existing: SlimCustomer[] = raw && !Array.isArray(raw) ? (raw.data ?? []) : [];
     // Key by brand::id so the same customer ID in two different brands stays separate.
     const key = (e: { id: string; brandCode?: string }) => `${e.brandCode ?? ''}::${e.id}`;
     const map = new Map(existing.map((c) => [key(c), c]));
     for (const c of updates) {
-      const entry = { id: c.id, number: c.number, displayName: c.displayName, city: c.city, ...(brand ? { brandCode: brand } : {}) };
+      const entry = {
+        id: c.id, number: c.number, displayName: c.displayName, city: c.city,
+        prodShelfLife: c.prodShelfLife,
+        ...(brand ? { brandCode: brand } : {}),
+      };
       map.set(key(entry), entry);
     }
     set(KEYS.CACHE_CUSTOMERS, { company: company ?? '', data: Array.from(map.values()) });
