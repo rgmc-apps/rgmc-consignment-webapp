@@ -166,6 +166,7 @@ export interface SalesOrderPayload {
   postingDate?: string;
   externalDocumentNumber?: string;
   submittedBy?: string;
+  brandCode?: string;
   lines: SalesOrderLine[];
 }
 

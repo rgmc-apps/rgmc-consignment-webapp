@@ -497,6 +497,7 @@ async function doSubmitSales(customerNumber: string, remarks: string) {
     ...(session.value.postingDate ? { postingDate: session.value.postingDate } : {}),
     externalDocumentNumber: isNoSales ? 'No Sales' : (remarks || undefined),
     ...(session.value.user?.displayName ? { submittedBy: session.value.user.displayName } : {}),
+    ...(session.value.brand?.code ? { brandCode: session.value.brand.code } : {}),
     lines: sessionStore.salesOrders.map((l) => ({
       itemNumber: l.itemNumber,
       description: l.description,

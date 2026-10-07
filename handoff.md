@@ -2,74 +2,83 @@
 
 ## Goal
 
-This session picked up from a prior handoff (deployment fixes + search bar — already done and verified) and then handled three new, unrelated requests from the user in `rgmc-consignment-webapp` and its backend sibling repo `rgmc-bc-api` (both under `C:\claude\`):
+This session covered three separate, unrelated requests from the user in `rgmc-consignment-webapp` and its backend sibling repo `rgmc-bc-api` (both under `C:\claude\`):
 
-1. Confirm the BC "Chain" field (gating the customer dropdown, commit `231d387`) is live — **user confirmed it is**, no action needed.
-2. Investigate why other users still report slow connections, and add a **Network Test** feature to the profile submenu so users can see actual latency/server-status results on their own device.
-3. Fix the contacts endpoint used by the **login screen** so newly created Business Central contacts (new employees) are reflected immediately instead of waiting out a server-side cache.
+1. **History page redesign**: group the session-history list by Month → Store, collapsible/expandable, collapsed by default (showing just months + store rows), per a literal ASCII mockup the user provided.
+2. **Performance audit + fixes**: search the webapp codebase for anything that could make loading faster / more efficient in storage and network use, then implement the top findings (user said "implement items 1-4" referring to a 4-item list this assistant produced).
+3. **New BC customer field ("Prod Shelf Life") + chain-filtering architecture change**: BC's AL side already had a new table extension field deployed (`RGMC Prod Shelf Life`, tableextension 50450 field 50453, exposed as `prodShelfLife` on BC API page 50306 "RGMC Customer API v2"). Task was to surface this field on the customer list in this app, following the pattern used by the sibling food-consignment app (`C:\claude\sbic-consignment-food`) for its own `chain`/`prodShelfLife` customer fields — and, per the user's explicit clarification, also move `chain=true` filtering from client-side (webapp) to server-side (bc-api), matching how the food app's `/food/customers` endpoint hardcodes `chain eq true` — **but adapted, not copied verbatim**, since `/bc/custom/v2/customers` is a shared CRUD endpoint other callers (SO-import reconciliation tool) rely on for non-chain customers too, so chain=true is sent as an explicit request param from this app rather than hardcoded server-side.
 
-All three are done. Both repos are committed, pushed, and confirmed deployed to production (verified via `gcloud builds list` and current Cloud Run revisions — see "Current State"). **One follow-up recommendation from part 2 (setting `min-instances` on `rgmc-bc-api-prod` to eliminate Cloud Run cold starts) was proposed to the user but never answered/applied — this is the one open thread.**
+All three are **done and already committed** (by the user, independently, as in prior sessions — see "Current State"). Nothing is outstanding from this session's own work.
 
 ## Current State
 
-**Nothing is broken or mid-edit. Both repos are clean (`git status` shows "nothing to commit, working tree clean" in both) and pushed to `origin/master`.**
+**Nothing is broken or mid-edit from this session's work.** Both repos were clean (working tree) with respect to this session's changes at time of writing — the user committed everything independently mid-session (visible only via `git log`, not in the conversation).
 
-### Part 2 — Slow-connection investigation + Network Test feature (DONE, deployed)
-- **Root cause found for "other users still slow"**: `rgmc-bc-api-prod` (the real prod backend, per `[[project-infra-findings]]`) has **no `min-instances` set** (`autoscaling.knative.dev/minScale` annotation absent — confirmed via `gcloud run services describe`), so it scales to zero and cold-starts on the next request. Confirmed via Cloud Run system logs: **~65 "Starting new instance... AUTOSCALING" events in the last 3 days** (~1/hour), plus **121 HTTP 503s in 3 days**. The OOM "memory limit exceeded" events from the prior session's audit are NOT the current cause — all 6 of those are clustered on 2026-09-18 05:48–06:13 only, none since.
-- **This root cause was NOT fixed** — only diagnosed. The recommended fix (`min-instances=1` or `2` on `rgmc-bc-api-prod`) was proposed to the user as a prod infra/cost change requiring confirmation, and the conversation moved on to other work before they answered. **See "Next Step."**
-- **Network Test feature — built, verified, committed, deployed:**
-  - New `src/composables/useNetworkTest.ts` — pings the existing `/bc/status` endpoint (via `ApiService.getApiStatus`) 4x, times each round-trip client-side, captures `navigator.connection` info (effectiveType/downlink/rtt/saveData) when available.
-  - New `src/components/NetworkTestModal.vue` — shows first-ping vs. steady-state latency (the gap is what reveals a cold start vs. a genuinely slow connection), server state (warming_up/busy/active requests), device network info, and a plain-language verdict. Has a "Report These Results" button that feeds the raw numbers into the existing `useErrorReporter` bug-report flow.
-  - `src/components/ProfileMenu.vue` — added a "Network Test" row between "Edit Profile" and "Sync", opens the new modal.
-  - Verified live via headless Playwright against real staging BC API (same pattern as the prior session's search-bar test): pings came back 131–266ms, verdict correctly showed "Looks healthy."
-  - `npx vue-tsc --noEmit` clean.
-  - **Committed and pushed by the user as `92b9a62 added network tests`** (webapp repo). Cloud Build `97215bb3` (2026-09-21T05:24:22Z) succeeded — this build's timestamp matches the commit, confirming it deployed to `rgmc-consignment-prod` (current revision `rgmc-consignment-prod-00149-769`, 100% traffic).
+### Part 1 — History grouping (DONE, committed)
+- `src/views/HistoryPage.vue` rewritten: the flat `ion-list` of sessions was replaced with a Month → Store → Session tree (`groupedHistory` computed, `expandedStores` Set for per-store collapse state). Months are always-visible section dividers (not collapsible); each store row has a `+`/`-` toggle (`addOutline`/`removeOutline` icons), collapsed by default; expanding a store reveals its individual session entries (date, brand, sales/returns breakdown, status badge, total) which still open the existing Session Detail modal via `openDetail(session)`.
+- Verified live via Playwright-style Chrome automation with seeded multi-month/multi-store fake sessions in `localStorage['rgmc_sessions']` — toggle, nesting, and detail modal all confirmed working.
+- Committed as part of `ecb933e DI-0162 modified history page layout` (webapp repo, already in `git log`).
 
-### Part 3 — Contacts endpoint fix (DONE, deployed)
-- **Root cause**: `/bc/custom/v2/contacts` (hit by the login screen via `ApiService.getContacts()`) does reach BC, but through `call_rgmc_v2_table()` in `rgmc-bc-api/src/services/bc_functions.py` (line ~1640), which serves unfiltered list calls from an **in-process 30-minute TTL cache** (docstring previously said "5-minute", actual constant `_LIST_CACHE_TTL = 1800`). Even when stale it does stale-while-revalidate (returns old data immediately, refreshes in background). Since `rgmc-bc-api-prod` can run up to 20 Cloud Run instances each with their own independent in-memory cache, a newly created BC contact (new employee) could appear on some instances and not others for up to 30 minutes — and the frontend's existing "candidate not found → retry" fallback in `auth.store.ts` didn't actually help, because the retry hits the same cached backend endpoint.
-- **Fix**: `call_rgmc_v2_table()` gained a `bypass_cache: bool = False` parameter — when set, it fetches BC live first and only falls back to the cached entry if the live call itself fails (BC down/slow). `list_rgmc_contacts_v2()` in `rgmc_contact_v2_routes.py` now passes `bypass_cache=True`. No other v2 tables (customers, items, etc.) were touched — they keep cache-first behavior. Startup warmup (`warmup_rgmc_v2_lists`) still populates the contacts cache entry as before, so it remains available as the outage fallback.
-- Compile-checked clean (`python -m py_compile` on both edited files).
-- **Committed and pushed by the user as `f4f345a added bc endpoints`** (bc-api repo: `src/routers/bc_routes/rgmc_contact_v2_routes.py`, `src/services/bc_functions.py`). Cloud Build `eb2b915e...` (2026-09-21T10:12:30Z) succeeded — matches the commit timestamp (18:12:18 +0800 = 10:12:18 UTC), confirming deploy to `rgmc-bc-api-prod` (current revision `rgmc-bc-api-prod-00203-4kd`).
+### Part 2 — Performance fixes (DONE, committed)
+Four fixes implemented in `rgmc-consignment-webapp`, all verified (type-check clean, live-tested in Chrome):
+1. **Oversized logo PNGs resized/recompressed** using Pillow (`public/static/logo-bnw.png` 1024²/1.45MB→512²/163KB; `cons-logo-splash.png` 915²/738KB→512²/231KB; `cons-logo.png` 804²/414KB→256²/50KB — ~80% total reduction). No code changes needed, filenames unchanged.
+2. **IndexedDB items cache switched from one giant blob to a per-item keyed store** (`src/services/storage.service.ts`): new store `items_kv` (keyPath `'id'`) replaces the old `items` store (single blob keyed `'all'`). Added a v1→v2 `onupgradeneeded` migration that moves existing users' cached catalog into the new schema and drops the old store. `patchCachedItemPrice` is now a single-record `put` instead of rewriting the whole catalog; `mergeCachedItems`/`applyPriceMapToItems` now write only changed/incoming records via new helpers `putItemsIDB()`/`replaceAllItemsIDB()`. Verified: migration tested with a seeded legacy v1 DB (25 fake items), confirmed auto-migration + that a single patch only touches one record.
+3. **Item price-map localStorage patch** — added `StorageService.patchCachedItemPriceForDate()` to replace a duplicated "read + spread-clone entire map + write" pattern at the two single-item price-correction call sites (`ScanningPage.vue` `updateConfirmPrice()`, `ItemSelectorModal.vue` `updateItemPrice()`).
+4. **Local session/draft storage**: `saveSession`/`removeSession`/`saveDraft`/`removeDraft` in `storage.service.ts` now return the resulting array (callers in `session.store.ts` no longer do a redundant full localStorage read right after every write — this fired on nearly every field edit during scanning). `saveSession` now caps local retention at 200 sessions (oldest dropped; Firestore is canonical history). Drafts intentionally left uncapped (no server backup).
+- Committed as `bb15424 DI-0163 added loading optimizations for the webapp`.
 
-### Part 1 — Chain field
-- User confirmed BC's "Chain" field is now live. The `231d387` filter (only chain customers in the dropdown) should now be working correctly in prod — not independently re-verified in-app this session, but no further action was requested.
+### Part 3 — Prod Shelf Life field + chain server-side filtering (DONE, committed)
+- **`rgmc-bc-api`**: `src/models/bc_models/rgmc_customer_v2_models.py` — added `prodShelfLife: Optional[int] = None` to `RgmcCustomerV2Response` only (not Create/Update — the AL API page field is `Editable = false`, i.e. read-only via API). No route/worker-pool changes were needed: `/bc/custom/v2/customers` already forwards raw BC/GCS data untouched, and `rgmc-worker-pool`'s `fetch_customers()` does a full unfiltered fetch of BC API page 50306, so the new field flows through automatically once BC publishes it.
+- **`rgmc-consignment-webapp`**:
+  - `src/types/index.ts` — added `prodShelfLife?: number` to `Customer`.
+  - `src/services/api.service.ts` `getCustomers()` — now always sends `chain: true` as a request param (bc-api already supported `?chain=` filtering, it just wasn't being used); removed the old client-side `.filter((c) => (c['chain'] ?? c['Chain']) === true)` post-filter; added `prodShelfLife` field mapping.
+  - `src/services/storage.service.ts` — introduced a shared `SlimCustomer` type (was a duplicated inline type literal in 4 places) and added `prodShelfLife` to the slimmed customer cache projection in `getCachedCustomers`/`setCachedCustomers`/`mergeCachedCustomers`, so the field survives localStorage caching instead of being silently dropped.
+  - `src/views/LandingPage.vue` and `src/views/ScanningPage.vue` — both customer-list UIs now show `"{{ c.prodShelfLife }}mo shelf life"` under the customer name/number/city line, only when the value is set (no clutter for the common garments case with no shelf-life data).
+- Verified: `vue-tsc --noEmit` and `py_compile` clean; live-tested in Chrome with a seeded customer (`prodShelfLife: 6`) rendering "6mo shelf life" on the Landing page, while a customer without the field renders nothing extra.
+- Committed as `424ed2b DI-0168 added chain flag` (webapp) and `8e0c9fe DI-0168 added chain flag` (bc-api).
+
+### Unrelated pre-existing uncommitted work (NOT touched this session — flagging only)
+`rgmc-bc-api` currently has **uncommitted** changes in `src/routers/bc_routes/so_buffer_routes.py` (+22 lines, new `GET /history` endpoint for "buffer-reconciliation history") and `src/services/so_buffer_service.py` (+49 lines, `list_buffer_history()`). This is **not** this session's work — it was already present in the working tree when this session started touching bc-api, and belongs to a different in-progress feature (SO-import buffer reconciliation history, reading a Firestore `so_buffer_history_{env}` collection). Do not assume ownership of it or revert it; just be aware it's there if `git status` looks unexpectedly dirty on bc-api.
 
 ## Files Actively Being Edited
 
-None — everything is committed, pushed, and confirmed deployed. For reference, this session's changes:
+None — everything from this session is committed. For reference, this session's changes (all already in git history, see commits above):
 
-**`rgmc-consignment-webapp`** (commit `92b9a62`):
-- `src/composables/useNetworkTest.ts` — new file, network test composable.
-- `src/components/NetworkTestModal.vue` — new file, network test UI.
-- `src/components/ProfileMenu.vue` — added "Network Test" menu item + wiring.
+**`rgmc-consignment-webapp`**:
+- `src/views/HistoryPage.vue` — Month/Store grouped history tree (Part 1).
+- `public/static/logo-bnw.png`, `public/static/cons-logo-splash.png`, `public/static/cons-logo.png` — resized/recompressed (Part 2).
+- `src/services/storage.service.ts` — IDB per-item store + migration, price-map patch helper, session/draft return-value + retention cap, `SlimCustomer` type + prodShelfLife passthrough (Parts 2 & 3).
+- `src/views/ScanningPage.vue` — price-patch call site simplified (Part 2); customer modal shelf-life display (Part 3).
+- `src/components/ItemSelectorModal.vue` — price-patch call site simplified (Part 2).
+- `src/stores/session.store.ts` — consumes return values from StorageService instead of redundant re-reads (Part 2).
+- `src/types/index.ts` — `prodShelfLife?: number` on `Customer` (Part 3).
+- `src/services/api.service.ts` — `chain: true` param + `prodShelfLife` mapping on `getCustomers()` (Part 3).
+- `src/views/LandingPage.vue` — customer preview shelf-life display (Part 3).
 
-**`rgmc-bc-api`** (commit `f4f345a`):
-- `src/services/bc_functions.py` — added `bypass_cache` param to `call_rgmc_v2_table()`.
-- `src/routers/bc_routes/rgmc_contact_v2_routes.py` — `list_rgmc_contacts_v2()` now calls with `bypass_cache=True`.
+**`rgmc-bc-api`**:
+- `src/models/bc_models/rgmc_customer_v2_models.py` — `prodShelfLife` on `RgmcCustomerV2Response` (Part 3).
 
 ## Failed Attempts
 
-None this session — both investigations (slow connections, contacts staleness) led directly to root causes on the first pass, and both fixes worked cleanly (type-check / compile-check passed first try, network test verified working in-browser on first Playwright run after fixing the profile-trigger selector — see below).
-
-- **What was tried**: Playwright `page.click('.profile-trigger')` to open the profile popover. — **Why it failed**: Locator resolved to 2 elements (one not visible), `page.click` timed out waiting for the first one to become visible/stable. **Fix**: used `page.locator('.profile-trigger:visible').first()` with an explicit `waitFor({ state: 'visible' })` instead — worked immediately.
+None this session that affected the final result — one tool hiccup, not a dead end:
+- **What was tried**: `mcp__claude-in-chrome__computer` screenshot action right after clicking to expand a history-tree store row. — **Why it "failed"**: CDP `Page.captureScreenshot` timed out twice in a row (extension/tab transient issue, not a real page freeze — confirmed via `get_page_text` returning correct expanded content in the same moment). **Resolution**: retried the screenshot a third time, succeeded and showed the correct expanded UI. No code change was needed; this was purely a browser-automation tooling flake.
 
 ## Next Step
 
-**Resolved (2026-09-22): user decided "Not now" on the `min-instances` fix for `rgmc-bc-api-prod`.** Re-verified before asking that `minScale` was still unset (only `maxScale: 20` present in the service's autoscaling annotations) — so cold starts are still occurring in prod, and the user has explicitly chosen to leave scale-to-zero as-is rather than pay for an always-on instance. **Do not re-propose this unprompted** — if the user raises slow-connection reports again, revisit, but treat this as a settled decision, not an open thread.
-
-No other outstanding action items — parts 1–3 are fully done and deployed. Nothing left to resume from this handoff; it can be considered closed.
+**Nothing is queued.** All three parts of this session are implemented, verified, and committed. If resuming:
+1. Run `git log --oneline -5` in both `rgmc-consignment-webapp` and `rgmc-bc-api` to confirm the commits (`DI-0162`, `DI-0163`, `DI-0168` on webapp; `DI-0168` on bc-api) are still the tip and nothing regressed.
+2. Check `git status` on `rgmc-bc-api` — if it's dirty with `so_buffer_routes.py`/`so_buffer_service.py` changes, that's the unrelated pre-existing work noted above, not a regression from this session.
+3. No open questions or unresolved decisions remain from this session. If the user raises something new, treat this handoff as closed and start fresh.
 
 ## Context & Gotchas
 
-- **gcloud must be run from PowerShell**, not Bash, on this machine (`Python was not found` error in Bash's gcloud shim). Python for local checks/compiles: `C:\Users\erarellano\AppData\Local\Programs\Python\Python312\python.exe`.
-- **`rgmc-consignment-prod` is the real production Cloud Run service** for the webapp; `rgmc-consignment-webapp` is a stale, different service — don't confuse them (see `[[project-infra-findings]]` memory).
-- **The user commits and pushes independently** — this session made all code edits and left them uncommitted with a proposal, and the user committed + pushed both repos themselves shortly after (visible only via `git log`, not in the conversation). When resuming, always check `git status`/`git log` first rather than assuming edits are still pending, since the user may act on proposed changes outside the visible conversation.
-- **`call_rgmc_v2_table()` is a shared generic helper** (`rgmc-bc-api/src/services/bc_functions.py`) used by contacts, customers, retail customers, sales orders, item families, items, warehouse activity, etc. — the `bypass_cache` fix was scoped narrowly to the contacts route only; do not assume other tables need or want the same treatment without checking each one's staleness tolerance first (the code comments there — "customers/contacts/categories change rarely" — reflect the *old* assumption this session partially overturned for contacts specifically).
-- **Dev server port is 8100** (`vite.config.ts`), proxies `/bc`, `/internal`, `/tasks` to `VITE_API_BASE_URL` (`.env` → `rgmc-bc-api-staging`).
-- **Playwright browser-testing pattern** (used again successfully this session): seed `localStorage` (`rgmc_auth`, `rgmc_company`, `rgmc_welcome_seen='1'`) via `context.addInitScript`, navigate to `/` first (not a deep route — auth hydrates after first navigation resolves), click "START NEW SESSION", then interact. Run via `NODE_PATH="$(pwd)/node_modules" node <script>` from inside `rgmc-consignment-webapp` (Playwright resolves `node_modules` relative to the script's own location, not cwd, and the script lives in the session scratchpad dir).
-- **Cloud Run cold-start diagnostic commands used this session** (useful to re-run for a before/after comparison once `min-instances` is decided):
-  ```
-  gcloud run services describe rgmc-bc-api-prod --region=asia-southeast1 --project=durable-woods-465907-n1 --format="yaml(spec.template.metadata.annotations)"
-  gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="rgmc-bc-api-prod" AND logName="projects/durable-woods-465907-n1/logs/run.googleapis.com%2Fvarlog%2Fsystem"' --project=durable-woods-465907-n1 --freshness=3d --format="value(timestamp, textPayload)"
-  ```
-- **`rgmc-bc-api-prod` sizing as of this session**: 2 vCPU / 4 GiB, concurrency 40, max-scale 20, `startup-cpu-boost: true`, min-scale unset (0). Unchanged from the prior session's audit — the OOM issue from that audit appears resolved (no memory-limit-exceeded events since 2026-09-18 06:13), but cold starts were never addressed and are the current live issue.
+- **The user commits and pushes independently, mid-session, without saying so in chat.** This was true again this session — all three parts show up as real commits in `git log` that were never explicitly mentioned as "I committed this." Always check `git status`/`git log` first when resuming rather than assuming uncommitted edits are still pending.
+- **bc-api repo is on branch `staging`**, not `master` (webapp is on `master`). Don't assume both repos are on the same branch.
+- **`gcloud` must be run from PowerShell, not Bash**, on this machine (`Python was not found` error in Bash's gcloud shim) — not used this session, but a standing fact from prior sessions' memory.
+- **Dev server port is 8100** (`vite.config.ts`), proxies `/bc`, `/internal`, `/tasks` to `VITE_API_BASE_URL`. Used repeatedly this session via `nohup npm run dev > /tmp/vite-dev*.log 2>&1 &` (Bash tool, `run_in_background: true`) then `taskkill //PID <pid> //F //T` (found via `netstat -ano | grep ':8100'`) to stop it afterward each time — this start/stop/cleanup pattern worked reliably all three times and should be reused.
+- **Browser-testing pattern used repeatedly and successfully**: seed `localStorage` directly (`rgmc_auth`, `rgmc_company`, `rgmc_welcome_seen='1'`, plus whatever cache key is relevant — `rgmc_sessions`, `rgmc_cache_customers`, etc.) via `mcp__claude-in-chrome__javascript_tool`, then `navigate` to `/` or `/app/home` first (not a deep route — auth hydrates after first navigation resolves), then interact/screenshot. Always `localStorage.clear()` (and `indexedDB.deleteDatabase('rgmc-cache')` if IDB was touched) and `tabs_close_mcp` at the end to clean up test state.
+- **IndexedDB migration testing trick**: to test the v1→v2 migration in `storage.service.ts`, seed a legacy-shape DB manually via raw `indexedDB.open('rgmc-cache', 1)` + `createObjectStore('items')` + `put(array, 'all')` in the page's JS context, *then navigate/reload* so the app's own `App.vue onMounted → StorageService.init()` triggers the real migration — seeding and triggering must happen across a reload, not in the same page-load, since the module-level `_initPromise` singleton only runs once per page load.
+- **`RGMC Prod Shelf Life` is deliberately a distinct field name** (not reusing "Prod Shelf Life") because that exact name already exists on BC's `Customer` table via a different, already-installed app (app ID `c028b96e-f3ce-449e-8455-0d725060bf26`) — BC rejects two apps declaring the same field name on the same table at publish time. See the comment in `C:\RGMC\AL\RGMC_ERAR_AL\source\RGMCCustomers\RGMCCustomer.TableExt.al` (field 50453).
+- **The AL source for this field lives outside both app repos**, at `C:\RGMC\AL\RGMC_ERAR_AL\source\RGMCCustomers\` — relevant files: `RGMCCustomer.TableExt.al` (field defs), `RGMCCustomerAPIv2.Page.al` (API page 50306, exposes `prodShelfLife` and `chain`), `RGMCCustomerList.PageExt.al` (BC's *native* Customer List UI — currently only shows Brand Code + Chain columns, **does NOT yet show Prod Shelf Life as a column there**; this was out of scope this session since the ask was about this app's own customer list, not BC's native UI — flag if the user later wants that too).
+- **Why chain filtering wasn't hardcoded server-side in bc-api** (a deliberate deviation from the food app's exact pattern, confirmed correct via investigation, not just assumption): `/bc/custom/v2/customers` is shared — `sbic-manual-trigger-page/app.py`'s SO-import reconciliation tool calls the same endpoint to resolve customer names for *any* customer, including non-chain ones. Hardcoding `chain eq true` there would have broken that tool. The food app's `/food/customers` is a dedicated endpoint with no such conflict, which is why it can hardcode.
+- Org instructions note "Apple & Eve" name-clash risk and PHP-default-currency rules — not relevant to this session's work, just standing context.
