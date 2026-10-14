@@ -905,13 +905,7 @@ async function fetchOrderNumber(session: ScanSession): Promise<void> {
     let returnOrderSeries  = session.returnOrderSeries;
 
     function matchOrder(orders: Array<Record<string, unknown>>): Record<string, unknown> | undefined {
-      const exact = orders.find((o) => o.sellToCustomerNo === customerNo);
-      if (exact) return exact;
-      const q = customerNo.toLowerCase();
-      return orders.find((o) => {
-        const bc = ((o.sellToCustomerNo as string) ?? '').toLowerCase();
-        return bc.includes(q) || q.includes(bc);
-      });
+      return orders.find((o) => o.sellToCustomerNo === customerNo);
     }
 
     if (soRes.status === 'fulfilled' && soRes.value !== null) {

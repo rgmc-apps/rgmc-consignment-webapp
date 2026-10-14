@@ -561,6 +561,7 @@ export const ApiService = {
     bcPriceListCode: string | null;
     firestorePrice: number | null;
     updated: boolean;
+    removed?: boolean;
     message: string;
   }> {
     const res = await apiClient.post(

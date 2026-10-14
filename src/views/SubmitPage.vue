@@ -494,7 +494,7 @@ async function doSubmitSales(customerNumber: string, remarks: string) {
   const isNoSales = session.value.noSales ?? false;
   const payload: SalesOrderPayload = {
     customerNumber,
-    ...(session.value.postingDate ? { postingDate: session.value.postingDate } : {}),
+    ...(session.value.postingDate ? { postingDate: session.value.postingDate, orderDate: session.value.postingDate } : {}),
     externalDocumentNumber: isNoSales ? 'No Sales' : (remarks || undefined),
     ...(session.value.user?.displayName ? { submittedBy: session.value.user.displayName } : {}),
     ...(session.value.brand?.code ? { brandCode: session.value.brand.code } : {}),
@@ -515,7 +515,7 @@ async function doSubmitReturns(customerNumber: string, remarks: string) {
   if (!session.value) return;
   const payload: SalesReturnOrderPayload = {
     customerNumber,
-    ...(session.value.postingDate ? { postingDate: session.value.postingDate } : {}),
+    ...(session.value.postingDate ? { postingDate: session.value.postingDate, orderDate: session.value.postingDate } : {}),
     ...(remarks ? { externalDocumentNo: remarks } : {}),
     ...(session.value.user?.displayName ? { submittedBy: session.value.user.displayName } : {}),
     lines: sessionStore.returnOrders.map((l) => ({

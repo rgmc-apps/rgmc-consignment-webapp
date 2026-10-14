@@ -536,6 +536,7 @@
                     <ion-spinner v-if="confirmPriceCheckState === 'loading'" name="lines-small" slot="icon-only" class="price-sync-spinner" />
                     <ion-icon v-else-if="confirmPriceCheckState === 'updated'" :icon="checkmarkCircleOutline" color="success" slot="icon-only" />
                     <ion-icon v-else-if="confirmPriceCheckState === 'same'" :icon="checkmarkCircleOutline" color="medium" slot="icon-only" />
+                    <ion-icon v-else-if="confirmPriceCheckState === 'removed'" :icon="alertCircleOutline" color="warning" slot="icon-only" />
                     <ion-icon v-else-if="confirmPriceCheckState === 'error'" :icon="alertCircleOutline" color="danger" slot="icon-only" />
                     <ion-icon v-else :icon="syncOutline" slot="icon-only" class="price-sync-icon" />
                   </ion-button>
@@ -548,6 +549,12 @@
           <div v-if="!selectedCustomer" class="conf-warn">
             <ion-icon :icon="alertCircleOutline" color="warning" />
             <span>Select a customer first before adding items.</span>
+          </div>
+
+          <!-- Price list entry removed in BC -->
+          <div v-if="confirmPriceUnavailable" class="conf-warn">
+            <ion-icon :icon="alertCircleOutline" color="warning" />
+            <span>This item no longer has an active price in Business Central and cannot be added.</span>
           </div>
 
           <!-- Quantity stepper -->
@@ -616,7 +623,7 @@
           <ion-button
             expand="block"
             color="primary"
-            :disabled="!selectedCustomer || fetchingPrice"
+            :disabled="!selectedCustomer || fetchingPrice || confirmPriceUnavailable"
             class="conf-btn"
             @click="doConfirm('sales')"
           >
@@ -627,7 +634,7 @@
             expand="block"
             fill="outline"
             color="danger"
-            :disabled="!selectedCustomer || fetchingPrice"
+            :disabled="!selectedCustomer || fetchingPrice || confirmPriceUnavailable"
             class="conf-btn"
             @click="doConfirm('returns')"
           >
@@ -1085,8 +1092,11 @@ const fetchingPrice = ref(false);
 const isUpdatingLinePrices = ref(false);
 const priceRevealKey = ref(0);
 
-type PriceCheckState = 'loading' | 'same' | 'updated' | 'error';
+type PriceCheckState = 'loading' | 'same' | 'updated' | 'removed' | 'error';
 const confirmPriceCheckState = ref<PriceCheckState | null>(null);
+// Set when a live BC check confirms this item's price list entry no longer exists —
+// blocks adding it to an order instead of silently submitting at a stale price.
+const confirmPriceUnavailable = ref(false);
 let _confirmPriceTimer: ReturnType<typeof setTimeout> | null = null;
 
 // In-memory price cache for the current session date — populated once by prefetchAllPrices
@@ -1201,7 +1211,12 @@ async function updateConfirmPrice() {
   try {
     const currentPrice = confirmedSrp.value;
     const result = await ApiService.syncItemPrice(confirmItem.value.number, orderDateValue.value);
-    if (result.bcPrice !== null) {
+    if (result.removed) {
+      // BC no longer has an active price for this item — block adding it rather than
+      // keep the stale price on screen.
+      confirmPriceUnavailable.value = true;
+      confirmPriceCheckState.value = 'removed';
+    } else if (result.bcPrice !== null) {
       const localDiffers = Math.abs(result.bcPrice - currentPrice) >= 0.005;
       if (localDiffers || result.updated) {
         confirmedSrp.value = result.bcPrice;
@@ -1232,7 +1247,12 @@ async function fetchActivePrice(itemNumber: string, onDate: string): Promise<voi
     if (isOnline.value) {
       // Sync directly from BC — bypasses stale sessionPriceCache and GCS overlay.
       const result = await ApiService.syncItemPrice(itemNumber, onDate);
-      if (result.bcPrice !== null) {
+      if (result.removed) {
+        // BC no longer has an active price for this item — the price shown so far came
+        // from the (now stale) item passed into the confirm sheet. Block adding it.
+        confirmPriceUnavailable.value = true;
+        confirmPriceCheckState.value = 'removed';
+      } else if (result.bcPrice !== null) {
         confirmedSrp.value = result.bcPrice;
         form.srp = result.bcPrice;
         priceRevealKey.value++;
@@ -1467,6 +1487,7 @@ function onItemSelected(item: Item) {
   confirmDiscountValue.value = 0;
   if (_confirmPriceTimer) { clearTimeout(_confirmPriceTimer); _confirmPriceTimer = null; }
   confirmPriceCheckState.value = null;
+  confirmPriceUnavailable.value = false;
   showConfirmModal.value = true;
   fetchActivePrice(item.number, orderDateValue.value);
 }
@@ -1486,7 +1507,7 @@ function cancelConfirm() {
 }
 
 function doConfirm(orderType: 'sales' | 'returns') {
-  if (!confirmItem.value || !selectedCustomer.value) return;
+  if (!confirmItem.value || !selectedCustomer.value || confirmPriceUnavailable.value) return;
   const item = confirmItem.value;
   const line = {
     itemNumber: item.number,

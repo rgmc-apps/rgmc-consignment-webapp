@@ -90,6 +90,7 @@
               :key="item.id"
               button
               :detail="false"
+              :class="{ 'item-unavailable': unavailableItems.has(item.number) }"
               @click="handleSelect(item)"
             >
               <ion-label>
@@ -104,6 +105,9 @@
                   v-if="isFetchingPrices && livePrices[item.number] === undefined"
                   class="price-skeleton"
                 />
+                <template v-else-if="unavailableItems.has(item.number)">
+                  <span class="price-removed">No active price</span>
+                </template>
                 <template v-else>
                   <span :class="{ 'price-updated': priceCheckState[item.number] === 'updated' }">
                     {{ formatCurrency(livePrices[item.number] ?? item.unitPriceIncVAT) }}
@@ -119,6 +123,7 @@
                     <ion-spinner v-if="priceCheckState[item.number] === 'loading'" name="lines-small" slot="icon-only" class="price-sync-spinner" />
                     <ion-icon v-else-if="priceCheckState[item.number] === 'updated'" :icon="checkmarkCircleOutline" color="success" slot="icon-only" />
                     <ion-icon v-else-if="priceCheckState[item.number] === 'same'" :icon="checkmarkCircleOutline" color="medium" slot="icon-only" />
+                    <ion-icon v-else-if="priceCheckState[item.number] === 'removed'" :icon="alertCircleOutline" color="warning" slot="icon-only" />
                     <ion-icon v-else-if="priceCheckState[item.number] === 'error'" :icon="alertCircleOutline" color="danger" slot="icon-only" />
                     <ion-icon v-else :icon="syncOutline" slot="icon-only" class="price-sync-icon" />
                   </ion-button>
@@ -343,6 +348,7 @@ import {
   IonSpinner,
   IonRefresher,
   IonRefresherContent,
+  toastController,
 } from '@ionic/vue';
 import {
   closeOutline,
@@ -615,12 +621,29 @@ function withLivePrice(item: Item): Item {
   return livePrice !== undefined ? { ...item, unitPriceIncVAT: livePrice } : item;
 }
 
+// Items confirmed by a live BC check to have no active price anymore (the price list
+// entry was deleted/expired in BC and the stale cache was cleared server-side — see
+// POST .../sync's `removed` flag). Blocked from selection so a rep can't add a deleted
+// price list entry to an order; cleared only by a fresh search/load.
+const unavailableItems = ref<Set<string>>(new Set());
+
 function handleSelect(item: Item) {
+  if (unavailableItems.value.has(item.number)) {
+    toastController
+      .create({
+        message: `${item.number} no longer has an active price in Business Central — cannot be added.`,
+        duration: 3500,
+        color: 'warning',
+        position: 'bottom',
+      })
+      .then((t) => t.present());
+    return;
+  }
   emit('select', withLivePrice(item));
 }
 
 /* ─── Update Price ─── */
-type PriceCheckState = 'loading' | 'same' | 'updated' | 'error';
+type PriceCheckState = 'loading' | 'same' | 'updated' | 'removed' | 'error';
 const priceCheckState = ref<Record<string, PriceCheckState>>({});
 const priceCheckResult = ref<Record<string, { old: number; new: number } | null>>({});
 
@@ -635,7 +658,13 @@ async function updateItemPrice(item: Item, event: Event) {
     const currentPrice = livePrices.value[item.number] ?? item.unitPriceIncVAT;
     const result = await ApiService.syncItemPrice(item.number, lookupDate.value);
 
-    if (result.bcPrice !== null) {
+    if (result.removed) {
+      // BC no longer has an active price for this item — don't keep showing the stale
+      // one. Drop it from livePrices and block it from being selected.
+      delete livePrices.value[item.number];
+      unavailableItems.value.add(item.number);
+      priceCheckState.value[item.number] = 'removed';
+    } else if (result.bcPrice !== null) {
       const localDiffers = Math.abs(result.bcPrice - (currentPrice ?? 0)) >= 0.005;
       if (localDiffers || result.updated) {
         livePrices.value[item.number] = result.bcPrice;
@@ -990,6 +1019,16 @@ onUnmounted(() => {
 .price-updated {
   color: var(--ion-color-success);
   transition: color 0.3s ease;
+}
+
+.price-removed {
+  color: var(--ion-color-warning);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.item-unavailable {
+  opacity: 0.55;
 }
 
 .price-sync-btn {
