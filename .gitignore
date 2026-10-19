@@ -31,3 +31,4 @@ handoff.py
 
 # Credentials — never commit
 credentials.txt
+_session_artifacts/

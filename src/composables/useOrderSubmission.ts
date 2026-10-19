@@ -93,12 +93,22 @@ function track(session: ScanSession): TrackedEntry {
   return e;
 }
 
-/** Writes an entry's session to history (local storage + Firestore) using whatever
- *  resolved so far, and stops tracking it. Safe to call more than once — only the
- *  first call has any effect. Combining rule: any failed part fails the whole session. */
+/** Writes an entry's session to history (local storage + Firestore) once every part
+ *  that has lines has reached a terminal state, and stops tracking it. Safe to call
+ *  more than once — only the first qualifying call has any effect. Combining rule:
+ *  any failed part fails the whole session.
+ *
+ *  A part that's still 'submitting' blocks this on purpose — it used to combine
+ *  "whatever resolved so far", which let finalizeNow() (below) mark a session
+ *  "submitted" while a still-in-flight part's real outcome (success with a BC
+ *  order number, or a genuine failure) resolved afterward into an entry this
+ *  function had already deleted, silently discarding it either way. That's a
+ *  confirmed path to a session showing "submitted" in History with no matching
+ *  BC order. Leaving the entry tracked here means the pending part's own
+ *  maybeAutoFinalize call finishes the job correctly once it truly resolves. */
 function doFinalize(sessionId: string): void {
   const e = tracked.get(sessionId);
-  if (!e || e.finalized) return;
+  if (!e || e.finalized || !isEntryComplete(e)) return;
   e.finalized = true;
   const sessionStore = useSessionStore();
   if (e.salesStatus === 'failed' || e.returnsStatus === 'failed') {
@@ -221,12 +231,13 @@ export function useOrderSubmission() {
     })),
   );
 
-  /** Manual override for the "Finish Session" button: combines whatever has resolved so
-   *  far right now for the currently open session, even if a type that has lines was
-   *  never attempted (matches the original button behavior — it never required both
-   *  types to be attempted, only that at least one resolved). Auto-finalize (above)
-   *  only fires once every type that HAS lines is resolved; this lets the user close
-   *  out sooner if they choose to. */
+  /** "Finish Session" button: finalizes immediately if everything that has lines has
+   *  already resolved (same rule doFinalize always applies). If a part is still
+   *  in-flight, this is a no-op — doFinalize won't combine a guess for it — and the
+   *  entry stays tracked (visible to HistoryPage via pendingEntries) until it truly
+   *  resolves and auto-finalizes itself. The caller still navigates to History either
+   *  way, so leaving early never blocks the user; it only stops a still-pending part
+   *  from being recorded as "submitted" before it actually is. */
   function finalizeNow(): void {
     const id = sessionStore.currentSession?.id;
     if (id) doFinalize(id);
