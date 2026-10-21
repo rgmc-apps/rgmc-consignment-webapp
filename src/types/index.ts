@@ -122,6 +122,10 @@ export interface ScanSession {
   salesOrderSeries?: string;
   returnOrderSeries?: string;
   errorMessage?: string;
+  /** Server-validated: does this order actually exist in BC? null = not yet checked
+   *  or ambiguous (see inBcStatus). Set only by rgmc-bc-api, never by the client. */
+  inBc?: boolean | null;
+  inBcStatus?: 'confirmed' | 'not_found' | 'needs_review' | 'not_applicable' | 'unknown_company' | 'pending';
 }
 
 export interface ContactUpdatePayload {

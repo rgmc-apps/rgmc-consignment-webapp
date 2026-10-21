@@ -48,6 +48,15 @@
             Failed ({{ failedCount }})
           </ion-chip>
           <ion-chip
+            v-if="needsRetryCount > 0"
+            :color="activeFilter === 'needsRetry' ? 'warning' : 'medium'"
+            @click="activeFilter = 'needsRetry'"
+            class="filter-chip"
+          >
+            <ion-icon :icon="refreshOutline" />
+            Needs Retry ({{ needsRetryCount }})
+          </ion-chip>
+          <ion-chip
             :color="activeFilter === 'bc' ? 'tertiary' : 'medium'"
             @click="switchToBCOrders"
             class="filter-chip"
@@ -121,7 +130,7 @@
 
         <div v-else-if="!filteredSessions.length" class="empty-history">
           <ion-icon :icon="filterOutline" color="medium" />
-          <p>No {{ activeFilter }} sessions.</p>
+          <p>No {{ activeFilter === 'needsRetry' ? 'sessions needing retry' : `${activeFilter} sessions` }}.</p>
         </div>
 
         <!-- Grouped history — Month ▸ Store ▸ Session. :key forces remount on filter
@@ -489,8 +498,11 @@
             <span class="grand-total-value">{{ formatCurrency(sessionTotal(selectedSession)) }}</span>
           </div>
 
-          <!-- Retry button for failed sessions -->
-          <div v-if="selectedSession.status === 'failed'" class="retry-wrap ion-padding">
+          <!-- Retry button — shown once Business Central is confirmed to have no
+               matching order, regardless of local status (covers both true failures
+               and a 'submitted' record later found to be bad, e.g. a stale/corrupt
+               series number). -->
+          <div v-if="selectedSession.inBc === false" class="retry-wrap ion-padding">
             <ion-button
               expand="block"
               color="warning"
@@ -499,7 +511,40 @@
               <ion-icon :icon="refreshOutline" slot="start" />
               Retry Submission
             </ion-button>
-            <p class="retry-hint">This will restore the session so you can resubmit from the Submit screen.</p>
+            <p class="retry-hint">Business Central has no matching order for this session — this will restore it so you can resubmit from the Submit screen.</p>
+          </div>
+
+          <!-- Ambiguous match — more than one BC order matched this customer/date.
+               Never auto-resolved (see the Thread C history-mismatch bug), so this
+               is routed to manual review instead of offering a retry. -->
+          <div v-else-if="selectedSession.inBcStatus === 'needs_review'" class="error-block">
+            <ion-icon :icon="alertCircleOutline" color="warning" />
+            <div class="error-block-body">
+              <p>Multiple possible matches were found in Business Central for this session. It needs manual review before resubmitting, to avoid creating a duplicate order.</p>
+              <ion-button
+                size="small"
+                fill="outline"
+                color="warning"
+                class="report-btn"
+                @click="reportSessionError(selectedSession)"
+              >
+                <ion-icon :icon="bugOutline" slot="start" />
+                Report to IT/MIS
+              </ion-button>
+            </div>
+          </div>
+
+          <!-- Failed, but not yet validated against BC — don't offer retry until
+               we know whether it actually landed. -->
+          <div
+            v-else-if="selectedSession.status === 'failed' && (!selectedSession.inBcStatus || selectedSession.inBcStatus === 'pending')"
+            class="retry-wrap ion-padding"
+          >
+            <ion-button expand="block" fill="outline" disabled>
+              <ion-spinner name="crescent" slot="start" />
+              Checking with Business Central&hellip;
+            </ion-button>
+            <p class="retry-hint">We're confirming whether this order actually reached Business Central before allowing a retry.</p>
           </div>
         </ion-content>
       </ion-page>
@@ -611,7 +656,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import {
   IonPage,
   IonHeader,
@@ -666,6 +711,7 @@ import BugReportButton from '@/components/BugReportButton.vue';
 import type { ScanSession } from '@/types';
 
 const router = useRouter();
+const route = useRoute();
 const sessionStore = useSessionStore();
 const { theme } = useTheme();
 const { openReport } = useErrorReporter();
@@ -735,10 +781,25 @@ onMounted(() => {
  *  current brand's group and the rest — sorted newest-first within its group. Nothing
  *  is hidden; other brands still show further down the list. */
 const mergedSessions = computed<ScanSession[]>(() => {
+  const firestoreById = new Map(firestoreSessions.value.map((s) => [s.id, s]));
+  // Local sessions win on every field except the server-computed in_bc validation —
+  // that's only ever set by rgmc-bc-api, so a local-only copy would otherwise never
+  // carry it and the retry gating below would never unlock.
+  const localMerged = sessionStore.completedSessions.map((s) => {
+    const remote = firestoreById.get(s.id);
+    if (!remote) return s;
+    return {
+      ...s,
+      inBc: remote.inBc,
+      inBcStatus: remote.inBcStatus,
+      salesOrderSeries: s.salesOrderSeries ?? remote.salesOrderSeries,
+      returnOrderSeries: s.returnOrderSeries ?? remote.returnOrderSeries,
+    };
+  });
   const localIds = new Set(sessionStore.completedSessions.map((s) => s.id));
   const fromFirestore = firestoreSessions.value.filter((s) => !localIds.has(s.id));
   const currentBrand = StorageService.getAuth()?.brand?.code;
-  return [...sessionStore.completedSessions, ...fromFirestore].sort((a, b) => {
+  return [...localMerged, ...fromFirestore].sort((a, b) => {
     if (currentBrand) {
       const aCurrent = a.brand.code === currentBrand;
       const bCurrent = b.brand.code === currentBrand;
@@ -755,8 +816,9 @@ async function onPullRefresh(ev: CustomEvent) {
 }
 
 /* ─── Filter state ─── */
-type FilterType = 'all' | 'submitted' | 'failed' | 'bc';
-const activeFilter = ref<FilterType>('all');
+type FilterType = 'all' | 'submitted' | 'failed' | 'needsRetry' | 'bc';
+// Lets the Landing page's needs-retry notice deep-link straight into this tab.
+const activeFilter = ref<FilterType>(route.query.filter === 'needsRetry' ? 'needsRetry' : 'all');
 
 const submittedCount = computed(() =>
   mergedSessions.value.filter((s) => s.status === 'submitted').length,
@@ -764,9 +826,13 @@ const submittedCount = computed(() =>
 const failedCount = computed(() =>
   mergedSessions.value.filter((s) => s.status === 'failed').length,
 );
+const needsRetryCount = computed(() =>
+  mergedSessions.value.filter((s) => s.inBc === false).length,
+);
 
 const filteredSessions = computed(() => {
   if (activeFilter.value === 'all') return mergedSessions.value;
+  if (activeFilter.value === 'needsRetry') return mergedSessions.value.filter((s) => s.inBc === false);
   return mergedSessions.value.filter((s) => s.status === activeFilter.value);
 });
 

@@ -85,6 +85,18 @@
         </div>
       </Transition>
 
+      <!-- Needs-retry notice — set by rgmc-bc-api's in_bc validation; shown once per
+           session (dismissible) so a rep knows to go fix a submission that was
+           confirmed not to exist in BC, without having to stumble on it in History. -->
+      <Transition name="sync-warn-fade">
+        <div v-if="needsRetryCount > 0" class="sync-warn-banner sync-warn-banner--warn" @click="goToNeedsRetry">
+          <ion-icon :icon="refreshOutline" class="sync-warn-icon" />
+          <span class="sync-warn-text">
+            {{ needsRetryCount }} submission{{ needsRetryCount > 1 ? 's' : '' }} couldn't be confirmed in Business Central — tap to review.
+          </span>
+        </div>
+      </Transition>
+
       <!-- Start new session CTA -->
       <div class="ion-padding-horizontal ion-padding-top">
         <ion-button expand="block" size="large" class="start-btn" @click="startNewSession">
@@ -202,6 +214,7 @@ import {
   chevronDownCircleOutline,
   warningOutline,
   closeOutline,
+  refreshOutline,
 } from 'ionicons/icons';
 import ProfileMenu from '@/components/ProfileMenu.vue';
 import WelcomeModal from '@/components/WelcomeModal.vue';
@@ -209,6 +222,7 @@ import BugReportButton from '@/components/BugReportButton.vue';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
 import { StorageService } from '@/services/storage.service';
+import { ApiService } from '@/services/api.service';
 import { useSync } from '@/composables/useSync';
 import { useCustomerFilter } from '@/composables/useCustomerFilter';
 import { useTheme } from '@/composables/useTheme';
@@ -268,8 +282,32 @@ const todayLabel = computed(() =>
   }),
 );
 
+/* ─── Needs-retry notice ───
+ * Reads the same server-validated in_bc flag History uses, scoped to the current
+ * user — a lightweight reuse of getSessionHistory rather than a dedicated endpoint,
+ * since this call is already cheap (paginated, user-filtered). */
+const needsRetryCount = ref(0);
+
+async function loadNeedsRetryCount() {
+  const auth = StorageService.getAuth();
+  const company = StorageService.getCompany();
+  if (!auth || !company) return;
+  try {
+    const records = await ApiService.getSessionHistory(company.code, auth.user.id, auth.user.number);
+    needsRetryCount.value = records.filter((s) => s.inBc === false).length;
+  } catch {
+    // Non-fatal — the notice just won't show this load; History page is still
+    // reachable manually and will show the same records once it loads.
+  }
+}
+
+function goToNeedsRetry() {
+  router.push({ path: '/app/history', query: { filter: 'needsRetry' } });
+}
+
 onMounted(() => {
   allCustomers.value = StorageService.getCachedCustomers(authStore.company?.code, authStore.brand?.code);
+  loadNeedsRetryCount();
 });
 
 function onPullRefresh(ev: CustomEvent) {

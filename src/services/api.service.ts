@@ -866,6 +866,8 @@ export const ApiService = {
       createdAt: (r['createdAt'] as string) ?? '',
       updatedAt: (r['updatedAt'] as string | undefined) ?? (r['createdAt'] as string) ?? '',
       submittedAt: (r['submittedAt'] as string | undefined) ?? undefined,
+      inBc: (r['inBc'] as boolean | null | undefined) ?? null,
+      inBcStatus: (r['inBcStatus'] as import('@/types').ScanSession['inBcStatus']) ?? undefined,
     }));
   },
 };
