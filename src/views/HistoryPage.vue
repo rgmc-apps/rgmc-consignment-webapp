@@ -379,10 +379,26 @@
                 <div v-if="selectedSession.salesOrderSeries" class="info-row">
                   <span class="info-label">Sales Order</span>
                   <span class="info-value series-num">{{ selectedSession.salesOrderSeries }}</span>
+                  <ion-button
+                    v-if="selectedSession.salesOrderRecord"
+                    size="small"
+                    fill="clear"
+                    @click="openBCDetail(selectedSession.salesOrderRecord!, 'sales')"
+                  >
+                    View BC Record
+                  </ion-button>
                 </div>
                 <div v-if="selectedSession.returnOrderSeries" class="info-row">
                   <span class="info-label">Return Order</span>
                   <span class="info-value series-num">{{ selectedSession.returnOrderSeries }}</span>
+                  <ion-button
+                    v-if="selectedSession.returnOrderRecord"
+                    size="small"
+                    fill="clear"
+                    @click="openBCDetail(selectedSession.returnOrderRecord!, 'returns')"
+                  >
+                    View BC Record
+                  </ion-button>
                 </div>
                 <div
                   v-if="selectedSession.status === 'submitted' && missingOrderNumber(selectedSession)"
@@ -794,6 +810,8 @@ const mergedSessions = computed<ScanSession[]>(() => {
       inBcStatus: remote.inBcStatus,
       salesOrderSeries: s.salesOrderSeries ?? remote.salesOrderSeries,
       returnOrderSeries: s.returnOrderSeries ?? remote.returnOrderSeries,
+      salesOrderRecord: s.salesOrderRecord ?? remote.salesOrderRecord,
+      returnOrderRecord: s.returnOrderRecord ?? remote.returnOrderRecord,
     };
   });
   const localIds = new Set(sessionStore.completedSessions.map((s) => s.id));

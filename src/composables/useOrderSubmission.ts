@@ -159,7 +159,11 @@ async function submitSales(session: ScanSession, payload: SalesOrderPayload): Pr
       // successful submission (confirmed in production: 0 of the last 1000
       // submitted sessions have a series number). See HistoryPage's matchOrder for
       // the same bug in the manual "Fetch BC Order Number" fallback.
-      e.salesSeriesNo = (task.result as Record<string, string>)?.number ?? '';
+      const result = task.result as Record<string, unknown> | undefined;
+      e.salesSeriesNo = (result?.number as string) ?? '';
+      // Keep the exact BC record BC's own create response returned — lets History
+      // show the real record this submission yielded, not just its number.
+      e.session.salesOrderRecord = result ?? null;
       e.salesStatus = 'done';
     } else {
       throw new Error(task.error ?? 'Order processing failed');
@@ -179,7 +183,9 @@ async function submitReturns(session: ScanSession, payload: SalesReturnOrderPayl
     const { taskId } = await ApiService.submitSalesReturnOrderAsync(payload);
     const task = await pollUntilDone(taskId);
     if (task.status === 'done') {
-      e.returnsSeriesNo = (task.result as Record<string, string>)?.number ?? '';
+      const result = task.result as Record<string, unknown> | undefined;
+      e.returnsSeriesNo = (result?.number as string) ?? '';
+      e.session.returnOrderRecord = result ?? null;
       e.returnsStatus = 'done';
     } else {
       throw new Error(task.error ?? 'Order processing failed');
@@ -208,6 +214,8 @@ export function useOrderSubmission() {
   const returnsStatus   = computed(() => activeEntry.value?.returnsStatus ?? 'pending');
   const salesSeriesNo   = computed(() => activeEntry.value?.salesSeriesNo   ?? '');
   const returnsSeriesNo = computed(() => activeEntry.value?.returnsSeriesNo ?? '');
+  const salesOrderRecord   = computed(() => activeEntry.value?.session.salesOrderRecord   ?? null);
+  const returnOrderRecord  = computed(() => activeEntry.value?.session.returnOrderRecord  ?? null);
   const salesError      = computed(() => activeEntry.value?.salesError   ?? '');
   const returnsError    = computed(() => activeEntry.value?.returnsError ?? '');
   const salesErrorObj   = computed(() => activeEntry.value?.salesErrorObj   ?? null);
@@ -250,6 +258,8 @@ export function useOrderSubmission() {
     returnsStatus,
     salesSeriesNo,
     returnsSeriesNo,
+    salesOrderRecord,
+    returnOrderRecord,
     salesError,
     returnsError,
     salesErrorObj,

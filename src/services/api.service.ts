@@ -862,6 +862,8 @@ export const ApiService = {
       status: (r['status'] as import('@/types').SessionStatus) ?? 'submitted',
       salesOrderSeries: (r['salesOrderSeries'] as string | undefined) ?? undefined,
       returnOrderSeries: (r['returnOrderSeries'] as string | undefined) ?? undefined,
+      salesOrderRecord: (r['salesOrderRecord'] as Record<string, unknown> | null | undefined) ?? null,
+      returnOrderRecord: (r['returnOrderRecord'] as Record<string, unknown> | null | undefined) ?? null,
       errorMessage: (r['errorMessage'] as string | undefined) ?? undefined,
       createdAt: (r['createdAt'] as string) ?? '',
       updatedAt: (r['updatedAt'] as string | undefined) ?? (r['createdAt'] as string) ?? '',

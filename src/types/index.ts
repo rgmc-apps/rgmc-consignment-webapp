@@ -121,6 +121,12 @@ export interface ScanSession {
   status: SessionStatus;
   salesOrderSeries?: string;
   returnOrderSeries?: string;
+  /** The exact BC record (header fields: id, number, sellToCustomerNo, postingDate,
+   *  externalDocumentNo, status, amount, ...) returned by BC's own create response at
+   *  submission time — not a later heuristic match. Lets History show the rep the real
+   *  BC record a submission actually yielded, independent of the async inBc verification. */
+  salesOrderRecord?: Record<string, unknown> | null;
+  returnOrderRecord?: Record<string, unknown> | null;
   errorMessage?: string;
   /** Server-validated: does this order actually exist in BC? null = not yet checked
    *  or ambiguous (see inBcStatus). Set only by rgmc-bc-api, never by the client. */
